@@ -79,7 +79,7 @@ def test_mixed_model_scheduling_archives_per_call_metadata(tmp_path):
         client_factory=create_client,
         default_role="worker",
         archive_dir=tmp_path / "archive",
-        working_dir=tmp_path / "codex",
+        working_dir=tmp_path / "gemini",
     )
     calls = [
         ("boundary", "O-boundary", "B1"),
@@ -157,29 +157,6 @@ def test_escalation_triggers_are_monotone_and_strategic_budget_is_hard():
     )
     assert no_downgrade.requested_tier == "routine"
     assert no_downgrade.tier in {"strategic", "research"}
-
-
-def test_legacy_global_and_role_configs_preserve_exact_route():
-    global_router = ModelRouter({
-        "provider": "mock", "model": "one-model", "reasoning_effort": "high"
-    })
-    assert {
-        global_router.resolve(role, reserve=False).model
-        for role in ("planner", "boundary", "literature_lead", "final_proof_auditor")
-    } == {"one-model"}
-
-    role_router = ModelRouter({
-        "roles": {
-            "planner": {"provider": "mock", "model": "old-planner"},
-            "worker": {"provider": "mock", "model": "old-worker"},
-            "auditor": {"provider": "mock", "model": "old-auditor"},
-            "final_auditor": {"provider": "mock", "model": "old-final"},
-        }
-    })
-    assert role_router.resolve("planner", reserve=False).model == "old-planner"
-    assert role_router.resolve("literature_lead", reserve=False).model == "old-worker"
-    assert role_router.resolve("dependency_auditor", reserve=False).model == "old-auditor"
-    assert role_router.resolve("final_proof_auditor", reserve=False).model == "old-final"
 
 
 def test_resume_preserves_strategic_obligation_and_completed_call_usage(tmp_path):

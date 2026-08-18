@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .schemas import AuditResultSchema, SchemaError, parse_structured_response
+
 
 DOMAIN_VERDICTS = {"PASS", "FAIL", "INCONCLUSIVE"}
 EXECUTION_STATUSES = {"OK", "ERROR"}
@@ -34,7 +36,7 @@ class AuditResult:
 
     def to_dict(self) -> dict[str, Any]:
         value: dict[str, Any] = {
-            "schema_version": 2,
+            "schema_version": 3,
             "role": self.role,
             "domain_verdict": self.domain_verdict,
             "execution_status": self.execution_status,
@@ -46,9 +48,6 @@ class AuditResult:
             "criteria": dict(self.criteria),
             "authority_uses": list(self.authority_uses),
             "execution_error": self.execution_error,
-            # Compatibility fields for older report readers.
-            "verdict": self.domain_verdict,
-            "pass": self.passed,
         }
         return value
 
@@ -64,53 +63,46 @@ class AuditResult:
         )
 
 
-def _string_list(value: Any, *, field_name: str) -> list[str]:
-    if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"Audit field {field_name} must be an array")
-    return [str(item) for item in value]
-
-
 def normalize_audit_result(role: str, raw: dict) -> AuditResult:
-    """Normalize v2 or legacy audit JSON without conflating errors and FAIL."""
+    """Validate one typed audit document without inspecting model prose."""
     if not isinstance(raw, dict):
         raise ValueError("Auditor result must be a JSON object")
-    execution_status = str(raw.get("execution_status", "OK")).upper()
-    domain_verdict = str(
-        raw.get("domain_verdict", raw.get("verdict", ""))
-    ).upper()
-    if execution_status not in EXECUTION_STATUSES:
-        raise ValueError(f"Invalid auditor execution_status: {execution_status!r}")
-    if execution_status == "ERROR":
-        domain_verdict = "INCONCLUSIVE"
-    if domain_verdict not in DOMAIN_VERDICTS:
-        raise ValueError(f"Invalid auditor domain_verdict: {domain_verdict!r}")
-    criteria = raw.get("criteria") or {}
-    if not isinstance(criteria, dict):
-        raise ValueError("Audit field criteria must be an object")
-    authority_uses = raw.get("authority_uses") or raw.get("claim_authorities") or []
-    if not isinstance(authority_uses, list):
-        raise ValueError("Audit field authority_uses must be an array")
+    try:
+        validated = AuditResultSchema.model_validate(raw)
+    except Exception as exc:
+        raise ValueError(f"Invalid auditor result: {exc}") from exc
+    if validated.role != role:
+        raise ValueError(
+            f"Auditor role mismatch: expected {role!r}, got {validated.role!r}"
+        )
+    execution_status = validated.execution_status
+    domain_verdict = (
+        "INCONCLUSIVE" if execution_status == "ERROR"
+        else validated.domain_verdict
+    )
     return AuditResult(
-        role=str(raw.get("role") or role),
+        role=validated.role,
         domain_verdict=domain_verdict,
         execution_status=execution_status,
-        findings=_string_list(raw.get("findings"), field_name="findings"),
-        failure_reasons=_string_list(
-            raw.get("failure_reasons"), field_name="failure_reasons"
-        ),
-        cross_audit_notes=_string_list(
-            raw.get("cross_audit_notes"), field_name="cross_audit_notes"
-        ),
-        computational_evidence=_string_list(
-            raw.get("computational_evidence"), field_name="computational_evidence"
-        ),
-        summary=str(raw.get("summary") or ""),
-        criteria={str(key): bool(value) for key, value in criteria.items()},
-        authority_uses=list(authority_uses),
-        execution_error=str(raw.get("execution_error") or ""),
+        findings=list(validated.findings),
+        failure_reasons=list(validated.failure_reasons),
+        cross_audit_notes=list(validated.cross_audit_notes),
+        computational_evidence=list(validated.computational_evidence),
+        summary=validated.summary,
+        criteria=validated.criteria.model_dump(mode="python"),
+        authority_uses=[item.model_dump(mode="json") for item in validated.authority_uses],
+        execution_error=validated.execution_error,
     )
+
+
+def parse_audit_response(role: str, response: dict) -> AuditResult:
+    """Validate one provider response against ``AuditResultSchema``."""
+
+    try:
+        validated = parse_structured_response(response, AuditResultSchema)
+    except SchemaError as exc:
+        raise ValueError(f"{role} returned invalid structured audit output: {exc}") from exc
+    return normalize_audit_result(role, validated.model_dump(mode="python"))
 
 
 def audit_suite_outcome(results: dict[str, AuditResult]) -> str:

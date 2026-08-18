@@ -568,7 +568,7 @@ class FullTextRetriever:
             text_file.parent.mkdir(parents=True, exist_ok=True)
             if not text_file.exists():
                 # Byte-stable UTF-8 is required because Registry verification
-                # re-hashes the artifact; Windows newline translation would
+                # re-hashes the artifact; newline translation would
                 # otherwise make the recorded digest unverifiable.
                 text_file.write_bytes(text.encode("utf-8"))
             text_path = str(text_file)
