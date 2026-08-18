@@ -9,10 +9,8 @@ is required.
 from __future__ import annotations
 
 import argparse
-import html
 import json
 import mimetypes
-import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,7 +59,12 @@ def _run_snapshot(run_dir: Path) -> dict:
 
 def _fallback_dag(theorems: list[dict]) -> dict:
     nodes = [
-        {"id": theorem.get("id"), "label": theorem.get("title", theorem.get("id")), "kind": "theorem", "status": theorem.get("status")}
+        {
+            "id": theorem.get("id"),
+            "label": theorem.get("title", theorem.get("id")),
+            "kind": "theorem",
+            "status": theorem.get("status"),
+        }
         for theorem in theorems
     ]
     edges = []
@@ -234,9 +237,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(PAGE.encode("utf-8"), "text/html; charset=utf-8")
             return
         if parsed.path == "/api/snapshot":
-            body = json.dumps(
-                build_snapshot(self.project_root), ensure_ascii=False
-            ).encode("utf-8")
+            body = json.dumps(build_snapshot(self.project_root), ensure_ascii=False).encode("utf-8")
             self._send(body, "application/json; charset=utf-8")
             return
         if parsed.path == "/artifact":
@@ -245,7 +246,9 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 candidate.relative_to(self.project_root)
             except ValueError:
-                self._send(b"invalid artifact path", "text/plain; charset=utf-8", HTTPStatus.BAD_REQUEST)
+                self._send(
+                    b"invalid artifact path", "text/plain; charset=utf-8", HTTPStatus.BAD_REQUEST
+                )
                 return
             if not candidate.is_file():
                 self._send(b"artifact not found", "text/plain; charset=utf-8", HTTPStatus.NOT_FOUND)

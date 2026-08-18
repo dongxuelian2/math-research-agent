@@ -1,5 +1,3 @@
-import json
-
 from openprover.math_research.project import ProjectStore
 from openprover.math_research.retrieval import ContextBuilder
 
@@ -36,10 +34,11 @@ def test_dependency_slice_and_failed_route(tmp_path):
 def test_import_never_infers_proved_from_filename(tmp_path):
     store = ProjectStore.initialize(tmp_path / "project", "Import Test")
     source = store.root / "inbox" / "proved_results_resolution.md"
-    source.write_text("# Allegedly proved results\n\nA statement requiring review.\n", encoding="utf-8")
+    source.write_text(
+        "# Allegedly proved results\n\nA statement requiring review.\n", encoding="utf-8"
+    )
     candidates = store.import_markdown(store.root / "inbox")
     assert len(candidates) == 1
     theorem = store.load_theorem(candidates[0]["id"])
     assert theorem["status"] == "UNCLASSIFIED"
     assert theorem["audit_status"] == "NOT_AUDITED"
-

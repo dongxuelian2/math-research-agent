@@ -26,6 +26,7 @@ check = Prover._check_proof_preserves_theorem
 
 # ── Success cases ─────────────────────────────────────────────────────
 
+
 def test_basic_matching_proof():
     theorem = """
     import Mathlib
@@ -133,6 +134,7 @@ def test_def_form_ok():
 
 # ── Failure cases ─────────────────────────────────────────────────────
 
+
 def test_renamed_theorem_is_rejected():
     theorem = "theorem exercise_3_9 : (∫ x in (0:ℝ)..1, x) = 0.5 := by sorry"
     proof = """
@@ -219,11 +221,11 @@ def test_sorry_inside_string_is_not_ok():
     # leftover. Real Lean proofs don't normally contain string
     # literals with the word sorry.
     theorem = "theorem foo (x : ℝ) : x = x := by sorry"
-    proof = '''
+    proof = """
     theorem foo (x : ℝ) : x = x := by
       have _ := "sorry"
       rfl
-    '''
+    """
     # The regex matches "sorry" inside the string → detected.
     # This is a conservative false-positive; acceptable for our purposes.
     reason = check(theorem, proof)
@@ -231,6 +233,7 @@ def test_sorry_inside_string_is_not_ok():
 
 
 # ── Multiple sorries ─────────────────────────────────────────────────
+
 
 def test_multiple_sorries_all_replaced_ok():
     theorem = """
@@ -272,6 +275,7 @@ def test_multiple_sorries_one_theorem_renamed_rejected():
 
 # ── Edge cases ─────────────────────────────────────────────────────────
 
+
 def test_theorem_with_no_sorry_skips_check():
     # If THEOREM.lean has no sorry, there's nothing to verify
     theorem = "theorem foo : True := trivial"
@@ -289,6 +293,7 @@ def test_theorem_without_any_declaration():
 
 
 # ── Regression: the real observed failures ───────────────────────────
+
 
 def test_real_case_exercise_3_9():
     # The model renamed exercise_3_9 to integral_log_sin_pi_x_zero_one

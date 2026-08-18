@@ -19,12 +19,17 @@ def _write_json(path: Path, data: dict) -> None:
 class ResearchPolicy:
     """Research-only hooks consumed by Prover's public policy interface."""
 
-    def __init__(self, *, pre_submit_gate: PreSubmitGate | None = None,
-                 pre_submit_gate_path: Path | None = None,
-                 role_scheduler: RoleScheduler | None = None,
-                 stop_controller: StopController | None = None,
-                 pipeline_scheduler=None, model_router=None,
-                 root_obligation_id: str | None = None):
+    def __init__(
+        self,
+        *,
+        pre_submit_gate: PreSubmitGate | None = None,
+        pre_submit_gate_path: Path | None = None,
+        role_scheduler: RoleScheduler | None = None,
+        stop_controller: StopController | None = None,
+        pipeline_scheduler=None,
+        model_router=None,
+        root_obligation_id: str | None = None,
+    ):
         self.pre_submit_gate = pre_submit_gate
         self.pre_submit_gate_path = pre_submit_gate_path
         self.role_scheduler = role_scheduler
@@ -43,8 +48,7 @@ class ResearchPolicy:
             _write_json(self.pre_submit_gate_path, decision.to_dict())
         if not decision.allowed:
             blocker_text = "; ".join(
-                f"{item['type']}: {item['detail']}"
-                for item in decision.blockers
+                f"{item['type']}: {item['detail']}" for item in decision.blockers
             )
             prover.tui.log(
                 f"submit_proof blocked by research harness: {blocker_text}",
@@ -53,13 +57,15 @@ class ResearchPolicy:
             return "continue"
         return None
 
-    def prepare_spawn(self, prover, plan: dict, step_dir: Path,
-                      planner_resp: dict | None = None):
+    def prepare_spawn(self, prover, plan: dict, step_dir: Path, planner_resp: dict | None = None):
         if self.stop_controller is not None and self.stop_controller.requested():
-            _write_json(prover.work_dir / "graceful_stop.json", {
-                "status": "STOPPED_BEFORE_NEW_WORKER",
-                "created_at": utc_now(),
-            })
+            _write_json(
+                prover.work_dir / "graceful_stop.json",
+                {
+                    "status": "STOPPED_BEFORE_NEW_WORKER",
+                    "created_at": utc_now(),
+                },
+            )
             prover.tui.log(
                 "Graceful stop requested: no new Worker was started; checkpoint now.",
                 color="yellow",
@@ -116,9 +122,7 @@ class ResearchPolicy:
                 task.get("obligation_id") or task.get("obligation") or prover.work_dir.name
             )
             event = self._load_worker_event(workers_dir / f"event_{index}.json")
-            verifier_event = self._load_worker_event(
-                workers_dir / f"verifier_event_{index}.json"
-            )
+            verifier_event = self._load_worker_event(workers_dir / f"verifier_event_{index}.json")
             if event.literature_request and self.pipeline_scheduler is not None:
                 request = dict(event.literature_request)
                 request.setdefault("obligation_id", obligation_id)
@@ -132,23 +136,25 @@ class ResearchPolicy:
                     progress[key] = True
             if self.model_router is None:
                 continue
-            if (
-                event.verdict.value == "CORRECT"
-                and verifier_event.verdict.value in {
-                    "FLAWED", "CRITICALLY_FLAWED", "UNCERTAIN"
-                }
-            ):
+            if event.verdict.value == "CORRECT" and verifier_event.verdict.value in {
+                "FLAWED",
+                "CRITICALLY_FLAWED",
+                "UNCERTAIN",
+            }:
                 self.model_router.record_verifier_disagreement(
                     obligation_id,
                     worker_verdict=event.verdict.value,
                     verifier_verdict=verifier_event.verdict.value,
                 )
             if event.event.value in {"NO_PROGRESS", "FAILED_ROUTE", "ERROR"}:
-                failure_kind = event.failure_kind or {
-                    "NO_PROGRESS": "NO_PROGRESS",
-                    "FAILED_ROUTE": "MATHEMATICAL_OBSTRUCTION",
-                    "ERROR": "MALFORMED_RESULT",
-                }[event.event.value]
+                failure_kind = (
+                    event.failure_kind
+                    or {
+                        "NO_PROGRESS": "NO_PROGRESS",
+                        "FAILED_ROUTE": "MATHEMATICAL_OBSTRUCTION",
+                        "ERROR": "MALFORMED_RESULT",
+                    }[event.event.value]
+                )
                 self.model_router.record_failure(
                     obligation_id, failure_kind, detail="typed_worker_event"
                 )
@@ -169,9 +175,7 @@ class ResearchPolicy:
         if not path.exists():
             return WorkerEventSchema(event="COMPLETED")
         try:
-            return WorkerEventSchema.model_validate(
-                json.loads(path.read_text(encoding="utf-8"))
-            )
+            return WorkerEventSchema.model_validate(json.loads(path.read_text(encoding="utf-8")))
         except Exception as exc:
             return WorkerEventSchema(
                 event="ERROR",

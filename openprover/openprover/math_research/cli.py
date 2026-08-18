@@ -54,7 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--tags", help="comma-separated tags")
     add.add_argument("--branch", default="main")
     add.add_argument("--proof-type", default="NATURAL_LANGUAGE")
-    add.add_argument("--claim-type", choices=["implication", "iff", "classification", "equality", "unclassified"], default="implication")
+    add.add_argument(
+        "--claim-type",
+        choices=["implication", "iff", "classification", "equality", "unclassified"],
+        default="implication",
+    )
 
     imp = sub.add_parser("import", help="scan Markdown and create UNCLASSIFIED candidates")
     imp.add_argument("--project", required=True)
@@ -98,7 +102,9 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--project", required=True)
     status.add_argument("--target")
 
-    trans = sub.add_parser("transition", help="perform a human lifecycle transition (never directly to PROVED)")
+    trans = sub.add_parser(
+        "transition", help="perform a human lifecycle transition (never directly to PROVED)"
+    )
     trans.add_argument("--project", required=True)
     trans.add_argument("--target", required=True)
     trans.add_argument("--to", required=True, choices=sorted(THEOREM_STATUSES - {"PROVED"}))
@@ -132,7 +138,10 @@ def build_parser() -> argparse.ArgumentParser:
 def dispatch(args: argparse.Namespace) -> dict | list | str:
     if args.command == "init":
         store = ProjectStore.initialize(
-            args.project, args.name, project_id=args.id, demo=args.demo,
+            args.project,
+            args.name,
+            project_id=args.id,
+            demo=args.demo,
         )
         return {"project": str(store.root), "status": "created"}
 
@@ -146,7 +155,8 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         # each provider's normal bounded retry path separately.
         role["max_retries"] = 0
         role["max_output_tokens"] = min(
-            32, int(role.get("max_output_tokens", 32)),
+            32,
+            int(role.get("max_output_tokens", 32)),
         )
         output_dir = Path(args.output).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -183,9 +193,7 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
                     "passed": False,
                     "logical_calls": client.call_count,
                     "api_requests": client.request_count,
-                    "duration_ms": int(
-                        (time.perf_counter() - started) * 1000
-                    ),
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
                     "usage": None,
                     "billing_mode": getattr(client, "billing_mode", None),
                     "cost_usd": None,

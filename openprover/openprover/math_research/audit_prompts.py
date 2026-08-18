@@ -47,8 +47,9 @@ claim, claim_class, authority_id (when applicable), authority_type, and proof_lo
     return system, prompt
 
 
-def final_auditor_prompt(context: str, candidate_proof: str,
-                         audits: dict[str, dict]) -> tuple[str, str]:
+def final_auditor_prompt(
+    context: str, candidate_proof: str, audits: dict[str, dict]
+) -> tuple[str, str]:
     system = """You are the Final Proof Auditor and final independent gate. You receive the theorem, its three-layer authority context, the complete candidate proof, and all specialist audits. Return JSON only. Never call model auditing formal verification.
 
 Required keys:

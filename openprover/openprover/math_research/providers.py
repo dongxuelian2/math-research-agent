@@ -130,20 +130,26 @@ class MockLLMClient:
     def cleanup(self):
         pass
 
-    def call(self, prompt: str, system_prompt: str, json_schema=None,
-             response_schema=None,
-             label: str = "", web_search: bool = False,
-             stream_callback=None, archive_path: Path | None = None,
-             max_tokens: int | None = None, **kwargs) -> dict:
+    def call(
+        self,
+        prompt: str,
+        system_prompt: str,
+        json_schema=None,
+        response_schema=None,
+        label: str = "",
+        web_search: bool = False,
+        stream_callback=None,
+        archive_path: Path | None = None,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> dict:
         if self._interrupted:
             raise RuntimeError("mock client interrupted")
         start = time.perf_counter()
         with self._lock:
             self.call_count += 1
             call_num = self.call_count
-        outcome_match = re.search(
-            r"MOCK_OUTCOME\s*:\s*([A-Z_]+)", prompt + "\n" + system_prompt
-        )
+        outcome_match = re.search(r"MOCK_OUTCOME\s*:\s*([A-Z_]+)", prompt + "\n" + system_prompt)
         forced_outcome = outcome_match.group(1) if outcome_match else None
         if forced_outcome == "PROVIDER_FAILURE":
             raise RuntimeError("mock provider_failure")
@@ -151,19 +157,26 @@ class MockLLMClient:
             raise RuntimeError("mock usage_limit_reached")
         result = self._result_for(label, prompt, system_prompt)
         if forced_outcome in {
-            "CORRECT", "UNCERTAIN", "FLAWED", "CRITICALLY_FLAWED",
+            "CORRECT",
+            "UNCERTAIN",
+            "FLAWED",
+            "CRITICALLY_FLAWED",
             "NO_PROGRESS",
         }:
             result = self._forced_structured_result(label, forced_outcome)
         elif forced_outcome in {
-            "EXACT_RESULT_FOUND", "PARTIAL_RESULT_FOUND",
-            "NO_SUFFICIENT_RESULT_FOUND", "INSUFFICIENT_SEARCH",
+            "EXACT_RESULT_FOUND",
+            "PARTIAL_RESULT_FOUND",
+            "NO_SUFFICIENT_RESULT_FOUND",
+            "INSUFFICIENT_SEARCH",
         }:
-            result = json.dumps({
-                "schema_version": 3,
-                "literature_verdict": forced_outcome,
-                "sources": [],
-            })
+            result = json.dumps(
+                {
+                    "schema_version": 3,
+                    "literature_verdict": forced_outcome,
+                    "sources": [],
+                }
+            )
         duration_ms = max(1, int((time.perf_counter() - start) * 1000))
         response = {
             "result": result,
@@ -210,65 +223,82 @@ class MockLLMClient:
     def _forced_structured_result(label: str, outcome: str) -> str:
         if label.startswith("audit_") or label.startswith("secondary_"):
             role = label.removeprefix("audit_").removeprefix("secondary_")
-            return json.dumps({
-                "schema_version": 3,
-                "role": role,
-                "domain_verdict": "PASS" if outcome == "CORRECT" else "FAIL",
-                "execution_status": "OK",
-                "findings": [],
-                "failure_reasons": [] if outcome == "CORRECT" else [outcome],
-                "cross_audit_notes": [],
-                "computational_evidence": [],
-                "summary": "Deterministic structured mock result.",
-                "execution_error": "",
-                "authority_uses": [],
-                "criteria": {},
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "role": role,
+                    "domain_verdict": "PASS" if outcome == "CORRECT" else "FAIL",
+                    "execution_status": "OK",
+                    "findings": [],
+                    "failure_reasons": [] if outcome == "CORRECT" else [outcome],
+                    "cross_audit_notes": [],
+                    "computational_evidence": [],
+                    "summary": "Deterministic structured mock result.",
+                    "execution_error": "",
+                    "authority_uses": [],
+                    "criteria": {},
+                }
+            )
         return f"Mock forced outcome: {outcome}"
 
     def _result_for(self, label: str, prompt: str, system_prompt: str) -> str:
         if label == "formalization_agent":
-            return json.dumps({
-                "schema_version": 3,
-                "status": "PENDING_FORMALIZATION",
-                "theorem_id": "",
-                "lean_code": "",
-                "compiler_output": "",
-                "certificate_path": "",
-                "certificate_sha256": "",
-                "summary": "Mock fixture does not run a Lean compiler.",
-                "error": "",
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "status": "PENDING_FORMALIZATION",
+                    "theorem_id": "",
+                    "lean_code": "",
+                    "compiler_output": "",
+                    "certificate_path": "",
+                    "certificate_sha256": "",
+                    "summary": "Mock fixture does not run a Lean compiler.",
+                    "error": "",
+                }
+            )
         if label.startswith("literature_lead"):
-            return json.dumps({
-                "schema_version": 3,
-                "search_tasks": [
-                    {"strategy": "exact_theorem", "public_query": "exact theorem"},
-                    {"strategy": "equivalent_formulation", "public_query": "equivalent formulation"},
-                    {"strategy": "method_search", "public_query": "method search"},
-                ],
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "search_tasks": [
+                        {"strategy": "exact_theorem", "public_query": "exact theorem"},
+                        {
+                            "strategy": "equivalent_formulation",
+                            "public_query": "equivalent formulation",
+                        },
+                        {"strategy": "method_search", "public_query": "method search"},
+                    ],
+                }
+            )
         if label.startswith("literature_searcher"):
-            return json.dumps({
-                "schema_version": 3,
-                "sources": [{
-                    "title": "Mock discovery source",
-                    "stable_identifier": "mock:source:1",
-                    "source_type": "original_paper",
-                    "deep_read_required": True,
-                }],
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "sources": [
+                        {
+                            "title": "Mock discovery source",
+                            "stable_identifier": "mock:source:1",
+                            "source_type": "original_paper",
+                            "deep_read_required": True,
+                        }
+                    ],
+                }
+            )
         if label.startswith("literature_reader") or label.startswith("literature_deep_reader"):
-            return json.dumps({
-                "schema_version": 3,
-                "reader_verdict": "THEOREM_EXTRACTED",
-                "theorems": [{"statement": "Mock theorem; never real authority."}],
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "reader_verdict": "THEOREM_EXTRACTED",
+                    "theorems": [{"statement": "Mock theorem; never real authority."}],
+                }
+            )
         if label.startswith("literature_authority_auditor"):
-            return json.dumps({
-                "schema_version": 3,
-                "verdict": "UNVERIFIED_REFERENCE",
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "verdict": "UNVERIFIED_REFERENCE",
+                }
+            )
         if label.startswith("planner_step_1"):
             return '''I will ask three workers to pursue independent checks.
 
@@ -315,83 +345,96 @@ proof_slug = "candidate-proof"
             return "The worker's claim follows by direct algebra and respects the stated scope.\n\nVERDICT: CORRECT"
         if label.startswith("secondary_"):
             role = label.removeprefix("secondary_")
-            return json.dumps({
-                "schema_version": 3,
-                "role": role,
-                "domain_verdict": "PASS",
-                "execution_status": "OK",
-                "findings": ["Independent bounded secondary check passed."],
-                "failure_reasons": [],
-                "cross_audit_notes": [],
-                "authority_uses": [],
-                "summary": "Independent bounded secondary check passed.",
-                "execution_error": "",
-                "criteria": {},
-            })
-        if label.startswith("certification_worker_verifier_") or label == "certification_secondary_reconstruction":
-            return json.dumps({
-                "schema_version": 3,
-                "role": label,
-                "domain_verdict": "PASS",
-                "execution_status": "OK",
-                "findings": ["Bounded replay certification check passed."],
-                "failure_reasons": [],
-                "cross_audit_notes": [],
-                "authority_uses": [],
-                "summary": "Bounded replay certification check passed.",
-                "execution_error": "",
-                "criteria": {},
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "role": role,
+                    "domain_verdict": "PASS",
+                    "execution_status": "OK",
+                    "findings": ["Independent bounded secondary check passed."],
+                    "failure_reasons": [],
+                    "cross_audit_notes": [],
+                    "authority_uses": [],
+                    "summary": "Independent bounded secondary check passed.",
+                    "execution_error": "",
+                    "criteria": {},
+                }
+            )
+        if (
+            label.startswith("certification_worker_verifier_")
+            or label == "certification_secondary_reconstruction"
+        ):
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "role": label,
+                    "domain_verdict": "PASS",
+                    "execution_status": "OK",
+                    "findings": ["Bounded replay certification check passed."],
+                    "failure_reasons": [],
+                    "cross_audit_notes": [],
+                    "authority_uses": [],
+                    "summary": "Bounded replay certification check passed.",
+                    "execution_error": "",
+                    "criteria": {},
+                }
+            )
         if label == "discussion":
             return "# Discussion\n\nMocked demo completed two planner steps, three parallel workers, worker verification, and candidate submission. The outer project audit remains authoritative."
         if label.startswith("audit_"):
             role = label.removeprefix("audit_")
             authority_uses = []
             if role == "dependency_auditor":
-                authority_uses = [{
-                    "claim": "(n+1)^2=n^2+2n+1",
-                    "claim_class": "PROJECT_THEOREM",
-                    "authority_id": "demo-next-square",
-                    "authority_type": "project_theorem",
-                    "proof_location": "",
-                }]
-            return json.dumps({
-                "schema_version": 3,
-                "role": role,
-                "domain_verdict": "PASS",
-                "execution_status": "OK",
-                "findings": ["No defect found in the finite induction argument."],
-                "failure_reasons": [],
-                "cross_audit_notes": [],
-                "computational_evidence": [],
-                "authority_uses": authority_uses,
-                "summary": "Structured mock specialist audit passed.",
-                "execution_error": "",
-                "criteria": {},
-            })
+                authority_uses = [
+                    {
+                        "claim": "(n+1)^2=n^2+2n+1",
+                        "claim_class": "PROJECT_THEOREM",
+                        "authority_id": "demo-next-square",
+                        "authority_type": "project_theorem",
+                        "proof_location": "",
+                    }
+                ]
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "role": role,
+                    "domain_verdict": "PASS",
+                    "execution_status": "OK",
+                    "findings": ["No defect found in the finite induction argument."],
+                    "failure_reasons": [],
+                    "cross_audit_notes": [],
+                    "computational_evidence": [],
+                    "authority_uses": authority_uses,
+                    "summary": "Structured mock specialist audit passed.",
+                    "execution_error": "",
+                    "criteria": {},
+                }
+            )
         if label == "final_proof_auditor":
-            return json.dumps({
-                "schema_version": 3,
-                "role": "final_proof_auditor",
-                "domain_verdict": "PASS",
-                "execution_status": "OK",
-                "failure_reasons": [],
-                "cross_audit_notes": [],
-                "authority_uses": [],
-                "execution_error": "",
-                "summary": "The demo induction is complete and uses only the allowed proved identity.",
-                "criteria": {
-                    "forward_implication": True,
-                    "converse_if_applicable": True,
-                    "exhaustive_cases": True,
-                    "parameter_ranges": True,
-                    "boundary_cases": True,
-                    "dependencies_valid": True,
-                    "no_counterexample": True,
-                    "auditors_pass": True,
-                    "computational_evidence_separated": True,
-                },
-            })
+            return json.dumps(
+                {
+                    "schema_version": 3,
+                    "role": "final_proof_auditor",
+                    "domain_verdict": "PASS",
+                    "execution_status": "OK",
+                    "failure_reasons": [],
+                    "cross_audit_notes": [],
+                    "authority_uses": [],
+                    "execution_error": "",
+                    "summary": "The demo induction is complete and uses only the allowed proved identity.",
+                    "criteria": {
+                        "forward_implication": True,
+                        "converse_if_applicable": True,
+                        "exhaustive_cases": True,
+                        "parameter_ranges": True,
+                        "boundary_cases": True,
+                        "dependencies_valid": True,
+                        "no_counterexample": True,
+                        "auditors_pass": True,
+                        "computational_evidence_separated": True,
+                    },
+                }
+            )
         return "Mock response"
 
 
@@ -415,18 +458,14 @@ def load_model_config(path: str | Path) -> dict:
         try:
             build_tool_payload(tool_names)
         except ValueError as exc:
-            raise ProjectError(
-                f"Invalid Gemini tools for role {role_name}: {exc}"
-            ) from exc
+            raise ProjectError(f"Invalid Gemini tools for role {role_name}: {exc}") from exc
     tiers = config.get("tiers")
     if tiers is not None:
         if not isinstance(tiers, dict):
             raise ProjectError("Model config tiers must be an object")
         missing_tiers = {"routine", "research", "strategic"} - set(tiers)
         if missing_tiers:
-            raise ProjectError(
-                "Model config missing tiers: " + ", ".join(sorted(missing_tiers))
-            )
+            raise ProjectError("Model config missing tiers: " + ", ".join(sorted(missing_tiers)))
         for name, route in tiers.items():
             if name not in {"routine", "research", "strategic"}:
                 raise ProjectError(f"Unknown model tier: {name}")
@@ -437,16 +476,12 @@ def load_model_config(path: str | Path) -> dict:
         for name, role in roles.items():
             if isinstance(role, str):
                 if role not in tiers:
-                    raise ProjectError(
-                        f"Role {name} references unknown model tier {role!r}"
-                    )
+                    raise ProjectError(f"Role {name} references unknown model tier {role!r}")
             elif isinstance(role, dict):
                 if role.get("provider"):
                     _validate_role(name, role)
                 elif role.get("default_tier") not in tiers:
-                    raise ProjectError(
-                        f"Role {name} requires a valid default_tier"
-                    )
+                    raise ProjectError(f"Role {name} requires a valid default_tier")
             else:
                 raise ProjectError(f"Model role {name} must be a tier name or object")
         role_overrides = config.get("role_overrides", {})
@@ -457,7 +492,10 @@ def load_model_config(path: str | Path) -> dict:
                 raise ProjectError(f"Role override {name} must be an object")
         # Resolve every trust-critical role now so a typo fails before a run.
         for name in (
-            "planner", "worker", *SPECIALIST_ROLES, "final_proof_auditor",
+            "planner",
+            "worker",
+            *SPECIALIST_ROLES,
+            "final_proof_auditor",
         ):
             resolve_role_config(config, name)
         return config
@@ -485,9 +523,7 @@ def _validate_role(name: str, role: dict) -> None:
         if not isinstance(role.get("model"), str) or not role["model"].strip():
             raise ProjectError(f"Gemini role {name} requires a non-empty model")
         if "api_key" in role:
-            raise ProjectError(
-                f"Gemini role {name} must not contain api_key; use GEMINI_API_KEY"
-            )
+            raise ProjectError(f"Gemini role {name} must not contain api_key; use GEMINI_API_KEY")
         timeout = float(role.get("timeout_seconds", 600))
         retries = int(role.get("max_retries", 2))
         retry_base = float(role.get("retry_base_seconds", 1))
@@ -503,6 +539,8 @@ def _validate_role(name: str, role: dict) -> None:
         if provider == "vertex_gemini" and not role.get("project"):
             raise ProjectError(f"Vertex Gemini role {name} requires project")
         return
+
+
 def resolve_role_config(config: dict, role_name: str) -> dict:
     """Resolve one exact role from the active configuration."""
     if config.get("tiers") or (config.get("provider") and not config.get("roles")):
@@ -512,31 +550,27 @@ def resolve_role_config(config: dict, role_name: str) -> dict:
     roles = config.get("roles", {})
     if role_name in roles and isinstance(roles[role_name], dict):
         return roles[role_name]
-    raise ProjectError(
-        f"Model config has no exact provider for role {role_name}"
-    )
+    raise ProjectError(f"Model config has no exact provider for role {role_name}")
 
 
 def is_mock_config(config: dict) -> bool:
     if isinstance(config.get("tiers"), dict):
         enabled = [
-            route for route in config["tiers"].values()
+            route
+            for route in config["tiers"].values()
             if isinstance(route, dict) and route.get("enabled", True)
         ]
         return bool(enabled) and all(route.get("provider") == "mock" for route in enabled)
     if config.get("provider"):
         return config.get("provider") == "mock"
-    return all(
-        role.get("provider") == "mock"
-        for role in config.get("roles", {}).values()
-    )
+    return all(role.get("provider") == "mock" for role in config.get("roles", {}).values())
 
 
-def create_client(role: dict, archive_dir: Path, *, role_name: str = "unknown",
-                  working_dir: Path | None = None):
+def create_client(
+    role: dict, archive_dir: Path, *, role_name: str = "unknown", working_dir: Path | None = None
+):
     provider = role.get("provider")
     model = role.get("model", "")
-    effort = role.get("reasoning_effort")
     answer_reserve = int(role.get("answer_reserve", 4096))
     if provider == "mock":
         return MockLLMClient(model or "mock", archive_dir)
@@ -562,8 +596,7 @@ def create_client(role: dict, archive_dir: Path, *, role_name: str = "unknown",
             answer_reserve=answer_reserve,
             context_length=int(role.get("context_length", 1_000_000)),
             temperature=(
-                float(role["temperature"])
-                if role.get("temperature") is not None else None
+                float(role["temperature"]) if role.get("temperature") is not None else None
             ),
             tool_executor=make_tool_executor(
                 role.get("tools"),

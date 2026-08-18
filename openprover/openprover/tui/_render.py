@@ -5,43 +5,51 @@ import time
 
 from openprover import __version__
 from ._colors import (
-    DIM, BOLD, RESET, WHITE, BLUE, GREEN, YELLOW, CYAN, MAGENTA,
-    SPINNER, HEADER_ROWS, HELP_TEXT,
+    DIM,
+    BOLD,
+    RESET,
+    WHITE,
+    BLUE,
+    GREEN,
+    YELLOW,
+    CYAN,
+    MAGENTA,
+    SPINNER,
+    HELP_TEXT,
 )
 from ._types import _Tab
 
 
 class RenderMixin:
-
     def _draw_header(self):
         w = self.cols
-        budget = getattr(self, '_budget_ref', None)
+        budget = getattr(self, "_budget_ref", None)
         bs = budget.status_str() if budget else self.budget_status
         step = f"step {self.step_num} · {bs}" if self.step_num else (bs or "")
 
         # Row 1
-        model = getattr(self, 'model_name', '') or ''
-        row1 = f'{BLUE}╭─{RESET} {BOLD}OpenProver{RESET} {DIM}v{__version__}{RESET}'
+        model = getattr(self, "model_name", "") or ""
+        row1 = f"{BLUE}╭─{RESET} {BOLD}OpenProver{RESET} {DIM}v{__version__}{RESET}"
         if step:
-            row1 += f' {BLUE}──{RESET} {DIM}{step}{RESET}'
+            row1 += f" {BLUE}──{RESET} {DIM}{step}{RESET}"
         if model:
-            row1 += f' {BLUE}·{RESET} {YELLOW}{model}{RESET}'
+            row1 += f" {BLUE}·{RESET} {YELLOW}{model}{RESET}"
         fill1 = max(w - self._visible_len(row1) - 2, 0)
-        row1 += f' {BLUE}{"─" * fill1}╮{RESET}'
-        self._write_raw(f'\033[1;1H{self._pad_to_width(row1, w)}')
+        row1 += f" {BLUE}{'─' * fill1}╮{RESET}"
+        self._write_raw(f"\033[1;1H{self._pad_to_width(row1, w)}")
 
         # Row 2 - theorem
         name = (self.theorem_name or "").replace("\n", " ").replace("\r", "")
         # Build inner content (between │ borders), then pad to exact width
-        inner = f' {WHITE}{name}{RESET}'
+        inner = f" {WHITE}{name}{RESET}"
         inner_w = w - 2  # space for left and right │
         if self._visible_len(inner) > inner_w:
             # Truncate: rebuild with shortened name
             max_name = inner_w - 4  # " " prefix + "..."
-            display_name = name[:max(max_name, 1)] + "..."
-            inner = f' {WHITE}{display_name}{RESET}'
-        row2 = f'{BLUE}│{RESET}{self._pad_to_width(inner, inner_w)}{BLUE}│{RESET}'
-        self._write_raw(f'\033[2;1H{self._pad_to_width(row2, w)}')
+            display_name = name[: max(max_name, 1)] + "..."
+            inner = f" {WHITE}{display_name}{RESET}"
+        row2 = f"{BLUE}│{RESET}{self._pad_to_width(inner, inner_w)}{BLUE}│{RESET}"
+        self._write_raw(f"\033[2;1H{self._pad_to_width(row2, w)}")
 
         # Row 3 - hints
         help_style = BOLD if self.view == "help" else DIM
@@ -49,28 +57,32 @@ class RenderMixin:
         trace_style = BOLD if self.trace_visible else DIM
         if self.active_tab_idx > 0:
             detail_style = BOLD if self.view == "detail" else DIM
-            hints_styled = (f'{help_style}? help{RESET} {DIM}·{RESET} '
-                            f'{trace_style}r reasoning{RESET} {DIM}·{RESET} '
-                            f'{detail_style}d detail{RESET} {DIM}·{RESET} '
-                            f'{auto_style}a autonomous{RESET}')
+            hints_styled = (
+                f"{help_style}? help{RESET} {DIM}·{RESET} "
+                f"{trace_style}r reasoning{RESET} {DIM}·{RESET} "
+                f"{detail_style}d detail{RESET} {DIM}·{RESET} "
+                f"{auto_style}a autonomous{RESET}"
+            )
         else:
             if self.view == "whiteboard":
-                wb_label = f'{BOLD}w whiteboard{RESET}'
+                wb_label = f"{BOLD}w whiteboard{RESET}"
             elif self.view == "whiteboard_split":
-                wb_label = f'{DIM}w white{RESET}{WHITE}board{RESET}'
+                wb_label = f"{DIM}w white{RESET}{WHITE}board{RESET}"
             else:
-                wb_label = f'{DIM}w whiteboard{RESET}'
-            hints_styled = (f'{help_style}? help{RESET} {DIM}·{RESET} '
-                            f'{trace_style}r reasoning{RESET} {DIM}·{RESET} '
-                            f'{wb_label} {DIM}·{RESET} '
-                            f'{auto_style}a autonomous{RESET}')
-        hints_inner = f'{hints_styled} '
+                wb_label = f"{DIM}w whiteboard{RESET}"
+            hints_styled = (
+                f"{help_style}? help{RESET} {DIM}·{RESET} "
+                f"{trace_style}r reasoning{RESET} {DIM}·{RESET} "
+                f"{wb_label} {DIM}·{RESET} "
+                f"{auto_style}a autonomous{RESET}"
+            )
+        hints_inner = f"{hints_styled} "
         hints_pad = max(inner_w - self._visible_len(hints_inner), 0)
-        row3 = f'{BLUE}│{RESET}{" " * hints_pad}{hints_inner}{BLUE}│{RESET}'
-        self._write_raw(f'\033[3;1H{self._pad_to_width(row3, w)}')
+        row3 = f"{BLUE}│{RESET}{' ' * hints_pad}{hints_inner}{BLUE}│{RESET}"
+        self._write_raw(f"\033[3;1H{self._pad_to_width(row3, w)}")
 
         # Row 4 - bottom border + run dir + tab bar
-        run_dir = getattr(self, 'work_dir', '') or ''
+        run_dir = getattr(self, "work_dir", "") or ""
         tab_parts = []
         for i, tab in enumerate(self.tabs):
             name = tab.label
@@ -82,45 +94,46 @@ class RenderMixin:
                 name += f" {SPINNER[tab.spinner_tick]}"
             bracket = f"[{name}]"
             if i == self.active_tab_idx:
-                tab_parts.append(f'{BOLD}{WHITE}{bracket}{RESET}')
+                tab_parts.append(f"{BOLD}{WHITE}{bracket}{RESET}")
             else:
-                tab_parts.append(f'{DIM}{bracket}{RESET}')
+                tab_parts.append(f"{DIM}{bracket}{RESET}")
         tab_str = " ".join(tab_parts)
-        row4 = f'{BLUE}╰{RESET} {tab_str}'
+        row4 = f"{BLUE}╰{RESET} {tab_str}"
         if run_dir:
             dir_text = run_dir
             remaining = w - self._visible_len(row4) - 2 - 1  # fill + space + dir + ╯
             max_dir = remaining - 1
             if max_dir > 0 and len(dir_text) > max_dir:
-                dir_text = "\u2026" + dir_text[-(max_dir - 1):]
+                dir_text = "\u2026" + dir_text[-(max_dir - 1) :]
             fill = max(w - self._visible_len(row4) - 1 - len(dir_text) - 1, 0)
-            row4 += f'{BLUE}{"─" * fill}{RESET} {DIM}{dir_text}{RESET}{BLUE}╯{RESET}'
+            row4 += f"{BLUE}{'─' * fill}{RESET} {DIM}{dir_text}{RESET}{BLUE}╯{RESET}"
         else:
             fill = max(w - self._visible_len(row4) - 1, 0)
-            row4 += f'{BLUE}{"─" * fill}╯{RESET}'
-        self._write_raw(f'\033[4;1H{self._pad_to_width(row4, w)}')
+            row4 += f"{BLUE}{'─' * fill}╯{RESET}"
+        self._write_raw(f"\033[4;1H{self._pad_to_width(row4, w)}")
 
     def _draw_confirmation(self):
         fb = "".join(self._confirm_buf)
         lbl = self._confirm_accept_label
         cur = self._confirm_cursor
-        self._write_raw('\n')
+        self._write_raw("\n")
         if self._nav_step >= 0 or self._nav_proposal:
-            self._write_raw(f' {DIM}○ {lbl}{RESET}\n')
-            self._write_raw(f' {DIM}○ give feedback{RESET}')
+            self._write_raw(f" {DIM}○ {lbl}{RESET}\n")
+            self._write_raw(f" {DIM}○ give feedback{RESET}")
         elif self._confirm_selected == 0:
-            self._write_raw(f' {GREEN}●{RESET} {BOLD}{lbl}{RESET}\n')
-            self._write_raw(f' {DIM}○ give feedback{RESET}')
+            self._write_raw(f" {GREEN}●{RESET} {BOLD}{lbl}{RESET}\n")
+            self._write_raw(f" {DIM}○ give feedback{RESET}")
         else:
-            self._write_raw(f' {DIM}○ {lbl}{RESET}\n')
-            self._write_raw(f' {GREEN}●{RESET} {fb}')
+            self._write_raw(f" {DIM}○ {lbl}{RESET}\n")
+            self._write_raw(f" {GREEN}●{RESET} {fb}")
             # Position terminal cursor within the text
             chars_after = len(fb) - cur
             if chars_after > 0:
-                self._write_raw(f'\033[{chars_after}D')
+                self._write_raw(f"\033[{chars_after}D")
 
-    def _build_main_lines(self, tab: _Tab | None = None,
-                          max_w_override: int | None = None) -> list[str]:
+    def _build_main_lines(
+        self, tab: _Tab | None = None, max_w_override: int | None = None
+    ) -> list[str]:
         """Build flat list of rendered lines for the active tab."""
         if tab is None:
             tab = self._active_tab
@@ -134,22 +147,21 @@ class RenderMixin:
                 if not self.trace_visible:
                     continue
                 for tline in entry.text.splitlines():
-                    text = f'  {DIM}{tline}{RESET}'
+                    text = f"  {DIM}{tline}{RESET}"
                     continuation = " " * self._leading_visible_spaces(text)
                     for wrapped in self._wrap_visual_text(
-                            text, max_w, continuation_prefix=continuation):
+                        text, max_w, continuation_prefix=continuation
+                    ):
                         lines.append(wrapped)
                 if not entry.text.splitlines():
-                    text = f'  {DIM}{RESET}'
+                    text = f"  {DIM}{RESET}"
                     for wrapped in self._wrap_visual_text(text, max_w):
                         lines.append(wrapped)
             elif entry.is_output:
                 if tab.id == "planner" and idx < planner_live_start:
                     continue
                 output_text = entry.text
-                if (tab.id == "planner"
-                        and self._confirming
-                        and self._proposal_log_start >= 0):
+                if tab.id == "planner" and self._confirming and self._proposal_log_start >= 0:
                     output_text = self._strip_toml_block(output_text)
                 rendered_any = False
                 for is_toml, seg in self._iter_toml_segments(output_text):
@@ -158,13 +170,14 @@ class RenderMixin:
                     if is_toml and not self.trace_visible:
                         continue
                     for tline in seg.splitlines():
-                        text = f'  {DIM}{tline}{RESET}' if is_toml else f'  {tline}'
+                        text = f"  {DIM}{tline}{RESET}" if is_toml else f"  {tline}"
                         continuation = " " * self._leading_visible_spaces(text)
                         for wrapped in self._wrap_visual_text(
-                                text, max_w, continuation_prefix=continuation):
+                            text, max_w, continuation_prefix=continuation
+                        ):
                             lines.append(wrapped)
                     if not seg.splitlines():
-                        text = f'  {DIM}{RESET}' if is_toml else '  '
+                        text = f"  {DIM}{RESET}" if is_toml else "  "
                         for wrapped in self._wrap_visual_text(text, max_w):
                             lines.append(wrapped)
                     rendered_any = True
@@ -173,27 +186,28 @@ class RenderMixin:
             else:
                 is_entry = entry.step_idx >= 0
                 # Split on embedded newlines so each sub-line wraps independently
-                sub_lines = entry.text.split('\n')
+                sub_lines = entry.text.split("\n")
                 wrapped_lines: list[str] = []
                 for j, sub in enumerate(sub_lines):
-                    base = f' {sub}'
+                    base = f" {sub}"
                     # Re-fit separator lines to current width
-                    raw = sub.replace('\033[2m', '').replace('\033[0m', '').strip()
-                    if raw and all(c == '─' for c in raw) and len(raw) > max_w - 2:
-                        base = f' {DIM}{"─" * (max_w - 2)}{RESET}'
+                    raw = sub.replace("\033[2m", "").replace("\033[0m", "").strip()
+                    if raw and all(c == "─" for c in raw) and len(raw) > max_w - 2:
+                        base = f" {DIM}{'─' * (max_w - 2)}{RESET}"
                     continuation = " " * self._leading_visible_spaces(base)
-                    wrapped_lines.extend(self._wrap_visual_text(
-                        base, max_w, continuation_prefix=continuation
-                    ))
+                    wrapped_lines.extend(
+                        self._wrap_visual_text(base, max_w, continuation_prefix=continuation)
+                    )
                 nav = self._nav_step if tab.id == "planner" else tab.nav_idx
                 is_proposal_line = (
-                    self._nav_proposal and tab.id == "planner"
+                    self._nav_proposal
+                    and tab.id == "planner"
                     and self._proposal_log_start >= 0
                     and idx >= self._proposal_log_start
                 )
                 if (is_entry and entry.step_idx == nav) or is_proposal_line:
                     for wrapped in wrapped_lines:
-                        lines.append(f' {GREEN}▎{RESET}{wrapped}')
+                        lines.append(f" {GREEN}▎{RESET}{wrapped}")
                 else:
                     lines.extend(wrapped_lines)
         # Active streaming content (not yet baked) - render in interleaved order
@@ -206,10 +220,11 @@ class RenderMixin:
                     if not self.trace_visible:
                         continue
                     for tline in joined.splitlines():
-                        text = f'  {DIM}{tline}{RESET}'
+                        text = f"  {DIM}{tline}{RESET}"
                         continuation = " " * self._leading_visible_spaces(text)
                         for wrapped in self._wrap_visual_text(
-                                text, max_w, continuation_prefix=continuation):
+                            text, max_w, continuation_prefix=continuation
+                        ):
                             lines.append(wrapped)
                 else:
                     for is_toml, seg in self._iter_toml_segments(joined):
@@ -218,10 +233,11 @@ class RenderMixin:
                         if is_toml and not self.trace_visible:
                             continue
                         for tline in seg.splitlines():
-                            text = f'  {DIM}{tline}{RESET}' if is_toml else f'  {tline}'
+                            text = f"  {DIM}{tline}{RESET}" if is_toml else f"  {tline}"
                             continuation = " " * self._leading_visible_spaces(text)
                             for wrapped in self._wrap_visual_text(
-                                    text, max_w, continuation_prefix=continuation):
+                                text, max_w, continuation_prefix=continuation
+                            ):
                                 lines.append(wrapped)
         return self._collapse_blank_lines(lines)
 
@@ -230,8 +246,7 @@ class RenderMixin:
         lines: list[str] = []
         for dline in self._step_detail_text.splitlines() or [""]:
             continuation = " " * self._leading_visible_spaces(dline)
-            lines.extend(self._wrap_visual_text(
-                dline, max_w, continuation_prefix=continuation))
+            lines.extend(self._wrap_visual_text(dline, max_w, continuation_prefix=continuation))
         return lines
 
     def _input_avail_rows(self) -> int:
@@ -255,14 +270,15 @@ class RenderMixin:
             if not lines:
                 return
             if sections:
-                sections.append(f'  {DIM}{"─" * sep_w}{RESET}')
+                sections.append(f"  {DIM}{'─' * sep_w}{RESET}")
                 sections.append("")
             sections.append(f"  {color}{BOLD}{title}{RESET}")
             for line in lines:
                 text = f"  {line}" if line else ""
                 continuation = " " * self._leading_visible_spaces(text)
                 for wrapped in self._wrap_visual_text(
-                        text, max_w, continuation_prefix=continuation):
+                    text, max_w, continuation_prefix=continuation
+                ):
                     sections.append(wrapped)
 
         summary_line = (tab.task_summary or "").strip()
@@ -301,7 +317,7 @@ class RenderMixin:
                 if entry.is_trace:
                     if self.trace_visible:
                         for tline in entry.text.splitlines():
-                            output_lines.append(f'{DIM}{tline}{RESET}')
+                            output_lines.append(f"{DIM}{tline}{RESET}")
                 elif entry.is_output:
                     for tline in entry.text.splitlines():
                         output_lines.append(tline)
@@ -342,6 +358,7 @@ class RenderMixin:
     def _build_whiteboard_lines(self, max_w: int) -> list[str]:
         """Build rendered whiteboard lines from self.whiteboard."""
         from ._colors import CYAN
+
         lines: list[str] = []
         sections: list[str] = []
         current_title = "Notes"
@@ -376,8 +393,7 @@ class RenderMixin:
 
         for sline in sections:
             continuation = " " * self._leading_visible_spaces(sline)
-            for wrapped in self._wrap_visual_text(
-                    sline, max_w, continuation_prefix=continuation):
+            for wrapped in self._wrap_visual_text(sline, max_w, continuation_prefix=continuation):
                 lines.append(wrapped)
         return lines
 
@@ -390,15 +406,15 @@ class RenderMixin:
         left_lines = self._build_main_lines(tab, max_w_override=left_max_w)
         _, wb_label = self._display_whiteboard()
         right_max_w = max(right_w - 2, 10)
-        wb_header = f' {BOLD}WHITEBOARD{RESET} {DIM}[{wb_label}]{RESET}'
-        wb_sep = f' {DIM}{"─" * right_max_w}{RESET}'
+        wb_header = f" {BOLD}WHITEBOARD{RESET} {DIM}[{wb_label}]{RESET}"
+        wb_sep = f" {DIM}{'─' * right_max_w}{RESET}"
         all_right_lines = [wb_header, wb_sep] + self._build_whiteboard_lines(right_max_w)
-        sep = f'{DIM}│{RESET}'
+        sep = f"{DIM}│{RESET}"
 
-        confirming = (self._confirming and not self._browsing
-                      and self.active_tab_idx == 0)
-        spinner_active = (tab.streaming and tab.spinner_label
-                          and not self._has_visible_stream_content(tab))
+        confirming = self._confirming and not self._browsing and self.active_tab_idx == 0
+        spinner_active = (
+            tab.streaming and tab.spinner_label and not self._has_visible_stream_content(tab)
+        )
         total_rows = self.rows - cs + 1
 
         # Right column: whiteboard viewport
@@ -428,8 +444,8 @@ class RenderMixin:
             ch = SPINNER[tab.spinner_tick]
             elapsed = int(time.monotonic() - tab.spinner_start)
             status = self._spinner_status(elapsed, tab.spinner_tokens)
-            bar = f' {GREEN}▎{RESET}' if self._spinner_selected(tab) else '  '
-            left_view.append(f'{bar}{DIM}{ch} {tab.spinner_label} {status}{RESET}')
+            bar = f" {GREEN}▎{RESET}" if self._spinner_selected(tab) else "  "
+            left_view.append(f"{bar}{DIM}{ch} {tab.spinner_label} {status}{RESET}")
 
         # Build confirmation lines for left column
         confirm_lines: list[str] = []
@@ -438,16 +454,16 @@ class RenderMixin:
             lbl = self._confirm_accept_label
             if self._nav_step >= 0 or self._nav_proposal:
                 confirm_lines.append("")
-                confirm_lines.append(f' {DIM}○ {lbl}{RESET}')
-                confirm_lines.append(f' {DIM}○ give feedback{RESET}')
+                confirm_lines.append(f" {DIM}○ {lbl}{RESET}")
+                confirm_lines.append(f" {DIM}○ give feedback{RESET}")
             elif self._confirm_selected == 0:
                 confirm_lines.append("")
-                confirm_lines.append(f' {GREEN}●{RESET} {BOLD}{lbl}{RESET}')
-                confirm_lines.append(f' {DIM}○ give feedback{RESET}')
+                confirm_lines.append(f" {GREEN}●{RESET} {BOLD}{lbl}{RESET}")
+                confirm_lines.append(f" {DIM}○ give feedback{RESET}")
             else:
                 confirm_lines.append("")
-                confirm_lines.append(f' {DIM}○ {lbl}{RESET}')
-                confirm_lines.append(f' {GREEN}●{RESET} {fb}')
+                confirm_lines.append(f" {DIM}○ {lbl}{RESET}")
+                confirm_lines.append(f" {GREEN}●{RESET} {fb}")
 
         # Scroll indicator line
         above = start
@@ -456,10 +472,10 @@ class RenderMixin:
         if above > 0 or below > 0:
             parts = []
             if above > 0:
-                parts.append(f'↑ {above} above')
+                parts.append(f"↑ {above} above")
             if below > 0:
-                parts.append(f'↓ {below} below')
-            scroll_line = f' {DIM}{" · ".join(parts)}{RESET}'
+                parts.append(f"↓ {below} below")
+            scroll_line = f" {DIM}{' · '.join(parts)}{RESET}"
 
         # Render all rows: overwrite in place (no erase, no flicker)
         for i in range(total_rows):
@@ -474,22 +490,20 @@ class RenderMixin:
                 left = ""
             row = cs + i
             padded_right = self._pad_to_width(right, right_w)
-            self._write_raw(
-                f'\033[{row};1H'
-                f'{self._pad_to_width(left, left_w)}{sep}{padded_right}')
+            self._write_raw(f"\033[{row};1H{self._pad_to_width(left, left_w)}{sep}{padded_right}")
 
         # Position cursor for feedback editing
         if confirming and self._confirm_selected == 1:
             fb_row = cs + len(left_view) + len(confirm_lines) - 1
             cur = self._confirm_cursor
             fb_col = 3 + cur  # " ● " = 3 visible chars before text
-            self._write_raw(f'\033[{fb_row};{fb_col + 1}H\033[?25h')
+            self._write_raw(f"\033[{fb_row};{fb_col + 1}H\033[?25h")
 
     def _redraw(self):
         with self._write_lock:
             # Buffer the entire frame and write it in one shot to avoid flicker
             self._buf = []
-            self._write_raw('\033[?25l')
+            self._write_raw("\033[?25l")
             self._draw_header()
             cs = self._content_start
 
@@ -505,11 +519,13 @@ class RenderMixin:
             if self.view == "main":
                 tab = self._active_tab
                 lines = self._build_main_lines(tab)
-                spinner_active = (tab.streaming and tab.spinner_label
-                                  and not self._has_visible_stream_content(tab))
+                spinner_active = (
+                    tab.streaming
+                    and tab.spinner_label
+                    and not self._has_visible_stream_content(tab)
+                )
                 avail = self._main_avail_rows(tab)
-                confirming = (self._confirming and not self._browsing
-                              and self.active_tab_idx == 0)
+                confirming = self._confirming and not self._browsing and self.active_tab_idx == 0
 
                 # Clamp scroll offset
                 max_off = self._max_scroll_offset(lines, tab)
@@ -528,9 +544,8 @@ class RenderMixin:
                     ch = SPINNER[tab.spinner_tick]
                     elapsed = int(time.monotonic() - tab.spinner_start)
                     status = self._spinner_status(elapsed, tab.spinner_tokens)
-                    bar = f' {GREEN}▎{RESET}' if self._spinner_selected(tab) else '  '
-                    content_rows.append(
-                        f'{bar}{DIM}{ch} {tab.spinner_label} {status}{RESET}')
+                    bar = f" {GREEN}▎{RESET}" if self._spinner_selected(tab) else "  "
+                    content_rows.append(f"{bar}{DIM}{ch} {tab.spinner_label} {status}{RESET}")
 
                 # Confirmation lines (inlined, like _redraw_split)
                 if confirming:
@@ -538,16 +553,16 @@ class RenderMixin:
                     lbl = self._confirm_accept_label
                     if self._nav_step >= 0 or self._nav_proposal:
                         content_rows.append("")
-                        content_rows.append(f' {DIM}○ {lbl}{RESET}')
-                        content_rows.append(f' {DIM}○ give feedback{RESET}')
+                        content_rows.append(f" {DIM}○ {lbl}{RESET}")
+                        content_rows.append(f" {DIM}○ give feedback{RESET}")
                     elif self._confirm_selected == 0:
                         content_rows.append("")
-                        content_rows.append(f' {GREEN}●{RESET} {BOLD}{lbl}{RESET}')
-                        content_rows.append(f' {DIM}○ give feedback{RESET}')
+                        content_rows.append(f" {GREEN}●{RESET} {BOLD}{lbl}{RESET}")
+                        content_rows.append(f" {DIM}○ give feedback{RESET}")
                     else:
                         content_rows.append("")
-                        content_rows.append(f' {DIM}○ {lbl}{RESET}')
-                        content_rows.append(f' {GREEN}●{RESET} {fb}')
+                        content_rows.append(f" {DIM}○ {lbl}{RESET}")
+                        content_rows.append(f" {GREEN}●{RESET} {fb}")
 
                 # Scroll indicator
                 above = start
@@ -556,10 +571,10 @@ class RenderMixin:
                 if above > 0 or below > 0:
                     parts = []
                     if above > 0:
-                        parts.append(f'↑ {above} above')
+                        parts.append(f"↑ {above} above")
                     if below > 0:
-                        parts.append(f'↓ {below} below')
-                    scroll_line = f' {DIM}{" · ".join(parts)}{RESET}'
+                        parts.append(f"↓ {below} below")
+                    scroll_line = f" {DIM}{' · '.join(parts)}{RESET}"
 
                 # Render all rows: overwrite in place (no erase, no flicker)
                 total_rows = self.rows - cs + 1
@@ -571,36 +586,35 @@ class RenderMixin:
                         c = scroll_line
                     else:
                         c = ""
-                    self._write_raw(
-                        f'\033[{row};1H{self._pad_to_width(c, self.cols)}')
+                    self._write_raw(f"\033[{row};1H{self._pad_to_width(c, self.cols)}")
 
                 # Position cursor for feedback editing
                 if confirming and self._confirm_selected == 1:
                     fb_row = cs + len(content_rows) - 1
                     fb_col = 3 + self._confirm_cursor
-                    self._write_raw(
-                        f'\033[{fb_row};{fb_col + 1}H\033[?25h')
+                    self._write_raw(f"\033[{fb_row};{fb_col + 1}H\033[?25h")
                 elif confirming:
-                    self._write_raw('\033[?25h')
+                    self._write_raw("\033[?25h")
                 elif spinner_active:
                     # Leave cursor on spinner row for _update_spinner
                     spinner_row = cs + len(content_rows) - 1
-                    self._write_raw(f'\033[{spinner_row};1H')
+                    self._write_raw(f"\033[{spinner_row};1H")
                 else:
                     # Position cursor after last content for streaming writes
-                    self._write_raw(
-                        f'\033[{min(cs + len(content_rows), self.rows)};1H')
+                    self._write_raw(f"\033[{min(cs + len(content_rows), self.rows)};1H")
             else:
                 # Non-main views: clear rows then render sequentially
                 for row in range(cs, self.rows + 1):
-                    self._write_raw(f'\033[{row};1H\033[2K')
-                self._write_raw(f'\033[{cs};1H')
+                    self._write_raw(f"\033[{row};1H\033[2K")
+                self._write_raw(f"\033[{cs};1H")
 
                 if self.view == "whiteboard":
                     _, wb_label = self._display_whiteboard()
-                    self._write_raw(f'  {BOLD}WHITEBOARD{RESET} {DIM}[{wb_label}] (esc to return){RESET}\n')
+                    self._write_raw(
+                        f"  {BOLD}WHITEBOARD{RESET} {DIM}[{wb_label}] (esc to return){RESET}\n"
+                    )
                     max_w = max(self.cols - 4, 20)
-                    self._write_raw(f'  {DIM}{"─" * max_w}{RESET}\n')
+                    self._write_raw(f"  {DIM}{'─' * max_w}{RESET}\n")
                     wb_lines = self._build_whiteboard_lines(max_w)
                     avail = self._wb_avail_rows()
                     max_off = self._wb_max_scroll(wb_lines)
@@ -610,25 +624,26 @@ class RenderMixin:
                     wb_end = len(wb_lines) - self.wb_scroll_offset
                     wb_start = max(wb_end - visible, 0)
                     for iline in wb_lines[wb_start:wb_end]:
-                        self._write_raw(f'{iline}\n')
+                        self._write_raw(f"{iline}\n")
                     above = wb_start
                     below = self.wb_scroll_offset
                     if above > 0 or below > 0:
                         parts = []
                         if above > 0:
-                            parts.append(f'↑ {above} above')
+                            parts.append(f"↑ {above} above")
                         if below > 0:
-                            parts.append(f'↓ {below} below')
-                        indicator = f' {DIM}{" · ".join(parts)}{RESET}'
-                        self._write_raw(f'\033[{self.rows};1H\033[2K{indicator}')
+                            parts.append(f"↓ {below} below")
+                        indicator = f" {DIM}{' · '.join(parts)}{RESET}"
+                        self._write_raw(f"\033[{self.rows};1H\033[2K{indicator}")
                 elif self.view == "detail":
                     tab = self._active_tab
                     status_badge = (
-                        f"{GREEN}● completed{RESET}" if tab.done
-                        else f"{CYAN}● running{RESET}"
+                        f"{GREEN}● completed{RESET}" if tab.done else f"{CYAN}● running{RESET}"
                     )
-                    self._write_raw(f'  {BOLD}Worker Detail{RESET}  {status_badge} {DIM}(esc to return){RESET}\n')
-                    self._write_raw(f'  {DIM}{"─" * max(self.cols - 4, 20)}{RESET}\n')
+                    self._write_raw(
+                        f"  {BOLD}Worker Detail{RESET}  {status_badge} {DIM}(esc to return){RESET}\n"
+                    )
+                    self._write_raw(f"  {DIM}{'─' * max(self.cols - 4, 20)}{RESET}\n")
                     lines = self._build_input_lines()
                     avail = self._input_avail_rows()
                     max_scroll = self._input_max_scroll()
@@ -638,38 +653,41 @@ class RenderMixin:
                     start = self._input_scroll
                     end = min(start + visible, len(lines))
                     for dline in lines[start:end]:
-                        self._write_raw(f'{dline}\n')
+                        self._write_raw(f"{dline}\n")
 
                     above = start
                     below = max(len(lines) - end, 0)
                     if above > 0 or below > 0:
                         parts = []
                         if above > 0:
-                            parts.append(f'↑ {above} above')
+                            parts.append(f"↑ {above} above")
                         if below > 0:
-                            parts.append(f'↓ {below} below')
-                        indicator = f' {DIM}{" · ".join(parts)}{RESET}'
-                        self._write_raw(f'\033[{self.rows};1H\033[2K{indicator}')
+                            parts.append(f"↓ {below} below")
+                        indicator = f" {DIM}{' · '.join(parts)}{RESET}"
+                        self._write_raw(f"\033[{self.rows};1H\033[2K{indicator}")
                 elif self.view == "help":
                     self._write_raw(HELP_TEXT)
-                    budget = getattr(self, '_budget_ref', None)
+                    budget = getattr(self, "_budget_ref", None)
                     if budget:
                         from ..budget import _fmt_tokens, _fmt_duration
                         import time as _time
+
                         elapsed = int(_time.monotonic() - budget.start_time)
                         tok_str = _fmt_tokens(budget.total_output_tokens)
-                        self._write_raw(f'\n  {BOLD}Current usage{RESET}\n\n')
-                        self._write_raw(f'    {DIM}{"elapsed":<16}{RESET}{_fmt_duration(elapsed)}\n')
-                        self._write_raw(f'    {DIM}{"output tokens":<16}{RESET}{tok_str}\n')
-                        self._write_raw(f'    {DIM}{"budget":<16}{RESET}{budget.summary_str()}\n')
+                        self._write_raw(f"\n  {BOLD}Current usage{RESET}\n\n")
+                        self._write_raw(
+                            f"    {DIM}{'elapsed':<16}{RESET}{_fmt_duration(elapsed)}\n"
+                        )
+                        self._write_raw(f"    {DIM}{'output tokens':<16}{RESET}{tok_str}\n")
+                        self._write_raw(f"    {DIM}{'budget':<16}{RESET}{budget.summary_str()}\n")
                     if self.run_params:
-                        self._write_raw(f'\n  {BOLD}Parameters{RESET}\n\n')
+                        self._write_raw(f"\n  {BOLD}Parameters{RESET}\n\n")
                         for key, val in self.run_params.items():
-                            self._write_raw(f'    {DIM}{key:<16}{RESET}{val}\n')
+                            self._write_raw(f"    {DIM}{key:<16}{RESET}{val}\n")
                 elif self.view == "step_detail":
-                    self._write_raw(f'  {BOLD}{self._step_detail_title}{RESET}')
-                    self._write_raw(f' {DIM}(esc to return){RESET}\n')
-                    self._write_raw(f'  {DIM}{"─" * max(self.cols - 4, 20)}{RESET}\n')
+                    self._write_raw(f"  {BOLD}{self._step_detail_title}{RESET}")
+                    self._write_raw(f" {DIM}(esc to return){RESET}\n")
+                    self._write_raw(f"  {DIM}{'─' * max(self.cols - 4, 20)}{RESET}\n")
                     lines = self._build_step_detail_lines()
                     avail = self._step_detail_avail_rows()
                     max_scroll = self._step_detail_max_scroll()
@@ -680,18 +698,18 @@ class RenderMixin:
                     start = self._step_detail_scroll
                     end = min(start + visible, len(lines))
                     for dline in lines[start:end]:
-                        self._write_raw(f'{dline}\n')
+                        self._write_raw(f"{dline}\n")
 
                     above = start
                     below = max(len(lines) - end, 0)
                     if above > 0 or below > 0:
                         parts = []
                         if above > 0:
-                            parts.append(f'↑ {above} above')
+                            parts.append(f"↑ {above} above")
                         if below > 0:
-                            parts.append(f'↓ {below} below')
-                        indicator = f' {DIM}{" · ".join(parts)}{RESET}'
-                        self._write_raw(f'\033[{self.rows};1H\033[2K{indicator}')
+                            parts.append(f"↓ {below} below")
+                        indicator = f" {DIM}{' · '.join(parts)}{RESET}"
+                        self._write_raw(f"\033[{self.rows};1H\033[2K{indicator}")
 
             frame = "".join(self._buf)
             self._buf = None

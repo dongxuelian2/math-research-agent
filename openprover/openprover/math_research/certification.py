@@ -113,8 +113,7 @@ class ReplayCertificationRunner:
             except ValueError:
                 continue
             raise ProjectError(
-                "Certification output must be outside the read-only "
-                f"{label} root: {protected_root}"
+                f"Certification output must be outside the read-only {label} root: {protected_root}"
             )
         self.project = ProjectStore(self.repair_root)
         self.config = load_model_config(self.config_path)
@@ -140,13 +139,17 @@ class ReplayCertificationRunner:
                     f"Authority-only replacement expected one match, found {count}: {old[:80]}"
                 )
             candidate = candidate.replace(old, replacement["new"], 1)
-            replacement_log.append({
-                "old_sha256": hashlib.sha256(old.encode("utf-8")).hexdigest(),
-                "new_sha256": hashlib.sha256(replacement["new"].encode("utf-8")).hexdigest(),
-            })
+            replacement_log.append(
+                {
+                    "old_sha256": hashlib.sha256(old.encode("utf-8")).hexdigest(),
+                    "new_sha256": hashlib.sha256(replacement["new"].encode("utf-8")).hexdigest(),
+                }
+            )
         for phrase in spec.get("forbidden_authority_phrases", []):
             if phrase.casefold() in candidate.casefold():
-                raise ProjectError(f"Forbidden authority phrase remains after normalization: {phrase}")
+                raise ProjectError(
+                    f"Forbidden authority phrase remains after normalization: {phrase}"
+                )
 
         authority_uses = list(spec.get("authority_uses", []))
         authority_manifest = {
@@ -180,9 +183,7 @@ class ReplayCertificationRunner:
                 + "; ".join(dependency_report.errors)
             )
 
-        replay_manifest = _safe_path(
-            self.repair_root, spec["replay_manifest"]
-        )
+        replay_manifest = _safe_path(self.repair_root, spec["replay_manifest"])
         replay_policy = ReplayPolicy.from_manifest(replay_manifest)
         allowed_ok, allowed_errors = replay_policy.audit_sources(
             spec.get("manifest_source_paths", [])
@@ -203,15 +204,17 @@ class ReplayCertificationRunner:
             end = int(item.get("line_end", 0))
             if end:
                 lines = text.splitlines()
-                text = "\n".join(lines[start - 1:end])
-            source_records.append({
-                "path": item["path"],
-                "root": item["root"],
-                "sha256": actual_hash,
-                "line_start": start,
-                "line_end": end or None,
-                "purpose": item["purpose"],
-            })
+                text = "\n".join(lines[start - 1 : end])
+            source_records.append(
+                {
+                    "path": item["path"],
+                    "root": item["root"],
+                    "sha256": actual_hash,
+                    "line_start": start,
+                    "line_end": end or None,
+                    "purpose": item["purpose"],
+                }
+            )
             source_texts.append(
                 f"## Source: {item['purpose']}\n\nPath: `{item['path']}`\n"
                 f"SHA-256: `{actual_hash}`\n\n{text}"
@@ -224,12 +227,14 @@ class ReplayCertificationRunner:
                 + path.read_text(encoding="utf-8").rstrip()
                 + "\n```"
             )
-            source_records.append({
-                "path": relative,
-                "root": "repair",
-                "sha256": _sha256(path),
-                "purpose": "prior repair audit state; not mathematical authority",
-            })
+            source_records.append(
+                {
+                    "path": relative,
+                    "root": "repair",
+                    "sha256": _sha256(path),
+                    "purpose": "prior repair audit state; not mathematical authority",
+                }
+            )
         leak_errors = allowed_errors + extension_errors
         leak_audit = {
             "passed": allowed_ok and extension_ok and not leak_errors,
@@ -248,14 +253,11 @@ class ReplayCertificationRunner:
         for authority_id in dependency_report.foundation_ids_used:
             item = foundations.get(authority_id)
             foundation_lines.append(
-                f"- `{authority_id}`: {item.statement}\n  Conditions: "
-                + "; ".join(item.conditions)
+                f"- `{authority_id}`: {item.statement}\n  Conditions: " + "; ".join(item.conditions)
             )
         semantic_lines = []
         for authority_id in dependency_report.semantics:
-            item = semantics.get(
-                authority_id, notation_scope=spec["notation_scope"]
-            )
+            item = semantics.get(authority_id, notation_scope=spec["notation_scope"])
             semantic_lines.append(
                 f"- `{authority_id}` ({item.authority_kind}): {item.statement}\n"
                 f"  Source: `{item.provenance['source_file']}` / "
@@ -269,9 +271,9 @@ candidate after the recorded authority-only normalization.
 
 ## Target
 
-`{target['id']}`: {target['statement']}
+`{target["id"]}`: {target["statement"]}
 
-Notation scope: `{spec['notation_scope']}`
+Notation scope: `{spec["notation_scope"]}`
 
 ## Foundations
 
@@ -299,21 +301,22 @@ Notation scope: `{spec['notation_scope']}`
         (self.output_dir / "GA1-1-candidate-v2-certified.md").write_text(
             candidate, encoding="utf-8"
         )
-        _write_json(self.output_dir / "authority_normalization.json", {
-            "source_candidate": str(candidate_path),
-            "source_candidate_sha256": candidate_hash,
-            "amended_candidate_sha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
-            "replacement_log": replacement_log,
-            "mathematical_proof_search_performed": False,
-        })
+        _write_json(
+            self.output_dir / "authority_normalization.json",
+            {
+                "source_candidate": str(candidate_path),
+                "source_candidate_sha256": candidate_hash,
+                "amended_candidate_sha256": hashlib.sha256(candidate.encode("utf-8")).hexdigest(),
+                "replacement_log": replacement_log,
+                "mathematical_proof_search_performed": False,
+            },
+        )
         _write_json(
             self.output_dir / "dependency_report.json",
             dependency_report.to_dict(),
         )
         _write_json(self.output_dir / "replay_leak_audit.json", leak_audit)
-        (self.output_dir / "CERTIFICATION_CONTEXT.md").write_text(
-            context, encoding="utf-8"
-        )
+        (self.output_dir / "CERTIFICATION_CONTEXT.md").write_text(context, encoding="utf-8")
         return PreparedCertification(
             candidate=candidate,
             candidate_hash=candidate_hash,
@@ -332,15 +335,11 @@ Notation scope: `{spec['notation_scope']}`
             audits = self._run_specialist_audits(prepared)
             final = self._run_final_audit(prepared, audits)
             audits["final_proof_auditor"] = final
-            gate = self._build_gate(
-                prepared, worker_results=worker_results, audits=audits
-            )
+            gate = self._build_gate(prepared, worker_results=worker_results, audits=audits)
             secondary = None
             if gate.passed:
                 secondary = self._run_secondary_reconstruction(prepared, audits)
-                normalized_secondary = normalize_audit_result(
-                    "secondary_reconstruction", secondary
-                )
+                normalized_secondary = normalize_audit_result("secondary_reconstruction", secondary)
                 if normalized_secondary.execution_status == "ERROR":
                     gate.execution_errors.append(
                         "secondary_reconstruction: "
@@ -386,8 +385,14 @@ Notation scope: `{spec['notation_scope']}`
                 client.cleanup()
 
     def _call(
-        self, *, role_name: str, role_config: dict, label: str,
-        system: str, prompt: str, output_path: Path,
+        self,
+        *,
+        role_name: str,
+        role_config: dict,
+        label: str,
+        system: str,
+        prompt: str,
+        output_path: Path,
     ) -> dict:
         routing_role = role_name
         if role_name.startswith("worker_verifier"):
@@ -410,9 +415,7 @@ Notation scope: `{spec['notation_scope']}`
             response_schema=AuditResultSchema,
         )
         try:
-            return parse_structured_response(
-                response, AuditResultSchema
-            ).model_dump(mode="python")
+            return parse_structured_response(response, AuditResultSchema).model_dump(mode="python")
         except SchemaError as exc:
             raise ProjectError(f"{label} returned invalid structured output: {exc}") from exc
 
@@ -442,15 +445,17 @@ Notation scope: `{spec['notation_scope']}`
 
 {prepared.candidate}
 """
-                futures[pool.submit(
-                    self._safe_call,
-                    role_name=label,
-                    role_config=role,
-                    label=f"certification_{label}",
-                    system="You are a bounded Worker Verifier, not a proof-search agent.",
-                    prompt=prompt,
-                    output_path=self.output_dir / "worker_verifiers" / f"{label}_call.md",
-                )] = label
+                futures[
+                    pool.submit(
+                        self._safe_call,
+                        role_name=label,
+                        role_config=role,
+                        label=f"certification_{label}",
+                        system="You are a bounded Worker Verifier, not a proof-search agent.",
+                        prompt=prompt,
+                        output_path=self.output_dir / "worker_verifiers" / f"{label}_call.md",
+                    )
+                ] = label
             for future in as_completed(futures):
                 label = futures[future]
                 results[label] = future.result()
@@ -474,18 +479,18 @@ Notation scope: `{spec['notation_scope']}`
             futures = {}
             for role_name in AUDITOR_ROLES:
                 role = resolve_role_config(self.config, role_name)
-                system, prompt = auditor_prompt(
-                    role_name, prepared.context, prepared.candidate
-                )
-                futures[pool.submit(
-                    self._safe_call,
-                    role_name=role_name,
-                    role_config=role,
-                    label=f"audit_{role_name}",
-                    system=system,
-                    prompt=prompt,
-                    output_path=self.output_dir / "audits" / f"{role_name}_call.md",
-                )] = role_name
+                system, prompt = auditor_prompt(role_name, prepared.context, prepared.candidate)
+                futures[
+                    pool.submit(
+                        self._safe_call,
+                        role_name=role_name,
+                        role_config=role,
+                        label=f"audit_{role_name}",
+                        system=system,
+                        prompt=prompt,
+                        output_path=self.output_dir / "audits" / f"{role_name}_call.md",
+                    )
+                ] = role_name
             for future in as_completed(futures):
                 role_name = futures[future]
                 audits[role_name] = future.result()
@@ -496,9 +501,7 @@ Notation scope: `{spec['notation_scope']}`
         return audits
 
     def _run_final_audit(self, prepared: PreparedCertification, audits: dict) -> dict:
-        system, prompt = final_auditor_prompt(
-            prepared.context, prepared.candidate, audits
-        )
+        system, prompt = final_auditor_prompt(prepared.context, prepared.candidate, audits)
         result = self._safe_call(
             role_name="final_proof_auditor",
             role_config=resolve_role_config(self.config, "final_proof_auditor"),
@@ -507,23 +510,20 @@ Notation scope: `{spec['notation_scope']}`
             prompt=prompt,
             output_path=self.output_dir / "audits" / "final_proof_auditor_call.md",
         )
-        _write_json(
-            self.output_dir / "audits" / "final_proof_auditor.json", result
-        )
+        _write_json(self.output_dir / "audits" / "final_proof_auditor.json", result)
         return result
 
     def _build_gate(
-        self, prepared: PreparedCertification, *, worker_results: dict,
+        self,
+        prepared: PreparedCertification,
+        *,
+        worker_results: dict,
         audits: dict,
     ) -> AuditGate:
         normalized_workers = {
-            name: normalize_audit_result(name, value)
-            for name, value in worker_results.items()
+            name: normalize_audit_result(name, value) for name, value in worker_results.items()
         }
-        normalized = {
-            name: normalize_audit_result(name, value)
-            for name, value in audits.items()
-        }
+        normalized = {name: normalize_audit_result(name, value) for name, value in audits.items()}
         final = normalized["final_proof_auditor"]
         criteria = final.criteria
         failure_reasons = []
@@ -531,18 +531,12 @@ Notation scope: `{spec['notation_scope']}`
         inconclusive = []
         for name, result in {**normalized_workers, **normalized}.items():
             if result.execution_status == "ERROR":
-                execution_errors.append(
-                    f"{name}: {result.execution_error or 'execution failed'}"
-                )
+                execution_errors.append(f"{name}: {result.execution_error or 'execution failed'}")
             elif result.domain_verdict == "INCONCLUSIVE":
                 inconclusive.append(name)
             elif result.domain_verdict == "FAIL":
-                failure_reasons.extend(
-                    result.failure_reasons or [f"{name} returned FAIL"]
-                )
-        specialists_pass = all(
-            normalized[role].passed for role in AUDITOR_ROLES
-        )
+                failure_reasons.extend(result.failure_reasons or [f"{name} returned FAIL"])
+        specialists_pass = all(normalized[role].passed for role in AUDITOR_ROLES)
         workers_pass = all(result.passed for result in normalized_workers.values())
         return AuditGate(
             forward_implication=bool(criteria.get("forward_implication")),
@@ -560,14 +554,10 @@ Notation scope: `{spec['notation_scope']}`
                 and normalized["counterexample_hunter"].passed
             ),
             auditors_pass=(
-                bool(criteria.get("auditors_pass"))
-                and specialists_pass
-                and workers_pass
+                bool(criteria.get("auditors_pass")) and specialists_pass and workers_pass
             ),
             final_auditor_pass=final.passed,
-            computational_evidence_separated=bool(
-                criteria.get("computational_evidence_separated")
-            ),
+            computational_evidence_separated=bool(criteria.get("computational_evidence_separated")),
             failure_reasons=failure_reasons,
             execution_errors=execution_errors,
             inconclusive_audits=inconclusive,
@@ -575,7 +565,9 @@ Notation scope: `{spec['notation_scope']}`
         )
 
     def _run_secondary_reconstruction(
-        self, prepared: PreparedCertification, audits: dict,
+        self,
+        prepared: PreparedCertification,
+        audits: dict,
     ) -> dict:
         prompt = f"""Independently reconstruct the theorem statement, the
 G_prim/h=1 semantic routing, the exhaustive E<=4/E>=5 split, and both
@@ -602,9 +594,7 @@ open a new proof route.
             prompt=prompt,
             output_path=self.output_dir / "secondary" / "reconstruction_call.md",
         )
-        _write_json(
-            self.output_dir / "secondary" / "reconstruction.json", result
-        )
+        _write_json(self.output_dir / "secondary" / "reconstruction.json", result)
         return result
 
     def _write_summary(self, result: dict) -> None:
@@ -634,9 +624,7 @@ open a new proof route.
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run a bounded, planner-free replay certification"
-    )
+    parser = argparse.ArgumentParser(description="Run a bounded, planner-free replay certification")
     parser.add_argument("--spec", required=True)
     parser.add_argument("--repair-root", required=True)
     parser.add_argument("--source-root", required=True)

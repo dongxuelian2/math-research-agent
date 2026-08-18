@@ -123,6 +123,9 @@ the Web UI are separate modules.
 
 ```bash
 cd openprover
+uv sync --extra dev
+uv run ruff format --check .
+uv run ruff check .
 uv run pytest -q
 ```
 

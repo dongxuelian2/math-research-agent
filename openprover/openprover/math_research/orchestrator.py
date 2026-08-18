@@ -5,22 +5,14 @@ from __future__ import annotations
 import copy
 import json
 import os
-import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-from openprover.budget import Budget
-from openprover.prover import Prover
-from openprover.tui import HeadlessTUI
 
-from .audit_prompts import AUDITOR_ROLES, auditor_prompt, final_auditor_prompt
-from .audit_protocol import AuditResult, normalize_audit_result, parse_audit_response
 from .campaign import (
     FailureMap,
-    PreSubmitGate,
     ReplayPolicy,
     classify_provider_exception,
 )
@@ -38,19 +30,16 @@ from .providers import (
 from .retrieval import ContextBuilder
 from .routing import ModelRouter, RoutedLLMClient
 from .schemas import (
-    AuditResultSchema,
     PipelineResultSchema,
     SchemaError,
     parse_structured_response,
 )
 from .scheduler import (
-    RoleScheduler,
     StopController,
     StrategyFingerprint,
     StrategyFingerprintStore,
 )
 from .state_machine import AuditGate
-from .trust_kernel import DependencyAuthorityResolver, TrustKernel
 
 
 PHASES = ("CREATED", "CONTEXT_READY", "CANDIDATE_READY", "AUDITS_READY", "COMPLETE")
@@ -88,9 +77,14 @@ def _api_request_count(client: object | None) -> int:
     return int(getattr(client, "request_count", 0))
 
 
-def build_run_preview(project: ProjectStore, target_id: str, *,
-                      config_path: str | Path, worker_count: int = 3,
-                      expand_context: bool = False) -> dict:
+def build_run_preview(
+    project: ProjectStore,
+    target_id: str,
+    *,
+    config_path: str | Path,
+    worker_count: int = 3,
+    expand_context: bool = False,
+) -> dict:
     """Build a read-only dry-run report without creating a run or client."""
     if worker_count < 1:
         raise ProjectError("worker_count must be positive")
@@ -123,18 +117,26 @@ def build_run_preview(project: ProjectStore, target_id: str, *,
         assignments[role_name] = {
             key: role[key]
             for key in (
-                "provider", "model", "reasoning_effort", "timeout_seconds",
-                "max_retries", "max_output_tokens", "answer_reserve",
-                "sandbox", "executable",
+                "provider",
+                "model",
+                "reasoning_effort",
+                "timeout_seconds",
+                "max_retries",
+                "max_output_tokens",
+                "answer_reserve",
+                "sandbox",
+                "executable",
             )
             if key in role
         }
-        assignments[role_name].update({
-            "default_tier": router.default_tier(role_name),
-            "resolved_tier": route.tier,
-            "fallback": route.fallback,
-            "fallback_reason": route.fallback_reason,
-        })
+        assignments[role_name].update(
+            {
+                "default_tier": router.default_tier(role_name),
+                "resolved_tier": route.tier,
+                "fallback": route.fallback,
+                "fallback_reason": route.fallback_reason,
+            }
+        )
         if provider == "gemini":
             credentials[role_name] = {
                 "environment_variable": "GEMINI_API_KEY",
@@ -146,7 +148,9 @@ def build_run_preview(project: ProjectStore, target_id: str, *,
                     "GOOGLE_CLOUD_PROJECT",
                     "GOOGLE_CLOUD_ACCESS_TOKEN",
                 ],
-                "project_configured": bool(role.get("project") or os.environ.get("GOOGLE_CLOUD_PROJECT")),
+                "project_configured": bool(
+                    role.get("project") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+                ),
                 "access_token_configured": bool(
                     role.get("access_token") or os.environ.get("GOOGLE_CLOUD_ACCESS_TOKEN")
                 ),
@@ -165,12 +169,8 @@ def build_run_preview(project: ProjectStore, target_id: str, *,
         "isolation": bool(config.get("isolation", True)),
         "context": {
             "expanded": expand_context,
-            "allowed_dependencies": [
-                item["id"] for item in package.data["allowed_dependencies"]
-            ],
-            "blocked_dependencies": [
-                item["id"] for item in package.data["blocked_dependencies"]
-            ],
+            "allowed_dependencies": [item["id"] for item in package.data["allowed_dependencies"]],
+            "blocked_dependencies": [item["id"] for item in package.data["blocked_dependencies"]],
             "dependency_cycles": package.data["dependency_cycles"],
             "source_count": len(package.data["sources"]),
             "failed_route_count": len(package.data["failed_routes"]),
@@ -185,25 +185,32 @@ def build_run_preview(project: ProjectStore, target_id: str, *,
 class ResearchOrchestrator:
     """Drive a durable, resumable project run around the upstream engine."""
 
-    def __init__(self, project: ProjectStore, target_id: str, *,
-                 config_path: str | Path, worker_count: int = 3,
-                 dry_run: bool = False, resume: str | Path | None = None,
-                 expand_context: bool = False,
-                 run_id: str | None = None,
-                 campaign_id: str | None = None,
-                 parent_run_id: str | None = None,
-                 repair_cycle: int = 0,
-                 hard_submit_gate: bool = False,
-                 replay_policy: ReplayPolicy | None = None,
-                 infrastructure_retries: int = 0,
-                 budget_limit_seconds: int | None = None,
-                 initial_worker_count: int | None = None,
-                 role_scheduling: bool = False,
-                 secondary_verification: bool = False,
-                 stop_controller: StopController | None = None,
-                 campaign_routing_override: dict | None = None,
-                 pipeline_state: dict | None = None,
-                 pipeline_handlers: dict | None = None):
+    def __init__(
+        self,
+        project: ProjectStore,
+        target_id: str,
+        *,
+        config_path: str | Path,
+        worker_count: int = 3,
+        dry_run: bool = False,
+        resume: str | Path | None = None,
+        expand_context: bool = False,
+        run_id: str | None = None,
+        campaign_id: str | None = None,
+        parent_run_id: str | None = None,
+        repair_cycle: int = 0,
+        hard_submit_gate: bool = False,
+        replay_policy: ReplayPolicy | None = None,
+        infrastructure_retries: int = 0,
+        budget_limit_seconds: int | None = None,
+        initial_worker_count: int | None = None,
+        role_scheduling: bool = False,
+        secondary_verification: bool = False,
+        stop_controller: StopController | None = None,
+        campaign_routing_override: dict | None = None,
+        pipeline_state: dict | None = None,
+        pipeline_handlers: dict | None = None,
+    ):
         if worker_count < 1:
             raise ProjectError("worker_count must be positive")
         self.project = project
@@ -300,7 +307,9 @@ class ResearchOrchestrator:
             try:
                 candidate.relative_to(runs_dir.resolve())
             except ValueError as exc:
-                raise ProjectError("Resume directory must be inside the project's runs directory") from exc
+                raise ProjectError(
+                    "Resume directory must be inside the project's runs directory"
+                ) from exc
             if not candidate.is_dir():
                 raise ProjectError(f"Resume directory not found: {candidate}")
             return candidate
@@ -350,9 +359,7 @@ class ResearchOrchestrator:
             "parent_run_id": self.parent_run_id,
             "repair_cycle": self.repair_cycle,
             "hard_submit_gate": self.hard_submit_gate,
-            "replay_policy_hash": (
-                self.replay_policy.policy_hash if self.replay_policy else None
-            ),
+            "replay_policy_hash": (self.replay_policy.policy_hash if self.replay_policy else None),
             "budget_limit_seconds": self.budget_limit_seconds,
             "initial_worker_count": self.initial_worker_count,
             "role_scheduling": self.role_scheduling,
@@ -391,11 +398,9 @@ class ResearchOrchestrator:
         ):
             from .scholarly import FullTextRetriever, OpenAlexProvider, ScholarlySearchAdapter
 
-            scholarly_adapter = ScholarlySearchAdapter([
-                OpenAlexProvider(
-                    cache_dir=self.run_dir / "literature" / "scholarly-cache"
-                )
-            ])
+            scholarly_adapter = ScholarlySearchAdapter(
+                [OpenAlexProvider(cache_dir=self.run_dir / "literature" / "scholarly-cache")]
+            )
             if literature_config.get("full_text_retrieval", False):
                 document_retriever = FullTextRetriever(
                     self.run_dir / "literature" / "fulltext-cache"
@@ -427,7 +432,11 @@ class ResearchOrchestrator:
         )
 
     def _pipeline_llm_handler(
-        self, task: dict, context, *, role: str,
+        self,
+        task: dict,
+        context,
+        *,
+        role: str,
         prompt_payload: dict | None = None,
         system_prompt: str | None = None,
         minimum_tier: str | None = None,
@@ -447,12 +456,14 @@ class ResearchOrchestrator:
             working_dir=self.run_dir / "gemini" / "pipeline" / task["task_id"],
         )
         context.set_handle(client)
-        prompt = (
-            f"[Worker role: {role}]\n[Obligation ID: {task['obligation_id']}]\n"
-            + json.dumps(prompt_payload or {
+        prompt = f"[Worker role: {role}]\n[Obligation ID: {task['obligation_id']}]\n" + json.dumps(
+            prompt_payload
+            or {
                 "target_statement": obligation.get("target_statement"),
                 "task": task,
-            }, ensure_ascii=False, indent=2)
+            },
+            ensure_ascii=False,
+            indent=2,
         )
         try:
             response = client.call(
@@ -465,13 +476,11 @@ class ResearchOrchestrator:
             if context.cancel_event.is_set():
                 raise RuntimeError("task-scoped cancellation requested")
             try:
-                value = parse_structured_response(
-                    response, PipelineResultSchema
-                ).model_dump(mode="python")
+                value = parse_structured_response(response, PipelineResultSchema).model_dump(
+                    mode="python"
+                )
             except SchemaError as exc:
-                raise ProjectError(
-                    f"{role} returned invalid structured output: {exc}"
-                ) from exc
+                raise ProjectError(f"{role} returned invalid structured output: {exc}") from exc
             value.setdefault("routing", response.get("routing", {}))
             return value
         finally:
@@ -514,31 +523,57 @@ class ResearchOrchestrator:
             "authorized_local_lemmas": app_context["authorized_local_lemmas"],
             "assumption_snapshot_hash": app_context["assumption_snapshot_hash"],
             "verified_source_theorem": {
-                key: authority.get(key) for key in (
-                    "authority_id", "theorem_number", "page_or_section",
-                    "exact_statement", "hypotheses", "notation_map", "statement_hash",
+                key: authority.get(key)
+                for key in (
+                    "authority_id",
+                    "theorem_number",
+                    "page_or_section",
+                    "exact_statement",
+                    "hypotheses",
+                    "notation_map",
+                    "statement_hash",
                 )
             },
             "required_output": {
                 "external_hypotheses": ["string"],
                 "notation_map": {"paper_symbol": "project_symbol"},
-                "hypothesis_mapping": [{
-                    "external_hypothesis": "string", "satisfied_by": "string",
-                    "status": "PROVED|NOT_APPLICABLE|UNRESOLVED|FAILED", "evidence": ["string"],
-                }],
+                "hypothesis_mapping": [
+                    {
+                        "external_hypothesis": "string",
+                        "satisfied_by": "string",
+                        "status": "PROVED|NOT_APPLICABLE|UNRESOLVED|FAILED",
+                        "evidence": ["string"],
+                    }
+                ],
                 "conclusion_mapping": {
-                    "external_conclusion": "string", "target": "string",
-                    "bridge_steps": ["string"], "status": "PROVED|UNRESOLVED|FAILED",
+                    "external_conclusion": "string",
+                    "target": "string",
+                    "bridge_steps": ["string"],
+                    "status": "PROVED|UNRESOLVED|FAILED",
                 },
-                "exception_analysis": {"excluded_cases": ["string"], "analysis": "string", "status": "PROVED|NOT_APPLICABLE|UNRESOLVED|FAILED"},
-                "direction_analysis": {"direction": "external conclusion => target", "analysis": "string", "status": "PROVED|UNRESOLVED|FAILED"},
-                "normalization_analysis": {"analysis": "string", "status": "PROVED|UNRESOLVED|FAILED"},
+                "exception_analysis": {
+                    "excluded_cases": ["string"],
+                    "analysis": "string",
+                    "status": "PROVED|NOT_APPLICABLE|UNRESOLVED|FAILED",
+                },
+                "direction_analysis": {
+                    "direction": "external conclusion => target",
+                    "analysis": "string",
+                    "status": "PROVED|UNRESOLVED|FAILED",
+                },
+                "normalization_analysis": {
+                    "analysis": "string",
+                    "status": "PROVED|UNRESOLVED|FAILED",
+                },
                 "required_local_lemmas": ["authorized lemma id only"],
                 "unresolved_conditions": ["string"],
             },
         }
         value = self._pipeline_llm_handler(
-            task, context, role="reconstruction", prompt_payload=payload,
+            task,
+            context,
+            role="reconstruction",
+            prompt_payload=payload,
             minimum_tier="research",
             system_prompt=(
                 "Construct, but do not approve, an external-theorem applicability mapping. "
@@ -562,8 +597,12 @@ class ResearchOrchestrator:
             "current_target": app_context["current_target"],
             "current_assumptions": app_context["current_assumptions"],
             "external_statement": authority["exact_statement"],
-            "external_hypotheses": value.get("external_hypotheses") or authority.get("hypotheses") or [],
-            "notation_map": value.get("notation_map") if isinstance(value.get("notation_map"), dict) else {},
+            "external_hypotheses": value.get("external_hypotheses")
+            or authority.get("hypotheses")
+            or [],
+            "notation_map": value.get("notation_map")
+            if isinstance(value.get("notation_map"), dict)
+            else {},
             "hypothesis_mapping": value.get("hypothesis_mapping"),
             "conclusion_mapping": value.get("conclusion_mapping"),
             "exception_analysis": value.get("exception_analysis"),
@@ -606,13 +645,21 @@ class ResearchOrchestrator:
             "verified_source_theorem": authority,
             "reconstruction_artifact": record,
             "allowed_verdicts": [
-                "APPLICABLE", "NOT_APPLICABLE", "UNCERTAIN",
-                "INCOMPLETE_RECONSTRUCTION", "WRONG_DIRECTION",
-                "HYPOTHESIS_MISMATCH", "EXCEPTION_MISMATCH", "UNAUTHORIZED_DEPENDENCY",
+                "APPLICABLE",
+                "NOT_APPLICABLE",
+                "UNCERTAIN",
+                "INCOMPLETE_RECONSTRUCTION",
+                "WRONG_DIRECTION",
+                "HYPOTHESIS_MISMATCH",
+                "EXCEPTION_MISMATCH",
+                "UNAUTHORIZED_DEPENDENCY",
             ],
         }
         value = self._pipeline_llm_handler(
-            task, context, role="theorem_verifier", prompt_payload=payload,
+            task,
+            context,
+            role="theorem_verifier",
+            prompt_payload=payload,
             minimum_tier="research",
             system_prompt=(
                 "Independently verify the supplied external-theorem applicability reconstruction. "
@@ -637,8 +684,11 @@ class ResearchOrchestrator:
             "applicability_status": promoted["status"],
             "applicability_id": app_id,
             "assumption_snapshot_hash": promoted["assumption_snapshot_hash"],
-            "applicability_verification_errors": promoted.get("applicability_verification_errors", []),
-            "deterministic_applicability_promotion": promoted["status"] == "APPLICABLE_EXTERNAL_AUTHORITY",
+            "applicability_verification_errors": promoted.get(
+                "applicability_verification_errors", []
+            ),
+            "deterministic_applicability_promotion": promoted["status"]
+            == "APPLICABLE_EXTERNAL_AUTHORITY",
             "result_artifact": str(registry.root / promoted["verifier_artifact_path"]),
             "routing": routing,
         }
@@ -647,19 +697,23 @@ class ResearchOrchestrator:
         if self.pipeline_runtime is None or self._pipeline_monitor_thread is not None:
             return
         self._pipeline_monitor_stop.clear()
-        self.pipeline_runtime.start_window({
-            "proof": self.worker_count if include_proof else 0,
-            "literature": self.worker_count,
-            "verification": self.worker_count,
-        })
+        self.pipeline_runtime.start_window(
+            {
+                "proof": self.worker_count if include_proof else 0,
+                "literature": self.worker_count,
+                "verification": self.worker_count,
+            }
+        )
 
         def monitor() -> None:
             while not self._pipeline_monitor_stop.is_set():
-                self.pipeline_runtime.start_window({
-                    "proof": self.worker_count if include_proof else 0,
-                    "literature": self.worker_count,
-                    "verification": self.worker_count,
-                })
+                self.pipeline_runtime.start_window(
+                    {
+                        "proof": self.worker_count if include_proof else 0,
+                        "literature": self.worker_count,
+                        "verification": self.worker_count,
+                    }
+                )
                 self.pipeline_runtime.poll()
                 self._pipeline_monitor_stop.wait(0.05)
 
@@ -683,11 +737,13 @@ class ResearchOrchestrator:
         if self.pipeline_runtime is None:
             return
         for _ in range(max_rounds):
-            self.pipeline_runtime.start_window({
-                "proof": 0,
-                "literature": self.worker_count,
-                "verification": self.worker_count,
-            })
+            self.pipeline_runtime.start_window(
+                {
+                    "proof": 0,
+                    "literature": self.worker_count,
+                    "verification": self.worker_count,
+                }
+            )
             completed = self.pipeline_runtime.poll()
             snapshot = self.pipeline_scheduler.snapshot()
             ready = any(
@@ -739,9 +795,7 @@ class ResearchOrchestrator:
             self.state["last_updated"] = utc_now()
             _write_json(self.state_path, self.state)
         if self.stop_controller is not None and self.stop_controller.requested():
-            return self._graceful_stop_checkpoint(
-                self.state.get("phase", "CREATED")
-            )
+            return self._graceful_stop_checkpoint(self.state.get("phase", "CREATED"))
         if self.target["status"] == "UNCLASSIFIED":
             raise ProjectError("UNCLASSIFIED imports require human classification before research")
         if self.target["status"] == "FROZEN":
@@ -749,7 +803,9 @@ class ResearchOrchestrator:
         if self.target["status"] == "PROVED":
             reaudit = self.state.get("reaudit") or self.project.consume_reaudit_request()
             if not reaudit:
-                raise ProjectError("Target is already PROVED; request re-audit explicitly instead of rerunning research")
+                raise ProjectError(
+                    "Target is already PROVED; request re-audit explicitly instead of rerunning research"
+                )
             self.state["reaudit"] = True
             self.target = self.project.transition(
                 self.target_id,
@@ -770,7 +826,8 @@ class ResearchOrchestrator:
 
         if not self._phase_at_least("CONTEXT_READY"):
             package = ContextBuilder(self.project).build(
-                self.target_id, expand=self.expand_context,
+                self.target_id,
+                expand=self.expand_context,
             )
             ContextBuilder.write(package, self.run_dir / "context")
             if self.hard_submit_gate:
@@ -806,7 +863,8 @@ class ResearchOrchestrator:
                     gate_path = self.run_dir / "pre_submit_gate.json"
                     pre_submit = (
                         json.loads(gate_path.read_text(encoding="utf-8"))
-                        if gate_path.exists() else {}
+                        if gate_path.exists()
+                        else {}
                     )
                     self._checkpoint(
                         CHECKPOINT_PHASE,
@@ -871,11 +929,16 @@ class ResearchOrchestrator:
                 gate=gate.to_dict(),
             )
         else:
-            gate_data = json.loads((self.run_dir / "audits" / "gate.json").read_text(encoding="utf-8"))
-            gate = AuditGate(**{
-                key: value for key, value in gate_data.items()
-                if key in AuditGate.__dataclass_fields__
-            })
+            gate_data = json.loads(
+                (self.run_dir / "audits" / "gate.json").read_text(encoding="utf-8")
+            )
+            gate = AuditGate(
+                **{
+                    key: value
+                    for key, value in gate_data.items()
+                    if key in AuditGate.__dataclass_fields__
+                }
+            )
         if stop_after == "audits":
             return self.state
 
@@ -890,16 +953,12 @@ class ResearchOrchestrator:
                 gate.execution_errors.extend(secondary["execution_errors"])
                 gate.inconclusive_audits.extend(secondary["inconclusive_checks"])
                 gate.final_auditor_pass = False
-                _write_json(
-                    self.run_dir / "audits" / "gate.json", gate.to_dict()
-                )
+                _write_json(self.run_dir / "audits" / "gate.json", gate.to_dict())
             _write_json(self.state_path, self.state)
 
         verification_task_id = self.state.get("active_verification_task_id")
         if verification_task_id:
-            task = self.pipeline_scheduler.snapshot()["tasks"].get(
-                verification_task_id, {}
-            )
+            task = self.pipeline_scheduler.snapshot()["tasks"].get(verification_task_id, {})
             if task.get("status") == "ACTIVE":
                 self.pipeline_scheduler.complete_task(
                     verification_task_id,
@@ -921,11 +980,13 @@ class ResearchOrchestrator:
             task = snapshot["tasks"].get(task_id, {})
             if task.get("obligation_id") == self.target_id:
                 return task_id
-        dispatched = self.pipeline_scheduler.dispatch_window({
-            "proof": 1 if pipeline == "proof" else 0,
-            "literature": 1 if pipeline == "literature" else 0,
-            "verification": 1 if pipeline == "verification" else 0,
-        })
+        dispatched = self.pipeline_scheduler.dispatch_window(
+            {
+                "proof": 1 if pipeline == "proof" else 0,
+                "literature": 1 if pipeline == "literature" else 0,
+                "verification": 1 if pipeline == "verification" else 0,
+            }
+        )
         for task in dispatched[pipeline]:
             if task.get("obligation_id") == self.target_id:
                 return task["task_id"]
@@ -947,7 +1008,7 @@ class ResearchOrchestrator:
 
     def _append_hard_gate_contract(self) -> None:
         context_path = self.run_dir / "context" / "CONTEXT.md"
-        contract = r'''
+        contract = r"""
 
 ## Code-level pre-submit contract
 
@@ -977,7 +1038,7 @@ machine-readable authority manifest of this exact form:
 Any unresolved hard blocker, missing/invalid authority, dependency cycle,
 blocked project dependency, or replay source policy violation forbids
 submission regardless of remaining time.
-'''
+"""
         context_path.write_text(
             context_path.read_text(encoding="utf-8") + contract,
             encoding="utf-8",
@@ -1007,17 +1068,18 @@ submission regardless of remaining time.
         verified_lemmas_path = parent_dir / "verified_local_lemmas.json"
         verified_lemmas = (
             json.loads(verified_lemmas_path.read_text(encoding="utf-8"))
-            if verified_lemmas_path.exists() else []
+            if verified_lemmas_path.exists()
+            else []
         )
-        frozen_strategies = StrategyFingerprintStore(
-            self.project
-        ).frozen_for_theorem(self.target_id)
+        frozen_strategies = StrategyFingerprintStore(self.project).frozen_for_theorem(
+            self.target_id
+        )
         changed_dependencies = []
         repair_record = self.run_dir / "dependency_repair.json"
         if repair_record.exists():
-            changed_dependencies = json.loads(
-                repair_record.read_text(encoding="utf-8")
-            ).get("materialized_authorities", [])
+            changed_dependencies = json.loads(repair_record.read_text(encoding="utf-8")).get(
+                "materialized_authorities", []
+            )
         repair_text = f"""# Bounded Repair Context
 
 This is repair cycle `{self.repair_cycle}` for campaign `{self.campaign_id}`.
@@ -1025,7 +1087,7 @@ Do not reopen the whole theorem. Repair only the obligations in the failure map.
 
 ## Theorem statement
 
-{self.target['statement']}
+{self.target["statement"]}
 
 ## Previous candidate
 
@@ -1056,9 +1118,7 @@ Use only the failed routes already present in the normal context package.
 Do not retry a frozen strategy unless a new dependency, a new lemma, or a
 changed failure condition is explicitly recorded.
 """
-        (self.run_dir / "context" / "REPAIR_CONTEXT.md").write_text(
-            repair_text, encoding="utf-8"
-        )
+        (self.run_dir / "context" / "REPAIR_CONTEXT.md").write_text(repair_text, encoding="utf-8")
 
     def _run_audits_with_retry(self) -> tuple[dict[str, dict], AuditGate]:
         return self.audit_coordinator.run_with_retry()
@@ -1077,7 +1137,9 @@ changed failure condition is explicitly recorded.
             report_path = self._write_resolution_report(gate)
             theorem = self.project.load_theorem(self.target_id)
             theorem["proof_file"] = report_path.relative_to(self.project.root).as_posix()
-            theorem["proof_type"] = "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
+            theorem["proof_type"] = (
+                "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
+            )
             self.project.update_theorem(theorem)
             self.target = self.project.transition(
                 self.target_id,
@@ -1106,10 +1168,11 @@ changed failure condition is explicitly recorded.
             audits_dir = self.run_dir / "audits"
             if audits_dir.exists():
                 for path in sorted(audits_dir.glob("*.json")):
-                    if path.name not in {"gate.json", "dependency_report.json"} and not path.name.startswith("infrastructure_retry_"):
-                        audit_results[path.stem] = json.loads(
-                            path.read_text(encoding="utf-8")
-                        )
+                    if path.name not in {
+                        "gate.json",
+                        "dependency_report.json",
+                    } and not path.name.startswith("infrastructure_retry_"):
+                        audit_results[path.stem] = json.loads(path.read_text(encoding="utf-8"))
             failure_map = FailureMap.from_gate(
                 run_id=self.run_dir.name,
                 target_id=self.target_id,
@@ -1130,9 +1193,7 @@ changed failure condition is explicitly recorded.
                         key_dependency=item.authority_expected,
                         failure_point=item.exact_rejected_claim,
                     )
-                    fingerprint_records.append(
-                        fingerprint_store.record_failure(strategy)
-                    )
+                    fingerprint_records.append(fingerprint_store.record_failure(strategy))
                 _write_json(
                     self.run_dir / "strategy_fingerprints.json",
                     {
@@ -1206,7 +1267,9 @@ changed failure condition is explicitly recorded.
         )
 
     def _write_resolution_report(self, gate: AuditGate) -> Path:
-        context_data = json.loads((self.run_dir / "context" / "context.json").read_text(encoding="utf-8"))
+        context_data = json.loads(
+            (self.run_dir / "context" / "context.json").read_text(encoding="utf-8")
+        )
         candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(encoding="utf-8")
         audits = {}
         for path in sorted((self.run_dir / "audits").glob("*.json")):
@@ -1214,9 +1277,13 @@ changed failure condition is explicitly recorded.
                 audits[path.stem] = json.loads(path.read_text(encoding="utf-8"))
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         report_path = self.project.root / "reports" / f"{self.target_id}-resolution-{timestamp}.md"
-        allowed = "\n".join(
-            f"- `{item['id']}`: {item['title']}" for item in context_data["allowed_dependencies"]
-        ) or "- (none)"
+        allowed = (
+            "\n".join(
+                f"- `{item['id']}`: {item['title']}"
+                for item in context_data["allowed_dependencies"]
+            )
+            or "- (none)"
+        )
         frozen = "\n".join(f"- {item}" for item in context_data["frozen_branches"]) or "- (none)"
         audit_lines = []
         for name, audit in audits.items():
@@ -1225,7 +1292,7 @@ changed failure condition is explicitly recorded.
                 f"/ {audit.get('execution_status', 'OK')} — "
                 f"{audit.get('summary') or '; '.join(audit.get('findings', [])) or 'No summary'}"
             )
-        report = f"""# {self.target['title']} — Resolution
+        report = f"""# {self.target["title"]} — Resolution
 
 ## Scope
 
@@ -1241,7 +1308,7 @@ Target `{self.target_id}` only; generated by run `{self.run_dir.name}`.
 
 ## Statement
 
-{self.target['statement']}
+{self.target["statement"]}
 
 ## Definitions
 
@@ -1257,7 +1324,7 @@ Only the PROVED dependencies listed above may be invoked.
 
 ## Converse / reconstruction
 
-Audited according to claim type `{self.target.get('claim_type', 'implication')}`.
+Audited according to claim type `{self.target.get("claim_type", "implication")}`.
 
 ## Boundary cases
 

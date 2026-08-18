@@ -5,9 +5,14 @@ research product. The supported public entrypoint is the math-research module;
 the root [`README.md`](../README.md) documents the one-command Bash bootstrap.
 
 ```bash
-uv sync --extra test
+uv sync --extra dev
 uv run python -m openprover.math_research demo --project ../projects/observatory-demo
 uv run python -m openprover.math_research observatory --project ../projects/observatory-demo
+
+# quality checks
+uv run ruff format --check .
+uv run ruff check .
+uv run pytest -q
 ```
 
 The research layer owns Gemini routing, strict Pydantic response contracts,

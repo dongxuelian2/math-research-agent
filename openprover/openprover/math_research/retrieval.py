@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from .project import ProjectError, ProjectStore, utc_now
+from .project import ProjectStore, utc_now
 from .trust_kernel import TrustKernel
 
 
@@ -22,9 +22,7 @@ class ContextBuilder:
     def __init__(self, project: ProjectStore):
         self.project = project
 
-    def _dependency_closure(
-        self, target_id: str
-    ) -> tuple[list[str], list[str], list[list[str]]]:
+    def _dependency_closure(self, target_id: str) -> tuple[list[str], list[str], list[list[str]]]:
         order: list[str] = []
         premise_order: list[str] = []
         cycles: list[list[str]] = []
@@ -72,7 +70,9 @@ class ContextBuilder:
         trust_kernel = TrustKernel.for_project(self.project)
         trust_context = trust_kernel.context(notation_scope=notation_scope)
         steering_path = self.project.root / "steering" / "directives.json"
-        steering = json.loads(steering_path.read_text(encoding="utf-8")) if steering_path.exists() else {}
+        steering = (
+            json.loads(steering_path.read_text(encoding="utf-8")) if steering_path.exists() else {}
+        )
         theorem_ids = set(dependency_ids + [target_id])
         tags = set(target.get("tags", []))
         for dependency in dependencies:
@@ -85,20 +85,24 @@ class ContextBuilder:
             source_path = self.project.safe_source_path(source_file)
             should_include = theorem["id"] == target_id or theorem["id"] in direct_ids or expand
             if source_path and source_path.is_file() and should_include:
-                sources.append({
-                    "theorem_id": theorem["id"],
-                    "source_file": source_file,
-                    "content": source_path.read_text(encoding="utf-8-sig", errors="replace"),
-                })
+                sources.append(
+                    {
+                        "theorem_id": theorem["id"],
+                        "source_file": source_file,
+                        "content": source_path.read_text(encoding="utf-8-sig", errors="replace"),
+                    }
+                )
         for premise in premises:
             source_file = premise.get("source_file", "")
             source_path = self.project.safe_source_path(source_file)
             if source_path and source_path.is_file():
-                sources.append({
-                    "theorem_id": premise["id"],
-                    "source_file": source_file,
-                    "content": source_path.read_text(encoding="utf-8-sig", errors="replace"),
-                })
+                sources.append(
+                    {
+                        "theorem_id": premise["id"],
+                        "source_file": source_file,
+                        "content": source_path.read_text(encoding="utf-8-sig", errors="replace"),
+                    }
+                )
         semantic_registry = trust_context.get("semantic_registry") or {}
         semantic_sources: set[str] = set()
         for item in semantic_registry.get("items", []):
@@ -109,19 +113,24 @@ class ContextBuilder:
             source_path = self.project.safe_source_path(source_file)
             if source_path and source_path.is_file():
                 semantic_sources.add(source_file)
-                sources.append({
-                    "theorem_id": item["id"],
-                    "source_file": source_file,
-                    "source_hash": provenance.get("source_hash"),
-                    "source_section": provenance.get("source_section"),
-                    "authority_layer": "SEMANTIC",
-                    "content": source_path.read_text(
-                        encoding="utf-8-sig", errors="replace"
-                    ),
-                })
+                sources.append(
+                    {
+                        "theorem_id": item["id"],
+                        "source_file": source_file,
+                        "source_hash": provenance.get("source_hash"),
+                        "source_section": provenance.get("source_section"),
+                        "authority_layer": "SEMANTIC",
+                        "content": source_path.read_text(encoding="utf-8-sig", errors="replace"),
+                    }
+                )
 
-        frozen = sorted(set(project_meta.get("frozen_branches", [])) | set(steering.get("freeze_branches", [])))
-        prohibited = sorted(set(project_meta.get("prohibited_routes", [])) | set(steering.get("prohibit_routes", [])))
+        frozen = sorted(
+            set(project_meta.get("frozen_branches", [])) | set(steering.get("freeze_branches", []))
+        )
+        prohibited = sorted(
+            set(project_meta.get("prohibited_routes", []))
+            | set(steering.get("prohibit_routes", []))
+        )
         scope = steering.get("allowed_scope") or project_meta.get("allowed_scope", [])
         data = {
             "schema_version": 1,
@@ -209,13 +218,17 @@ class ContextBuilder:
                 f"  - recovery conditions: {route['recovery_conditions']}"
                 for route in failed
             )
-        sources = "\n\n".join(
-            f"### Source: `{source['source_file']}` ({source['theorem_id']})\n\n{source['content']}"
-            for source in data["sources"]
-        ) or "(no source excerpts required)"
+        sources = (
+            "\n\n".join(
+                f"### Source: `{source['source_file']}` ({source['theorem_id']})\n\n{source['content']}"
+                for source in data["sources"]
+            )
+            or "(no source excerpts required)"
+        )
         cycles = (
             "\n".join(f"- {' -> '.join(cycle)}" for cycle in data["dependency_cycles"])
-            if data["dependency_cycles"] else "- (none)"
+            if data["dependency_cycles"]
+            else "- (none)"
         )
         frozen = ", ".join(data["frozen_branches"]) or "(none)"
         prohibited = ", ".join(data["prohibited_routes"]) or "(none)"
@@ -224,11 +237,11 @@ class ContextBuilder:
 
 ## Scope
 
-- Project: `{data['project_id']}`
-- Current target: `{target['id']}`
+- Project: `{data["project_id"]}`
+- Current target: `{target["id"]}`
 - Allowed scope: {scope}
-- Notation scope: `{data['notation_scope'] or '(none)'}`
-- Expanded retrieval: `{str(data['expanded']).lower()}`
+- Notation scope: `{data["notation_scope"] or "(none)"}`
+- Expanded retrieval: `{str(data["expanded"]).lower()}`
 - Treat OpenProver's output as a CANDIDATE only; it cannot self-promote to PROVED.
 
 ## Frozen branches
@@ -241,17 +254,17 @@ class ContextBuilder:
 
 ## Statement
 
-### {target['title']}
+### {target["title"]}
 
-{target['statement']}
+{target["statement"]}
 
-Claim type: `{target.get('claim_type', 'implication')}`
+Claim type: `{target.get("claim_type", "implication")}`
 
 ## Foundations
 
-Registry `{data['trust_kernel']['foundation_registry']['id']}` version
-`{data['trust_kernel']['foundation_registry']['version']}` / hash
-`{data['trust_kernel']['foundation_registry']['hash']}`.
+Registry `{data["trust_kernel"]["foundation_registry"]["id"]}` version
+`{data["trust_kernel"]["foundation_registry"]["version"]}` / hash
+`{data["trust_kernel"]["foundation_registry"]["hash"]}`.
 
 {self._foundation_lines(data)}
 
@@ -261,15 +274,15 @@ Registry `{data['trust_kernel']['foundation_registry']['id']}` version
 
 ## Project Theorems (PROVED only)
 
-{self._theorem_lines(data['allowed_dependencies'])}
+{self._theorem_lines(data["allowed_dependencies"])}
 
 ## Blocked dependencies (must not be used as theorems)
 
-{self._theorem_lines(data['blocked_dependencies'])}
+{self._theorem_lines(data["blocked_dependencies"])}
 
 ## Active project premises (satisfied roots, not PROVED theorems)
 
-{self._premise_lines(data['satisfied_premises'])}
+{self._premise_lines(data["satisfied_premises"])}
 
 ## Dependency cycles
 

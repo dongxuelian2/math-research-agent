@@ -72,14 +72,9 @@ def normalize_audit_result(role: str, raw: dict) -> AuditResult:
     except Exception as exc:
         raise ValueError(f"Invalid auditor result: {exc}") from exc
     if validated.role != role:
-        raise ValueError(
-            f"Auditor role mismatch: expected {role!r}, got {validated.role!r}"
-        )
+        raise ValueError(f"Auditor role mismatch: expected {role!r}, got {validated.role!r}")
     execution_status = validated.execution_status
-    domain_verdict = (
-        "INCONCLUSIVE" if execution_status == "ERROR"
-        else validated.domain_verdict
-    )
+    domain_verdict = "INCONCLUSIVE" if execution_status == "ERROR" else validated.domain_verdict
     return AuditResult(
         role=validated.role,
         domain_verdict=domain_verdict,

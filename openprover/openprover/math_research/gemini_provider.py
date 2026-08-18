@@ -86,17 +86,26 @@ def _gemini_schema(schema: dict[str, Any]) -> dict[str, Any]:
             return expand(definitions[name], stack + (name,))
         result: dict[str, Any] = {}
         for key in (
-            "type", "format", "title", "description", "enum", "nullable",
-            "properties", "required", "items", "minItems", "maxItems",
-            "minimum", "maximum", "minLength", "maxLength",
+            "type",
+            "format",
+            "title",
+            "description",
+            "enum",
+            "nullable",
+            "properties",
+            "required",
+            "items",
+            "minItems",
+            "maxItems",
+            "minimum",
+            "maximum",
+            "minLength",
+            "maxLength",
         ):
             if key not in value:
                 continue
             if key == "properties" and isinstance(value[key], dict):
-                result[key] = {
-                    name: expand(child, stack)
-                    for name, child in value[key].items()
-                }
+                result[key] = {name: expand(child, stack) for name, child in value[key].items()}
             else:
                 result[key] = expand(value[key], stack)
         if "anyOf" in value:
@@ -246,15 +255,19 @@ class GeminiClient:
         payload = self._payload(
             prompt,
             system_prompt,
-            json_schema=(
-                _gemini_schema(json_schema) if json_schema is not None else None
-            ),
+            json_schema=(_gemini_schema(json_schema) if json_schema is not None else None),
             web_search=web_search,
             tools=tools,
             max_tokens=max_tokens,
         )
         self._archive(
-            call_number, label, prompt, system_prompt, json_schema, None, None,
+            call_number,
+            label,
+            prompt,
+            system_prompt,
+            json_schema,
+            None,
+            None,
             archive_path,
         )
         started = time.perf_counter()
@@ -281,9 +294,7 @@ class GeminiClient:
             response_parts = []
             for tool_call in tool_calls:
                 try:
-                    tool_result = self.tool_executor(
-                        tool_call["name"], tool_call["args"]
-                    )
+                    tool_result = self.tool_executor(tool_call["name"], tool_call["args"])
                 except Exception as exc:
                     tool_result = {
                         "status": "ERROR",
@@ -291,22 +302,28 @@ class GeminiClient:
                     }
                 if not isinstance(tool_result, dict):
                     tool_result = {"output": str(tool_result)}
-                tool_trace.append({
-                    "tool_name": tool_call["name"],
-                    "args": tool_call["args"],
-                    "result": tool_result,
-                    "round": tool_rounds + 1,
-                })
-                response_parts.append({
-                    "functionResponse": {
-                        "name": tool_call["name"],
-                        "response": tool_result,
+                tool_trace.append(
+                    {
+                        "tool_name": tool_call["name"],
+                        "args": tool_call["args"],
+                        "result": tool_result,
+                        "round": tool_rounds + 1,
                     }
-                })
-            payload["contents"].append({
-                "role": "user",
-                "parts": response_parts,
-            })
+                )
+                response_parts.append(
+                    {
+                        "functionResponse": {
+                            "name": tool_call["name"],
+                            "response": tool_result,
+                        }
+                    }
+                )
+            payload["contents"].append(
+                {
+                    "role": "user",
+                    "parts": response_parts,
+                }
+            )
             raw, retries = self._request(payload, label=label)
             raw_responses.append(raw)
             retry_count += retries
@@ -321,9 +338,7 @@ class GeminiClient:
                 retry_count=retry_count,
                 retryable=False,
                 retry_exhausted=False,
-                message=(
-                    "Gemini returned a tool call but no local executor was configured"
-                ),
+                message=("Gemini returned a tool call but no local executor was configured"),
                 provider=self.billing_mode,
             )
         elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -362,9 +377,15 @@ class GeminiClient:
                 result["structured"] = json.loads(result_text)
             except (TypeError, json.JSONDecodeError) as exc:
                 self._archive(
-                    call_number, label, prompt, system_prompt, json_schema,
-                    raw, f"structured output is not complete JSON: {exc}",
-                    archive_path, result_text=result_text,
+                    call_number,
+                    label,
+                    prompt,
+                    system_prompt,
+                    json_schema,
+                    raw,
+                    f"structured output is not complete JSON: {exc}",
+                    archive_path,
+                    result_text=result_text,
                 )
                 raise GeminiProviderError(
                     error_type="structured_output_invalid",
@@ -379,8 +400,15 @@ class GeminiClient:
         if stream_callback and result_text:
             stream_callback(result_text, "text")
         self._archive(
-            call_number, label, prompt, system_prompt, json_schema,
-            raw, None, archive_path, result_text=result_text,
+            call_number,
+            label,
+            prompt,
+            system_prompt,
+            json_schema,
+            raw,
+            None,
+            archive_path,
+            result_text=result_text,
         )
         return result
 
@@ -519,7 +547,7 @@ class GeminiClient:
                     pass
                 error_type, retryable = self._classify(status, body_text)
                 if retryable and retry_count < self.max_retries:
-                    self._sleep(self.retry_base_seconds * (2 ** retry_count))
+                    self._sleep(self.retry_base_seconds * (2**retry_count))
                     retry_count += 1
                     continue
                 raise GeminiProviderError(
@@ -535,7 +563,7 @@ class GeminiClient:
             except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
                 retryable = not isinstance(exc, (ValueError, json.JSONDecodeError))
                 if retryable and retry_count < self.max_retries:
-                    self._sleep(self.retry_base_seconds * (2 ** retry_count))
+                    self._sleep(self.retry_base_seconds * (2**retry_count))
                     retry_count += 1
                     continue
                 raise GeminiProviderError(
@@ -705,7 +733,9 @@ class GeminiClient:
         if result_text is not None:
             sections.extend(["", "# Response", "", result_text])
         if raw is not None:
-            sections.extend(["", "# Raw response", "", json.dumps(raw, ensure_ascii=False, indent=2)])
+            sections.extend(
+                ["", "# Raw response", "", json.dumps(raw, ensure_ascii=False, indent=2)]
+            )
         if error:
             sections.extend(["", "# Error", "", error])
         path.write_text("\n".join(sections) + "\n", encoding="utf-8")
