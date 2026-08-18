@@ -19,21 +19,44 @@ QUEUE_NAMES = {
     "verification": "VERIFICATION_QUEUE",
     "blocked": "BLOCKED_QUEUE",
 }
-OBLIGATION_STATUSES = frozenset({
-    "PROOF_READY", "PROOF_ACTIVE",
-    "LITERATURE_READY", "LITERATURE_ACTIVE", "LITERATURE_PENDING",
-    "VERIFICATION_READY", "VERIFICATION_ACTIVE",
-    "BLOCKED_DEPENDENCY", "DUAL_TRACK", "CLOSED",
-})
-LITERATURE_VERDICTS = frozenset({
-    "EXACT_RESULT_FOUND", "STRONGER_RESULT_FOUND", "PARTIAL_RESULT_FOUND",
-    "METHOD_FOUND", "CONFLICTING_LITERATURE", "INSUFFICIENT_SEARCH",
-    "NO_SUFFICIENT_RESULT_FOUND", "LITERATURE_PROVIDER_UNAVAILABLE",
-})
-TERMINAL_TASK_STATUSES = frozenset({
-    "COMPLETE", "CANCELLED", "CANCELLED_BEFORE_START", "REDIRECTED",
-    "INTERRUPTED", "ERROR", "COMPLETED_BEFORE_CANCEL", "CANCEL_FAILED",
-})
+OBLIGATION_STATUSES = frozenset(
+    {
+        "PROOF_READY",
+        "PROOF_ACTIVE",
+        "LITERATURE_READY",
+        "LITERATURE_ACTIVE",
+        "LITERATURE_PENDING",
+        "VERIFICATION_READY",
+        "VERIFICATION_ACTIVE",
+        "BLOCKED_DEPENDENCY",
+        "DUAL_TRACK",
+        "CLOSED",
+    }
+)
+LITERATURE_VERDICTS = frozenset(
+    {
+        "EXACT_RESULT_FOUND",
+        "STRONGER_RESULT_FOUND",
+        "PARTIAL_RESULT_FOUND",
+        "METHOD_FOUND",
+        "CONFLICTING_LITERATURE",
+        "INSUFFICIENT_SEARCH",
+        "NO_SUFFICIENT_RESULT_FOUND",
+        "LITERATURE_PROVIDER_UNAVAILABLE",
+    }
+)
+TERMINAL_TASK_STATUSES = frozenset(
+    {
+        "COMPLETE",
+        "CANCELLED",
+        "CANCELLED_BEFORE_START",
+        "REDIRECTED",
+        "INTERRUPTED",
+        "ERROR",
+        "COMPLETED_BEFORE_CANCEL",
+        "CANCEL_FAILED",
+    }
+)
 DISPATCHABLE_TASK_STATUSES = frozenset({"READY", "RETRY_READY"})
 
 
@@ -41,22 +64,27 @@ class AtomicResourceBudget:
     """Thread-safe campaign-level provider reservation gate."""
 
     FIELDS = (
-        "provider_calls", "input_tokens", "output_tokens", "reasoning_tokens",
-        "cached_tokens", "total_tokens",
+        "provider_calls",
+        "input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "cached_tokens",
+        "total_tokens",
     )
     TOKEN_FIELDS = ("input_tokens", "output_tokens", "reasoning_tokens", "cached_tokens")
 
     def __init__(
-        self, limits: dict | None = None, *, state: dict | None = None,
+        self,
+        limits: dict | None = None,
+        *,
+        state: dict | None = None,
         unknown_usage_policy: str = "reserved_as_committed",
     ):
         self.limits = {key: int((limits or {}).get(key, 10**9)) for key in self.FIELDS}
         self._lock = threading.RLock()
         raw = copy.deepcopy(state or {})
         committed_raw = raw.get("committed") if isinstance(raw.get("committed"), dict) else raw
-        self.committed = {
-            key: int((committed_raw or {}).get(key, 0) or 0) for key in self.FIELDS
-        }
+        self.committed = {key: int((committed_raw or {}).get(key, 0) or 0) for key in self.FIELDS}
         self.reserved = {key: 0 for key in self.FIELDS}
         self.reservations: dict[str, dict] = {}
         self.reconciliations = list(raw.get("reconciliations", [])) if isinstance(raw, dict) else []
@@ -82,8 +110,7 @@ class AtomicResourceBudget:
             if self.halted:
                 raise ProjectError("global resource budget halted after hard-cap reconciliation")
             projected = {
-                key: self.committed[key] + self.reserved[key] + estimate[key]
-                for key in self.FIELDS
+                key: self.committed[key] + self.reserved[key] + estimate[key] for key in self.FIELDS
             }
             if any(projected[key] > self.limits[key] for key in self.FIELDS):
                 raise ProjectError("global resource budget exhausted")
@@ -100,12 +127,16 @@ class AtomicResourceBudget:
             return copy.deepcopy(reservation)
 
     def reconcile(
-        self, reservation: dict | str, actual_usage: dict | None,
-        *, usage_known: bool,
+        self,
+        reservation: dict | str,
+        actual_usage: dict | None,
+        *,
+        usage_known: bool,
     ) -> dict:
         reservation_id = (
             str(reservation.get("reservation_id"))
-            if isinstance(reservation, dict) else str(reservation)
+            if isinstance(reservation, dict)
+            else str(reservation)
         )
         with self._lock:
             active = self.reservations.pop(reservation_id, None)
@@ -116,8 +147,7 @@ class AtomicResourceBudget:
                 self.reserved[key] -= reserved[key]
             if usage_known:
                 actual = {
-                    key: max(0, int((actual_usage or {}).get(key, 0) or 0))
-                    for key in self.FIELDS
+                    key: max(0, int((actual_usage or {}).get(key, 0) or 0)) for key in self.FIELDS
                 }
                 actual["provider_calls"] = max(1, actual["provider_calls"])
                 if not actual["total_tokens"]:
@@ -127,26 +157,25 @@ class AtomicResourceBudget:
                 actual = copy.deepcopy(reserved)
                 actual["provider_calls"] = max(1, actual["provider_calls"])
                 classification = "USAGE_UNKNOWN_AFTER_INTERRUPT"
-            released = {
-                key: max(0, reserved[key] - actual[key]) for key in self.FIELDS
-            }
-            additional = {
-                key: max(0, actual[key] - reserved[key]) for key in self.FIELDS
-            }
+            released = {key: max(0, reserved[key] - actual[key]) for key in self.FIELDS}
+            additional = {key: max(0, actual[key] - reserved[key]) for key in self.FIELDS}
             for key in self.FIELDS:
                 self.committed[key] += actual[key]
             exceeded = {
                 key: self.committed[key] - self.limits[key]
-                for key in self.FIELDS if self.committed[key] > self.limits[key]
+                for key in self.FIELDS
+                if self.committed[key] > self.limits[key]
             }
             if exceeded:
                 self.halted = True
                 classification = "HARD_BUDGET_EXCEEDED_BY_COMPLETED_CALL"
-                self.violations.append({
-                    "reservation_id": reservation_id,
-                    "exceeded": copy.deepcopy(exceeded),
-                    "at": utc_now(),
-                })
+                self.violations.append(
+                    {
+                        "reservation_id": reservation_id,
+                        "exceeded": copy.deepcopy(exceeded),
+                        "at": utc_now(),
+                    }
+                )
             result = {
                 "reservation_id": reservation_id,
                 "reserved": copy.deepcopy(reserved),
@@ -245,11 +274,19 @@ def initialize_pipeline_state(raw: dict | None) -> dict:
     value.setdefault("source_identifiers", {})
     value.setdefault("literature", {})
     for key in (
-        "lead_calls", "searcher_calls", "reader_calls", "sources_found",
-        "sources_deep_read", "external_theorems_extracted",
-        "verified_external_authorities", "exact_matches", "partial_matches",
-        "method_matches", "literature_guided_closures",
-        "duplicate_searches_avoided", "proof_calls_avoided_due_to_literature",
+        "lead_calls",
+        "searcher_calls",
+        "reader_calls",
+        "sources_found",
+        "sources_deep_read",
+        "external_theorems_extracted",
+        "verified_external_authorities",
+        "exact_matches",
+        "partial_matches",
+        "method_matches",
+        "literature_guided_closures",
+        "duplicate_searches_avoided",
+        "proof_calls_avoided_due_to_literature",
     ):
         value["literature"].setdefault(key, 0)
     completed = set(value["completed_task_ids"])
@@ -257,7 +294,8 @@ def initialize_pipeline_state(raw: dict | None) -> dict:
         value["queues"][name] = [task_id for task_id in task_ids if task_id not in completed]
     for pipeline, task_ids in value["active"].items():
         value["active"][pipeline] = [
-            task_id for task_id in task_ids
+            task_id
+            for task_id in task_ids
             if value["tasks"].get(task_id, {}).get("status") == "ACTIVE"
         ]
     return value

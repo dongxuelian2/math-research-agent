@@ -8,14 +8,18 @@ Environment variables:
     LEAN_WORK_DIR: Path to working directory for temporary Lean files
 """
 
-import asyncio
 import os
-import sys
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from .core import LeanWorkDir, lean_has_errors, merge_lean_imports, run_lean_check, strip_code_fences
+from .core import (
+    LeanWorkDir,
+    lean_has_errors,
+    merge_lean_imports,
+    run_lean_check,
+    strip_code_fences,
+)
 
 mcp = FastMCP("lean_tools")
 
@@ -55,11 +59,13 @@ def _get_work_dir() -> LeanWorkDir:
 
 _has_gpu: bool | None = None
 
+
 def _gpu_available() -> bool:
     global _has_gpu
     if _has_gpu is None:
         try:
             import torch
+
             _has_gpu = torch.cuda.is_available()
         except Exception:
             _has_gpu = False
@@ -70,6 +76,7 @@ def _get_search_service():
     global _search_service
     if _search_service is None:
         from lean_explore.search import SearchEngine, Service
+
         engine = SearchEngine(use_local_data=False)
         _search_service = Service(engine=engine)
     return _search_service
@@ -132,7 +139,9 @@ async def lean_search(query: str) -> str:
     service = _get_search_service()
     rerank = 25 if _gpu_available() else 0
     response = await service.search(
-        query, limit=10, rerank_top=rerank,
+        query,
+        limit=10,
+        rerank_top=rerank,
         packages=["Mathlib", "Batteries", "Init", "Lean", "Std"],
     )
     results = response.results
@@ -140,11 +149,11 @@ async def lean_search(query: str) -> str:
         return "No results found"
     parts = []
     for r in results:
-        name = getattr(r, 'name', '')
-        module = getattr(r, 'module', '') or ''
-        source = getattr(r, 'source_text', '') or ''
-        doc = getattr(r, 'docstring', '') or ''
-        info = getattr(r, 'informalization', '') or ''
+        name = getattr(r, "name", "")
+        module = getattr(r, "module", "") or ""
+        source = getattr(r, "source_text", "") or ""
+        doc = getattr(r, "docstring", "") or ""
+        info = getattr(r, "informalization", "") or ""
         header = f"**{name}**"
         if module:
             header += f"  ({module})"

@@ -3,10 +3,12 @@
 
 class _LogEntry:
     """A line in the log. step_idx >= 0 marks completed-step lines."""
+
     __slots__ = ("text", "step_idx", "is_trace", "is_output")
 
-    def __init__(self, text: str, step_idx: int = -1, is_trace: bool = False,
-                 is_output: bool = False):
+    def __init__(
+        self, text: str, step_idx: int = -1, is_trace: bool = False, is_output: bool = False
+    ):
         self.text = text
         self.step_idx = step_idx
         self.is_trace = is_trace
@@ -15,17 +17,39 @@ class _LogEntry:
 
 class _Tab:
     """A tab with its own log buffer and streaming state."""
-    __slots__ = ("id", "label", "log_lines", "trace_buf", "output_buf",
-                 "stream_segments",
-                 "scroll_offset", "view",
-                 "streaming", "spinner_label", "spinner_tick", "spinner_time",
-                 "spinner_start", "spinner_tokens", "last_trace", "last_output",
-                 "toml_pending", "toml_close_tag", "output_non_toml_seen",
-                 "output_toml_seen", "show_toml", "is_waiting",
-                 "done", "task_description", "task_summary",
-                 "worker_task", "worker_output",
-                 "entries", "nav_idx",
-                 "pending_actions")
+
+    __slots__ = (
+        "id",
+        "label",
+        "log_lines",
+        "trace_buf",
+        "output_buf",
+        "stream_segments",
+        "scroll_offset",
+        "view",
+        "streaming",
+        "spinner_label",
+        "spinner_tick",
+        "spinner_time",
+        "spinner_start",
+        "spinner_tokens",
+        "last_trace",
+        "last_output",
+        "toml_pending",
+        "toml_close_tag",
+        "output_non_toml_seen",
+        "output_toml_seen",
+        "show_toml",
+        "is_waiting",
+        "done",
+        "task_description",
+        "task_summary",
+        "worker_task",
+        "worker_output",
+        "entries",
+        "nav_idx",
+        "pending_actions",
+    )
 
     def __init__(self, tab_id: str, label: str, task_description: str = ""):
         self.id = tab_id
@@ -54,9 +78,9 @@ class _Tab:
         self.is_waiting = False
         self.done = False
         self.task_description = task_description
-        self.task_summary = ""     # short summary from spawn action
-        self.worker_task = ""      # for verifier tabs: the original worker's task
-        self.worker_output = ""    # for verifier tabs: the worker's output being verified
+        self.task_summary = ""  # short summary from spawn action
+        self.worker_task = ""  # for verifier tabs: the original worker's task
+        self.worker_output = ""  # for verifier tabs: the worker's output being verified
         # Navigable entries (action entries for worker tabs)
         self.entries: list[dict] = []
         self.nav_idx: int = -1  # -1 = none selected, 0..N-1 = entry index

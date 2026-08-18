@@ -15,7 +15,7 @@ from .tui._colors import DIM, BOLD, RESET, RED, GREEN, YELLOW, BLUE, CYAN, GRAY
 HEADER_ROWS = 3
 
 # Section separator pattern used in archive .md files
-_SECTION_RE = re.compile(r'^======== (.+?) ========$', re.MULTILINE)
+_SECTION_RE = re.compile(r"^======== (.+?) ========$", re.MULTILINE)
 
 
 def find_latest_run() -> Path:
@@ -48,15 +48,20 @@ def _load_call(path: Path) -> dict | None:
         end = text.find("\n---\n", 4)
         if end != -1:
             fm_text = text[4:end]
-            body = text[end + 5:]
+            body = text[end + 5 :]
             for line in fm_text.splitlines():
                 if ": " in line:
                     key, val = line.split(": ", 1)
                     key = key.strip()
                     # Parse numeric values
-                    if key in ("call_num", "elapsed_ms", "input_tokens",
-                               "output_tokens", "cache_creation_tokens",
-                               "cache_read_tokens"):
+                    if key in (
+                        "call_num",
+                        "elapsed_ms",
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_creation_tokens",
+                        "cache_read_tokens",
+                    ):
                         try:
                             data[key] = int(val)
                         except ValueError:
@@ -133,7 +138,9 @@ def _make_pages(data: dict, step: int | str, role: str, label: str) -> list[dict
     """Create prompt and output pages from an archive dict."""
     pages = []
     model = data.get("model", "")
-    meta_parts = [p for p in [model, _format_duration(data), _format_tokens(data), _format_cost(data)] if p]
+    meta_parts = [
+        p for p in [model, _format_duration(data), _format_tokens(data), _format_cost(data)] if p
+    ]
     meta = " | ".join(meta_parts)
 
     sys_prompt = data.get("system_prompt", "")
@@ -146,14 +153,16 @@ def _make_pages(data: dict, step: int | str, role: str, label: str) -> list[dict
     elif user_prompt:
         prompt_parts.append(("normal", user_prompt))
 
-    pages.append({
-        "type": "prompt",
-        "step": step,
-        "label": f"{label} Prompt",
-        "segments": prompt_parts,
-        "thinking": "",
-        "metadata": meta,
-    })
+    pages.append(
+        {
+            "type": "prompt",
+            "step": step,
+            "label": f"{label} Prompt",
+            "segments": prompt_parts,
+            "thinking": "",
+            "metadata": meta,
+        }
+    )
 
     error = data.get("error")
     result = data.get("result_text", "")
@@ -172,14 +181,16 @@ def _make_pages(data: dict, step: int | str, role: str, label: str) -> list[dict
     else:
         out_segments.append(("dim", "(no output)"))
 
-    pages.append({
-        "type": "error" if error else "output",
-        "step": step,
-        "label": f"{label} Output",
-        "segments": out_segments,
-        "thinking": thinking,
-        "metadata": meta,
-    })
+    pages.append(
+        {
+            "type": "error" if error else "output",
+            "step": step,
+            "label": f"{label} Output",
+            "segments": out_segments,
+            "thinking": thinking,
+            "metadata": meta,
+        }
+    )
 
     return pages
 
@@ -382,6 +393,7 @@ class InspectTUI:
         ch = os.read(sys.stdin.fileno(), 1).decode("utf-8", errors="replace")
         if ch == "\x1b":
             import select as sel
+
             if sel.select([sys.stdin], [], [], 0.05)[0]:
                 ch2 = os.read(sys.stdin.fileno(), 1).decode("utf-8", errors="replace")
                 if ch2 == "[":
@@ -478,9 +490,13 @@ class InspectTUI:
             type_color = GREEN
         pos = f"[{self.page_idx + 1}/{len(self.pages)}]"
         meta = page.get("metadata", "")
-        trace_indicator = f"{YELLOW}[trace on]{RESET}" if self.trace_visible else f"{DIM}[trace off]{RESET}"
+        trace_indicator = (
+            f"{YELLOW}[trace on]{RESET}" if self.trace_visible else f"{DIM}[trace off]{RESET}"
+        )
 
-        header = f" {BOLD}{step_str}{RESET} {DIM}│{RESET} {type_color}{label}{RESET} {DIM}│{RESET} {pos}"
+        header = (
+            f" {BOLD}{step_str}{RESET} {DIM}│{RESET} {type_color}{label}{RESET} {DIM}│{RESET} {pos}"
+        )
         if trace_indicator:
             header += f" {trace_indicator}"
         if meta:
@@ -491,12 +507,14 @@ class InspectTUI:
         if len(lines) > content_h:
             pct = int(self.scroll_offset / max(1, max_scroll) * 100)
             scroll_info = f" {DIM}scroll:{pct}%{RESET}"
-        controls = f" {DIM}←/→ pages  ↑/↓/scroll  t trace  g/G top/bottom  q quit{scroll_info}{RESET}"
+        controls = (
+            f" {DIM}←/→ pages  ↑/↓/scroll  t trace  g/G top/bottom  q quit{scroll_info}{RESET}"
+        )
         buf.append(controls)
 
         buf.append(f" {DIM}{'─' * (self.cols - 2)}{RESET}")
 
-        visible = lines[self.scroll_offset:self.scroll_offset + content_h]
+        visible = lines[self.scroll_offset : self.scroll_offset + content_h]
         for line in visible:
             buf.append(f" {line}")
 

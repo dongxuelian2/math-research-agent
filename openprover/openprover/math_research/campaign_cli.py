@@ -86,8 +86,7 @@ def dispatch(args: argparse.Namespace) -> dict:
         profile = resolve_profile(args.profile)
         campaign_id = args.campaign_id or _campaign_id(args.target)
         replay_policy = (
-            ReplayPolicy.from_manifest(args.replay_manifest)
-            if args.replay_manifest else None
+            ReplayPolicy.from_manifest(args.replay_manifest) if args.replay_manifest else None
         )
         repair_catalog = {}
         repair_source_root = None
@@ -97,9 +96,7 @@ def dispatch(args: argparse.Namespace) -> dict:
             repair_catalog = catalog_data.get("authorities", {})
             repair_source_root = catalog_data.get("source_root")
             if not isinstance(repair_catalog, dict) or not repair_source_root:
-                raise ProjectError(
-                    "dependency repair catalog requires source_root and authorities"
-                )
+                raise ProjectError("dependency repair catalog requires source_root and authorities")
         max_repair_cycles = (
             args.max_repair_cycles
             if args.max_repair_cycles is not None

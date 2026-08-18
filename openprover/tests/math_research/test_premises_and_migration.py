@@ -29,11 +29,13 @@ def add_premise(store, premise_id="original-problem"):
         "The project's fixed research premise.",
         node_type="PROJECT_PREMISE",
         source_file="inbox/source.md",
-        provenance=[{
-            "source": "inbox/source.md",
-            "section": "Primary source",
-            "role": "canonical project statement",
-        }],
+        provenance=[
+            {
+                "source": "inbox/source.md",
+                "section": "Primary source",
+                "role": "canonical project statement",
+            }
+        ],
     )
 
 
@@ -175,11 +177,16 @@ def test_root_repair_makes_batch_one_dry_run_pass(tmp_path):
     store = make_store(tmp_path)
     add_premise(store)
     store.add_theorem(SPHERE_NEW, "Sphere lemma", "Primitive representation", status="PROVED")
-    repaired = apply_dependency_repairs(batch_one_records(), [{
-        "canonical_id": "T4",
-        "old_dependency": SPHERE_OLD,
-        "new_dependency": SPHERE_NEW,
-    }])
+    repaired = apply_dependency_repairs(
+        batch_one_records(),
+        [
+            {
+                "canonical_id": "T4",
+                "old_dependency": SPHERE_OLD,
+                "new_dependency": SPHERE_NEW,
+            }
+        ],
+    )
     result = validate_staged_batch(
         store,
         repaired,

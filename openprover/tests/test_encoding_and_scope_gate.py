@@ -37,8 +37,7 @@ def test_unresolved_scope_blocker_rejects_submission():
 
 def test_closed_scope_gap_allows_submission():
     whiteboard = (
-        "Earlier scope gap was repaired from the authorized CD6 source.\n"
-        "SCOPE_CLOSURE: PASS"
+        "Earlier scope gap was repaired from the authorized CD6 source.\nSCOPE_CLOSURE: PASS"
     )
     assert Prover._scope_submission_blocker(whiteboard) is None
 

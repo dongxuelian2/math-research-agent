@@ -18,6 +18,10 @@ dependencies = [
 test = [
     "pytest>=8.0.0",
 ]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.9.0",
+]
 
 [project.scripts]
 openprover = "openprover.cli:main"
@@ -25,3 +29,10 @@ math-research = "openprover.math_research.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["openprover*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

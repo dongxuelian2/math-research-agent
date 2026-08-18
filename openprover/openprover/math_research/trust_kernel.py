@@ -70,9 +70,7 @@ def _load_registry_json(path: Path) -> dict:
     if not isinstance(value, dict):
         raise RegistryError(f"Registry must be a JSON object: {path}")
     if value.get("schema_version") != REGISTRY_SCHEMA_VERSION:
-        raise RegistryError(
-            f"Unsupported registry schema in {path}: {value.get('schema_version')}"
-        )
+        raise RegistryError(f"Unsupported registry schema in {path}: {value.get('schema_version')}")
     expected = value.get("registry_hash")
     actual = content_hash(value, excluded={"registry_hash"})
     if expected != actual:
@@ -116,8 +114,15 @@ class FoundationItem:
 class FoundationRegistry:
     """Small, fixed, project-independent classical mathematics registry."""
 
-    def __init__(self, *, registry_id: str, version: str, registry_hash: str,
-                 items: dict[str, FoundationItem], source_path: Path):
+    def __init__(
+        self,
+        *,
+        registry_id: str,
+        version: str,
+        registry_hash: str,
+        items: dict[str, FoundationItem],
+        source_path: Path,
+    ):
         self.registry_id = registry_id
         self.version = version
         self.registry_hash = registry_hash
@@ -235,9 +240,16 @@ class SemanticItem:
 class SemanticRegistry:
     """Project-scoped definitions with source hashes and notation versions."""
 
-    def __init__(self, *, registry_id: str, version: str, registry_hash: str,
-                 items: dict[str, SemanticItem], source_path: Path,
-                 source_root: Path):
+    def __init__(
+        self,
+        *,
+        registry_id: str,
+        version: str,
+        registry_hash: str,
+        items: dict[str, SemanticItem],
+        source_path: Path,
+        source_root: Path,
+    ):
         self.registry_id = registry_id
         self.version = version
         self.registry_hash = registry_hash
@@ -266,16 +278,12 @@ class SemanticRegistry:
             try:
                 source_path.relative_to(source_root)
             except ValueError as exc:
-                raise RegistryError(
-                    f"Semantic source escapes source root: {source_file}"
-                ) from exc
+                raise RegistryError(f"Semantic source escapes source root: {source_file}") from exc
             if not source_path.is_file():
                 raise RegistryError(f"Semantic source is missing: {source_path}")
             actual_source_hash = file_sha256(source_path)
             if actual_source_hash.casefold() != provenance["source_hash"].casefold():
-                raise RegistryError(
-                    f"Semantic source hash mismatch for {raw['id']}: {source_file}"
-                )
+                raise RegistryError(f"Semantic source hash mismatch for {raw['id']}: {source_file}")
             item = SemanticItem(
                 id=raw["id"],
                 statement=raw["statement"],
@@ -306,8 +314,12 @@ class SemanticRegistry:
         if not isinstance(item_id, str) or not item_id.startswith(SEMANTIC_PREFIX):
             raise RegistryError(f"Invalid semantic ID: {item_id!r}")
         for key in (
-            "statement", "authority_kind", "notation_scope", "notation_version",
-            "version", "content_hash",
+            "statement",
+            "authority_kind",
+            "notation_scope",
+            "notation_version",
+            "version",
+            "content_hash",
         ):
             if not isinstance(raw.get(key), str) or not raw[key].strip():
                 raise RegistryError(f"Semantic {item_id} requires non-empty {key}")
@@ -382,9 +394,14 @@ class DependencyReport:
 class DependencyAuthorityResolver:
     """Validate externally used claims against the three authority layers."""
 
-    def __init__(self, *, foundations: FoundationRegistry,
-                 semantics: SemanticRegistry | None,
-                 project: ProjectStore | None, notation_scope: str = ""):
+    def __init__(
+        self,
+        *,
+        foundations: FoundationRegistry,
+        semantics: SemanticRegistry | None,
+        project: ProjectStore | None,
+        notation_scope: str = "",
+    ):
         self.foundations = foundations
         self.semantics = semantics
         self.project = project
@@ -443,13 +460,13 @@ class DependencyAuthorityResolver:
                 elif claim_class == COMPUTATIONAL_CERTIFICATE:
                     certificate = authority_id or str(use.get("certificate_id", "")).strip()
                     if not certificate:
-                        raise RegistryError(
-                            "COMPUTATIONAL_CERTIFICATE requires a certificate ID"
-                        )
+                        raise RegistryError("COMPUTATIONAL_CERTIFICATE requires a certificate ID")
                     report.computational_certificates.append(certificate)
             except (ProjectError, RegistryError) as exc:
                 if not authority_id and claim_class in {
-                    FOUNDATIONAL_THEOREM, SEMANTIC_DEFINITION, PROJECT_THEOREM,
+                    FOUNDATIONAL_THEOREM,
+                    SEMANTIC_DEFINITION,
+                    PROJECT_THEOREM,
                 }:
                     report.missing_authorities.append(claim)
                 report.errors.append(f"{claim}: {exc}")
@@ -490,7 +507,9 @@ class TrustKernel:
                 "hash": self.foundations.registry_hash,
                 "items": self.foundations.context_items(),
             },
-            "semantic_registry": None if self.semantics is None else {
+            "semantic_registry": None
+            if self.semantics is None
+            else {
                 "id": self.semantics.registry_id,
                 "version": self.semantics.version,
                 "hash": self.semantics.registry_hash,

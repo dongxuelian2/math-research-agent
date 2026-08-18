@@ -37,7 +37,7 @@ def parse_duration(s: str) -> int:
     # Plain integer → seconds
     if s.isdigit():
         return int(s)
-    m = re.fullmatch(r'(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?', s)
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", s)
     if not m or not any(m.groups()):
         raise ValueError(f"Invalid duration: {s!r} (expected e.g. '30m', '2h', '1h30m')")
     hours = int(m.group(1) or 0)
@@ -52,8 +52,7 @@ def parse_duration(s: str) -> int:
 class Budget:
     """Tracks resource budget (output tokens or wall-clock time)."""
 
-    def __init__(self, mode: str, limit: int,
-                 conclude_after: float = 0.99):
+    def __init__(self, mode: str, limit: int, conclude_after: float = 0.99):
         assert mode in ("tokens", "time"), f"Invalid budget mode: {mode}"
         self.mode = mode
         self.limit = limit
@@ -89,8 +88,10 @@ class Budget:
         """Longer status for prompts."""
         pct = int(self.fraction_spent() * 100)
         if self.mode == "tokens":
-            return (f"{_fmt_tokens(self.total_output_tokens)}/{_fmt_tokens(self.limit)} "
-                    f"output tokens used ({pct}%)")
+            return (
+                f"{_fmt_tokens(self.total_output_tokens)}/{_fmt_tokens(self.limit)} "
+                f"output tokens used ({pct}%)"
+            )
         else:
             elapsed = int(time.monotonic() - self.start_time)
             return f"{_fmt_duration(elapsed)}/{_fmt_duration(self.limit)} elapsed ({pct}%)"

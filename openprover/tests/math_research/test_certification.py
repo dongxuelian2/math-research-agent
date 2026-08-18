@@ -29,9 +29,7 @@ def test_certification_requires_exactly_two_workers(tmp_path):
 
 
 @pytest.mark.parametrize("protected_name", ["repair", "source"])
-def test_certification_output_cannot_be_inside_read_only_root(
-    tmp_path, protected_name
-):
+def test_certification_output_cannot_be_inside_read_only_root(tmp_path, protected_name):
     spec_path = tmp_path / "spec.json"
     spec_path.write_text(json.dumps({}), encoding="utf-8")
     repair_root = tmp_path / "repair"

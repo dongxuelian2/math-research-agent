@@ -7,7 +7,6 @@ from ._types import _LogEntry, _Tab
 
 
 class TextMixin:
-
     @staticmethod
     def _planner_live_start(tab: _Tab) -> int:
         if tab.id != "planner":
@@ -19,8 +18,7 @@ class TextMixin:
         return last_step + 1
 
     @staticmethod
-    def _wrap_visual_text(
-            text: str, max_w: int, continuation_prefix: str = "") -> list[str]:
+    def _wrap_visual_text(text: str, max_w: int, continuation_prefix: str = "") -> list[str]:
         """Wrap text by visible width while preserving ANSI sequences.
 
         Each wrapped line is self-contained: it carries the active ANSI
@@ -42,13 +40,13 @@ class TextMixin:
         i = 0
         n = len(text)
         while i < n:
-            if text[i] == '\x1b':
-                m = re.match(r'\x1b\[[0-9;?]*[ -/]*[@-~]', text[i:])
+            if text[i] == "\x1b":
+                m = re.match(r"\x1b\[[0-9;?]*[ -/]*[@-~]", text[i:])
                 if m:
                     seq = m.group(0)
                     buf.append(seq)
                     # Track SGR sequences (ending with 'm')
-                    if seq.endswith('m'):
+                    if seq.endswith("m"):
                         if seq == RESET:
                             active_sgr.clear()
                         else:
@@ -81,12 +79,12 @@ class TextMixin:
         """Check if a rendered line contains only whitespace (ignoring ANSI)."""
         i = 0
         while i < len(line):
-            if line[i] == '\x1b':
-                m = re.match(r'\x1b\[[0-9;?]*[ -/]*[@-~]', line[i:])
+            if line[i] == "\x1b":
+                m = re.match(r"\x1b\[[0-9;?]*[ -/]*[@-~]", line[i:])
                 if m:
                     i += len(m.group(0))
                     continue
-            if line[i] not in ' \t':
+            if line[i] not in " \t":
                 return False
             i += 1
         return True
@@ -110,8 +108,8 @@ class TextMixin:
         n = 0
         i = 0
         while i < len(text):
-            if text[i] == '\x1b':
-                m = re.match(r'\x1b\[[0-9;?]*[ -/]*[@-~]', text[i:])
+            if text[i] == "\x1b":
+                m = re.match(r"\x1b\[[0-9;?]*[ -/]*[@-~]", text[i:])
                 if m:
                     i += len(m.group(0))
                     continue
@@ -134,8 +132,8 @@ class TextMixin:
         n = len(text)
         spaces = 0
         while i < n:
-            if text[i] == '\x1b':
-                m = re.match(r'\x1b\[[0-9;?]*[ -/]*[@-~]', text[i:])
+            if text[i] == "\x1b":
+                m = re.match(r"\x1b\[[0-9;?]*[ -/]*[@-~]", text[i:])
                 if m:
                     i += len(m.group(0))
                     continue
@@ -154,8 +152,7 @@ class TextMixin:
         return f"{tokens} tokens"
 
     @staticmethod
-    def _style(text: str, color: str = "", bold: bool = False,
-               dim: bool = False) -> str:
+    def _style(text: str, color: str = "", bold: bool = False, dim: bool = False) -> str:
         prefix = ""
         if color:
             prefix += COLOR_MAP.get(color, "")
@@ -163,7 +160,7 @@ class TextMixin:
             prefix += BOLD
         if dim:
             prefix += DIM
-        return f'{prefix}{text}{RESET}' if prefix else text
+        return f"{prefix}{text}{RESET}" if prefix else text
 
     @staticmethod
     def _strip_toml_block(text: str) -> str:
@@ -238,7 +235,7 @@ class TextMixin:
 
     def _dim_separator(self) -> str:
         """Separator line that never wraps as a regular log entry."""
-        return f'{DIM}{"─" * self._max_log_text_width()}{RESET}'
+        return f"{DIM}{'─' * self._max_log_text_width()}{RESET}"
 
     def _entry_render_lines(self, tab: _Tab, entry: _LogEntry, max_w: int) -> int:
         if entry.is_trace:
@@ -247,32 +244,31 @@ class TextMixin:
             src = entry.text.splitlines() or [""]
             total = 0
             for line in src:
-                text = f'  {DIM}{line}{RESET}'
+                text = f"  {DIM}{line}{RESET}"
                 continuation = " " * self._leading_visible_spaces(text)
-                total += len(self._wrap_visual_text(
-                    text, max_w, continuation_prefix=continuation))
+                total += len(self._wrap_visual_text(text, max_w, continuation_prefix=continuation))
             return total
         if entry.is_output:
             src = entry.text.splitlines() or [""]
             total = 0
             for line in src:
-                text = f'  {line}'
+                text = f"  {line}"
                 continuation = " " * self._leading_visible_spaces(text)
-                total += len(self._wrap_visual_text(
-                    text, max_w, continuation_prefix=continuation))
+                total += len(self._wrap_visual_text(text, max_w, continuation_prefix=continuation))
             return total
-        base = f' {entry.text}'
+        base = f" {entry.text}"
         continuation = " " * self._leading_visible_spaces(base)
-        return len(self._wrap_visual_text(
-            base, max_w, continuation_prefix=continuation
-        ))
+        return len(self._wrap_visual_text(base, max_w, continuation_prefix=continuation))
 
     def _main_avail_rows(self, tab: _Tab | None = None) -> int:
         if tab is None:
             tab = self._active_tab
         cs = self._content_start
-        confirm_rows = 3 if (self._confirming and not self._browsing and self.active_tab_idx == 0) else 0
-        spinner_active = (tab.streaming and tab.spinner_label
-                          and not (tab.trace_buf and self.trace_visible))
+        confirm_rows = (
+            3 if (self._confirming and not self._browsing and self.active_tab_idx == 0) else 0
+        )
+        spinner_active = (
+            tab.streaming and tab.spinner_label and not (tab.trace_buf and self.trace_visible)
+        )
         spinner_rows = 1 if spinner_active else 0
         return max(self.rows - cs + 1 - confirm_rows - spinner_rows, 1)

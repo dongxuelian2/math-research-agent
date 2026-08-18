@@ -92,9 +92,9 @@ unsafe, set_option, or native_decide.
             archive_path=formal_dir / "formalization_call.md",
             response_schema=FormalizationResultSchema,
         )
-        typed = parse_structured_response(
-            response, FormalizationResultSchema
-        ).model_dump(mode="python")
+        typed = parse_structured_response(response, FormalizationResultSchema).model_dump(
+            mode="python"
+        )
     except Exception as exc:
         result = {
             "schema_version": 3,
@@ -135,9 +135,7 @@ unsafe, set_option, or native_decide.
                 "lean_code": lean_code,
                 "certificate_path": str(proof_path.relative_to(run_path)),
                 "certificate_sha256": digest,
-                "compiler_output": str(
-                    verified.get("result", {}).get("output", "")
-                ),
+                "compiler_output": str(verified.get("result", {}).get("output", "")),
                 "created_at": utc_now(),
             }
         else:
@@ -146,9 +144,7 @@ unsafe, set_option, or native_decide.
                 "schema_version": 3,
                 "status": "FAILED",
                 "theorem_id": target_id,
-                "error": (
-                    "Compiler tool returned OK for an empty or forbidden source"
-                ),
+                "error": ("Compiler tool returned OK for an empty or forbidden source"),
                 "created_at": utc_now(),
             }
     elif typed["status"] == "VERIFIED":
@@ -157,9 +153,7 @@ unsafe, set_option, or native_decide.
             "schema_version": 3,
             "status": "PENDING_FORMALIZATION",
             "theorem_id": target_id,
-            "error": (
-                "Model claimed VERIFIED without an observed successful lean_verify call"
-            ),
+            "error": ("Model claimed VERIFIED without an observed successful lean_verify call"),
             "created_at": utc_now(),
         }
     else:

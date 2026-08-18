@@ -8,7 +8,6 @@ from ._types import _LogEntry, _Tab
 
 
 class TabsMixin:
-
     def add_worker_tab(self, tab_id: str, label: str, task_description: str = "") -> _Tab:
         tab = _Tab(tab_id, label, task_description)
         # Insert before logs tab (always last)
@@ -60,7 +59,7 @@ class TabsMixin:
                 else:
                     ch = SPINNER[0]
                     with self._write_lock:
-                        self._write_raw(f'  {DIM}{ch} {text} {self._spinner_status(0, 0)}{RESET}')
+                        self._write_raw(f"  {DIM}{ch} {text} {self._spinner_status(0, 0)}{RESET}")
                         sys.stdout.flush()
         else:
             planner.streaming = False
@@ -71,7 +70,7 @@ class TabsMixin:
                     self._redraw()
                 else:
                     with self._write_lock:
-                        self._write_raw('\r\033[2K')
+                        self._write_raw("\r\033[2K")
                         sys.stdout.flush()
         self._redraw_header()
 
@@ -140,8 +139,9 @@ class TabsMixin:
         if tab is self._active_tab and self._main_visible:
             self._redraw()
 
-    def add_worker_action(self, tab_id: str, tool: str, args: dict,
-                          result: str, status: str, duration_ms: int = 0):
+    def add_worker_action(
+        self, tab_id: str, tool: str, args: dict, result: str, status: str, duration_ms: int = 0
+    ):
         """Record a completed tool call in a worker tab as a navigable entry."""
         tab = self._find_tab(tab_id)
 
@@ -181,7 +181,7 @@ class TabsMixin:
                         self._redraw()
                     else:
                         with self._write_lock:
-                            self._write_raw('\r\033[2K')
+                            self._write_raw("\r\033[2K")
                             sys.stdout.flush()
                         self._redraw()
                 self._redraw_header()
@@ -229,8 +229,8 @@ class TabsMixin:
         else:
             dur = ""
         if status == "running":
-            return f'{color}\u25b8{RESET} {BOLD}{tool}{RESET} {DIM}\u2014{RESET} {summary}'
-        return f'{color}\u25b8{RESET} {BOLD}{tool}{RESET} {icon}{dur} {DIM}\u2014{RESET} {summary}'
+            return f"{color}\u25b8{RESET} {BOLD}{tool}{RESET} {DIM}\u2014{RESET} {summary}"
+        return f"{color}\u25b8{RESET} {BOLD}{tool}{RESET} {icon}{dur} {DIM}\u2014{RESET} {summary}"
 
     def clear_worker_tabs(self):
         """Remove all worker tabs, keeping planner and logs."""
@@ -247,9 +247,9 @@ class TabsMixin:
     def _redraw_header(self):
         with self._write_lock:
             self._buf = []
-            self._write_raw('\033[s')
+            self._write_raw("\033[s")
             self._draw_header()
-            self._write_raw('\033[u')
+            self._write_raw("\033[u")
             frame = "".join(self._buf)
             self._buf = None
             sys.stdout.write(frame)

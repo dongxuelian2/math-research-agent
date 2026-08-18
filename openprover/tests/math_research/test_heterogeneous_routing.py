@@ -71,9 +71,7 @@ def test_role_to_tier_mapping_and_explicit_disabled_fallback():
 
 
 def test_mixed_model_scheduling_archives_per_call_metadata(tmp_path):
-    router = ModelRouter(
-        heterogeneous_config(), state_path=tmp_path / "routing_state.json"
-    )
+    router = ModelRouter(heterogeneous_config(), state_path=tmp_path / "routing_state.json")
     client = RoutedLLMClient(
         router,
         client_factory=create_client,
@@ -107,9 +105,18 @@ def test_mixed_model_scheduling_archives_per_call_metadata(tmp_path):
     assert routes["alternative-proof"]["model"] == "mock-strategic"
     for metadata in routes.values():
         assert {
-            "call_id", "parent_call_id", "obligation_id", "role", "tier",
-            "provider", "model", "reasoning_effort", "escalation_level",
-            "escalation_reason", "branch_id", "created_at",
+            "call_id",
+            "parent_call_id",
+            "obligation_id",
+            "role",
+            "tier",
+            "provider",
+            "model",
+            "reasoning_effort",
+            "escalation_level",
+            "escalation_reason",
+            "branch_id",
+            "created_at",
         } <= set(metadata)
     snapshot = router.snapshot()
     assert snapshot["usage_by_tier"]["routine"]["calls"] == 2
@@ -140,19 +147,17 @@ def test_escalation_triggers_are_monotone_and_strategic_budget_is_hard():
     router.record_frontier_cycle("frontier", progress={})
     stalled = router.record_frontier_cycle("frontier", progress={})
     assert stalled["tier"] == "strategic"
-    strategic_route = router.resolve(
-        "planner", obligation_id="candidate", step_id="step-1"
-    )
+    strategic_route = router.resolve("planner", obligation_id="candidate", step_id="step-1")
     assert strategic_route.tier == "strategic"
-    capped = router.resolve(
-        "alternative-proof", obligation_id="other", step_id="step-2"
-    )
+    capped = router.resolve("alternative-proof", obligation_id="other", step_id="step-2")
     assert capped.tier == "research"
     assert capped.fallback_reason == "strategic call cap reached"
 
     # An escalated obligation cannot silently fall back to routine.
     no_downgrade = router.resolve(
-        "boundary", obligation_id="candidate", requested_tier="routine",
+        "boundary",
+        obligation_id="candidate",
+        requested_tier="routine",
         reserve=False,
     )
     assert no_downgrade.requested_tier == "routine"
@@ -165,12 +170,17 @@ def test_resume_preserves_strategic_obligation_and_completed_call_usage(tmp_path
     router.promote_high_value("O", proof_candidate=True)
     route = router.resolve("boundary", obligation_id="O", reserve=False)
     metadata = router.begin_call(route, obligation_id="O", branch_id="B")
-    router.finish_call(metadata["call_id"], response={
-        "usage": {
-            "input_tokens": 10, "output_tokens": 2,
-            "reasoning_tokens": 1, "cached_tokens": 3,
-        }
-    })
+    router.finish_call(
+        metadata["call_id"],
+        response={
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 2,
+                "reasoning_tokens": 1,
+                "cached_tokens": 3,
+            }
+        },
+    )
 
     resumed = ModelRouter(heterogeneous_config(), state_path=path)
     resumed_route = resumed.resolve(

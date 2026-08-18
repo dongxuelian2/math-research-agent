@@ -1,14 +1,23 @@
 """Step tracking, proposals, and detail views for the TUI."""
 
 from ._colors import (
-    DIM, BOLD, RESET, WHITE, BLUE, GREEN, YELLOW, RED, CYAN, MAGENTA,
-    ACTION_STYLE, TOOL_STYLE,
+    DIM,
+    BOLD,
+    RESET,
+    WHITE,
+    BLUE,
+    GREEN,
+    YELLOW,
+    RED,
+    CYAN,
+    MAGENTA,
+    ACTION_STYLE,
+    TOOL_STYLE,
 )
 from ._types import _LogEntry, _Tab
 
 
 class StepsMixin:
-
     def show_proposal(self, plans: list[dict] | dict):
         # Normalize: accept a single dict for backward compat
         if isinstance(plans, dict):
@@ -20,7 +29,7 @@ class StepsMixin:
         sep = self._dim_separator()
         self._tab_log(planner, sep)
         label = "Next step:" if len(plans) == 1 else f"Next step ({len(plans)} actions):"
-        self._tab_log(planner, f'{DIM}{label}{RESET}')
+        self._tab_log(planner, f"{DIM}{label}{RESET}")
 
         for plan in plans:
             self._log_single_proposal(planner, plan)
@@ -29,7 +38,7 @@ class StepsMixin:
         action = plan.get("action", "")
         summary = plan.get("summary", "")
         color = ACTION_STYLE.get(action, "")
-        self._tab_log(planner, f'{color}▸{RESET} {BOLD}{action}{RESET} {DIM}-{RESET} {summary}')
+        self._tab_log(planner, f"{color}▸{RESET} {BOLD}{action}{RESET} {DIM}-{RESET} {summary}")
 
         # Show action-specific details
         if action == "spawn":
@@ -37,17 +46,17 @@ class StepsMixin:
             for i, task in enumerate(tasks):
                 task_summary = task.get("summary", "").strip()
                 label = task_summary if task_summary else "(no summary)"
-                self._tab_log(planner, f'  {DIM}[{i}]{RESET} {label}')
+                self._tab_log(planner, f"  {DIM}[{i}]{RESET} {label}")
 
         elif action == "literature_search":
             query = plan.get("search_query", "")
             context = plan.get("search_context", "")
             if query:
-                self._tab_log(planner, f'  {DIM}Query:{RESET}   {query}')
+                self._tab_log(planner, f"  {DIM}Query:{RESET}   {query}")
             if context:
-                self._tab_log(planner, f'  {DIM}Context:{RESET} {context.strip().splitlines()[0]}')
+                self._tab_log(planner, f"  {DIM}Context:{RESET} {context.strip().splitlines()[0]}")
                 for line in context.strip().splitlines()[1:]:
-                    self._tab_log(planner, f'          {line}')
+                    self._tab_log(planner, f"          {line}")
 
         elif action == "write_items":
             items = plan.get("items", [])
@@ -57,33 +66,35 @@ class StepsMixin:
                 ext = ".lean" if item.get("format") == "lean" else ".md"
                 if content:
                     first_line = content.strip().splitlines()[0] if content.strip() else ""
-                    self._tab_log(planner, f'  {DIM}•{RESET} {slug}{ext} {DIM}-- {first_line}{RESET}')
+                    self._tab_log(
+                        planner, f"  {DIM}•{RESET} {slug}{ext} {DIM}-- {first_line}{RESET}"
+                    )
                 else:
-                    self._tab_log(planner, f'  {DIM}•{RESET} {slug}{ext} {DIM}(delete){RESET}')
+                    self._tab_log(planner, f"  {DIM}•{RESET} {slug}{ext} {DIM}(delete){RESET}")
 
         elif action == "read_items":
             slugs = plan.get("read", [])
             if slugs:
-                self._tab_log(planner, f'  {DIM}{", ".join(slugs)}{RESET}')
+                self._tab_log(planner, f"  {DIM}{', '.join(slugs)}{RESET}")
 
         elif action == "write_whiteboard":
             wb = plan.get("whiteboard", "")
             if wb:
                 lines = wb.strip().splitlines()
                 for line in lines[:6]:
-                    self._tab_log(planner, f'  {DIM}{line}{RESET}')
+                    self._tab_log(planner, f"  {DIM}{line}{RESET}")
                 if len(lines) > 6:
-                    self._tab_log(planner, f'  {DIM}… ({len(lines) - 6} more lines){RESET}')
+                    self._tab_log(planner, f"  {DIM}… ({len(lines) - 6} more lines){RESET}")
 
         elif action == "submit_proof":
             val = plan.get("proof_slug")
             if val:
-                self._tab_log(planner, f'  {DIM}proof_slug: {val}{RESET}')
+                self._tab_log(planner, f"  {DIM}proof_slug: {val}{RESET}")
 
         elif action == "submit_lean_proof":
             val = plan.get("lean_proof_slug")
             if val:
-                self._tab_log(planner, f'  {DIM}lean_proof_slug: {val}{RESET}')
+                self._tab_log(planner, f"  {DIM}lean_proof_slug: {val}{RESET}")
 
     def _format_step_line(self, entry: dict) -> str:
         plans = entry.get("plans") or []
@@ -105,15 +116,15 @@ class StepsMixin:
                         if t.get("summary", "").strip()
                     ]
                     if task_summaries:
-                        lines_parts.append(f'{c}■{RESET} {BOLD}{a}{RESET}')
+                        lines_parts.append(f"{c}■{RESET} {BOLD}{a}{RESET}")
                         for ts in task_summaries:
-                            lines_parts.append(f'  {DIM}•{RESET} {ts}')
+                            lines_parts.append(f"  {DIM}•{RESET} {ts}")
                         continue
-                lines_parts.append(f'{c}■{RESET} {BOLD}{a}{RESET} {DIM}-{RESET} {s}')
+                lines_parts.append(f"{c}■{RESET} {BOLD}{a}{RESET} {DIM}-{RESET} {s}")
             line = "\n".join(lines_parts)
         else:
             color = ACTION_STYLE.get(action, "")
-            line = f'{color}■{RESET} {BOLD}{action}{RESET} {DIM}-{RESET} {summary}'
+            line = f"{color}■{RESET} {BOLD}{action}{RESET} {DIM}-{RESET} {summary}"
 
         # Show per-worker task summaries with verdicts for spawn actions
         if action == "spawn":
@@ -124,15 +135,15 @@ class StepsMixin:
                 label = getattr(tab, "label", "")
                 if not label.startswith("Worker"):
                     continue  # skip verifier tabs
-                line += f'\n  {DIM}•{RESET} {label}'
+                line += f"\n  {DIM}•{RESET} {label}"
                 verdict = verdicts.get(widx, "")
                 if verdict:
                     if "CORRECT" in verdict and "FLAWED" not in verdict:
-                        line += f'\n    {GREEN}{verdict}{RESET}'
+                        line += f"\n    {GREEN}{verdict}{RESET}"
                     elif "CRITICALLY FLAWED" in verdict:
-                        line += f'\n    {RED}{verdict}{RESET}'
+                        line += f"\n    {RED}{verdict}{RESET}"
                     else:
-                        line += f'\n    {YELLOW}{verdict}{RESET}'
+                        line += f"\n    {YELLOW}{verdict}{RESET}"
                 widx += 1
         labels: list[str] = []
         feedback = (entry.get("feedback") or "").strip()
@@ -149,7 +160,7 @@ class StepsMixin:
         elif feedback:
             labels.append(f"{YELLOW}feedback:{RESET} {GREEN}{feedback}{RESET}")
         if labels:
-            line += "\n" + "  " + f' {DIM}·{RESET} '.join(labels)
+            line += "\n" + "  " + f" {DIM}·{RESET} ".join(labels)
         return line
 
     def _sync_step_log_line(self, step_idx: int):
@@ -162,11 +173,17 @@ class StepsMixin:
                 log_entry.text = line
                 break
 
-    def step_complete(self, step_num: int,
-                      action: str, summary: str, detail: str = "",
-                      rejected: bool = False, interrupted: bool = False,
-                      feedback: str = "",
-                      plans: list[dict] | None = None) -> int:
+    def step_complete(
+        self,
+        step_num: int,
+        action: str,
+        summary: str,
+        detail: str = "",
+        rejected: bool = False,
+        interrupted: bool = False,
+        feedback: str = "",
+        plans: list[dict] | None = None,
+    ) -> int:
         planner = self.tabs[0]
         trace = planner.last_trace
         output = planner.last_output
@@ -200,13 +217,13 @@ class StepsMixin:
             self.step_entries[step_idx]["detail"] = detail
 
     def update_step_status(
-            self,
-            step_idx: int,
-            *,
-            rejected: bool | None = None,
-            interrupted: bool | None = None,
-            feedback: str | None = None,
-            detail_append: str = "",
+        self,
+        step_idx: int,
+        *,
+        rejected: bool | None = None,
+        interrupted: bool | None = None,
+        feedback: str | None = None,
+        detail_append: str = "",
     ):
         if not (0 <= step_idx < len(self.step_entries)):
             return
@@ -231,9 +248,7 @@ class StepsMixin:
         for entry in reversed(self.step_entries):
             if entry.get("step_num") == step_num:
                 prev = entry.get("action_output", "")
-                entry["action_output"] = (
-                    f"{prev}\n\n{text}".strip() if prev else text
-                )
+                entry["action_output"] = f"{prev}\n\n{text}".strip() if prev else text
                 break
 
     def _open_selected_step_detail(self):
@@ -310,8 +325,7 @@ class StepsMixin:
                     planner_lines.append(f"{DIM}[action - {tok}]{RESET}")
                     continue
                 for line in segment.splitlines():
-                    planner_lines.append(
-                        f"{DIM}{line}{RESET}" if is_toml else line)
+                    planner_lines.append(f"{DIM}{line}{RESET}" if is_toml else line)
         if planner_lines:
             add_section("Planner Output", planner_lines, color=BLUE)
 
@@ -367,7 +381,8 @@ class StepsMixin:
                 ac = ACTION_STYLE.get(plan_action, WHITE)
                 add_section(
                     f"{section_prefix}{ac}{plan_action}{RESET} {DIM}-{RESET} {plan_summary}",
-                    detail_lines, color=CYAN,
+                    detail_lines,
+                    color=CYAN,
                 )
 
             # Per-item full content sections for write_items
@@ -416,9 +431,7 @@ class StepsMixin:
         feedback = (entry.get("feedback") or "").strip()
         if entry.get("rejected"):
             if feedback:
-                status_badge = (
-                    f"{YELLOW}● rejected:{RESET} {GREEN}{feedback}{RESET}"
-                )
+                status_badge = f"{YELLOW}● rejected:{RESET} {GREEN}{feedback}{RESET}"
             else:
                 status_badge = f"{YELLOW}● rejected{RESET}"
         elif entry.get("interrupted"):
@@ -432,8 +445,10 @@ class StepsMixin:
             status_badge = f"{YELLOW}● feedback:{RESET} {GREEN}{feedback}{RESET}"
         else:
             worker_tabs = entry.get("worker_tabs") or []
-            if action == "spawn" and worker_tabs and not all(
-                getattr(t, "done", True) for t in worker_tabs
+            if (
+                action == "spawn"
+                and worker_tabs
+                and not all(getattr(t, "done", True) for t in worker_tabs)
             ):
                 status_badge = f"{CYAN}● workers running{RESET}"
             else:
@@ -492,8 +507,7 @@ class StepsMixin:
                     planner_lines.append(f"{DIM}[action - {tok}]{RESET}")
                     continue
                 for line in segment.splitlines():
-                    planner_lines.append(
-                        f"{DIM}{line}{RESET}" if is_toml else line)
+                    planner_lines.append(f"{DIM}{line}{RESET}" if is_toml else line)
         if planner_lines:
             add_section("Planner Output", planner_lines, color=BLUE)
 
@@ -532,7 +546,8 @@ class StepsMixin:
                 if detail_lines:
                     add_section(
                         f"{pac}{pa}{RESET} {DIM}-{RESET} {ps}",
-                        detail_lines, color=CYAN,
+                        detail_lines,
+                        color=CYAN,
                     )
         else:
             # Single-action step: show detail string
@@ -557,7 +572,7 @@ class StepsMixin:
             def _tab_output_lines(tab: _Tab) -> list[str]:
                 """Extract output lines from a tab, dimming reasoning traces."""
                 result: list[str] = []
-                for log_entry in (getattr(tab, "log_lines", []) or []):
+                for log_entry in getattr(tab, "log_lines", []) or []:
                     text = getattr(log_entry, "text", "")
                     if not text or text == self._dim_separator():
                         continue
@@ -650,9 +665,7 @@ class StepsMixin:
             status_badge = f"{YELLOW}● partial (sorry){RESET}{dur_text}"
         else:
             status_badge = f"{RED}● failed{RESET}{dur_text}"
-        self._step_detail_title = (
-            f"{tool_color}{tool}{RESET}  {status_badge}"
-        )
+        self._step_detail_title = f"{tool_color}{tool}{RESET}  {status_badge}"
 
         parts: list[str] = []
 
@@ -706,7 +719,7 @@ class StepsMixin:
         if self._proposal_log_start < 0:
             return
         planner = self.tabs[0]
-        planner.log_lines = planner.log_lines[:self._proposal_log_start]
+        planner.log_lines = planner.log_lines[: self._proposal_log_start]
         self._proposal_log_start = -1
 
     def show_replan_notice(self, text: str):
@@ -729,7 +742,7 @@ class StepsMixin:
             elif planner.scroll_offset > 0:
                 pass  # Stay where we are; new content is at the bottom
             else:
-                self._write(f' {entry.text}\n')
+                self._write(f" {entry.text}\n")
 
     def clear_replan_notice(self):
         entry = self._replan_notice_entry

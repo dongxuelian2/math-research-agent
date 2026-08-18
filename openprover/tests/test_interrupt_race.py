@@ -19,15 +19,21 @@ def check(label: str, ok: bool):
 
 # ── 1. os.killpg unblocks readline() ─────────────────────────────────────────
 
+
 def test_kill_unblocks_readline():
     """Killing a subprocess (SIGKILL) must immediately unblock readline()."""
     proc = subprocess.Popen(
-        ["python3", "-c",
-         "import time,sys\n"
-         "for i in range(200):\n"
-         "    print(i, flush=True)\n"
-         "    time.sleep(0.02)\n"],
-        stdout=subprocess.PIPE, text=True, bufsize=1,
+        [
+            "python3",
+            "-c",
+            "import time,sys\n"
+            "for i in range(200):\n"
+            "    print(i, flush=True)\n"
+            "    time.sleep(0.02)\n",
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        bufsize=1,
         start_new_session=True,
     )
     lines: list[str] = []
@@ -42,7 +48,7 @@ def test_kill_unblocks_readline():
         done.set()
 
     threading.Thread(target=reader, daemon=True).start()
-    time.sleep(0.15)   # collect ~7 lines
+    time.sleep(0.15)  # collect ~7 lines
 
     try:
         os.killpg(proc.pid, signal.SIGKILL)
@@ -59,6 +65,7 @@ def test_kill_unblocks_readline():
 
 # ── 2. Multi-worker clear_soft_interrupt race ─────────────────────────────────
 
+
 def test_multiworker_race():
     """
     Bug: with parallelism>1, Worker-A calls clear_soft_interrupt() before
@@ -69,7 +76,7 @@ def test_multiworker_race():
     """
     flag = threading.Event()
     results_broken = [None, None]
-    results_fixed  = [None, None]
+    results_fixed = [None, None]
 
     def worker_broken(idx, delay):
         flag.wait()
@@ -77,7 +84,7 @@ def test_multiworker_race():
         # Current fallback: only check flag
         soft = flag.is_set()
         if soft:
-            flag.clear()          # Worker-A clears before Worker-B checks
+            flag.clear()  # Worker-A clears before Worker-B checks
             results_broken[idx] = "phase2"
         else:
             results_broken[idx] = "RuntimeError"
@@ -95,7 +102,7 @@ def test_multiworker_race():
 
     TRIALS = 500
     broken_wrong = 0
-    fixed_wrong  = 0
+    fixed_wrong = 0
 
     for _ in range(TRIALS):
         flag.clear()
@@ -107,10 +114,12 @@ def test_multiworker_race():
             threading.Thread(target=worker_broken, args=(0, 0.0)),
             threading.Thread(target=worker_broken, args=(1, 5e-5)),
         ]
-        for t in threads: t.start()
+        for t in threads:
+            t.start()
         time.sleep(0.001)
         flag.set()
-        for t in threads: t.join()
+        for t in threads:
+            t.join()
         if results_broken[1] == "RuntimeError":
             broken_wrong += 1
 
@@ -119,10 +128,12 @@ def test_multiworker_race():
             threading.Thread(target=worker_fixed, args=(0, 0.0, -9)),
             threading.Thread(target=worker_fixed, args=(1, 5e-5, -9)),
         ]
-        for t in threads: t.start()
+        for t in threads:
+            t.start()
         time.sleep(0.001)
         flag.set()
-        for t in threads: t.join()
+        for t in threads:
+            t.join()
         if results_fixed[1] == "RuntimeError":
             fixed_wrong += 1
 

@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from openprover.math_research.campaign import CampaignEngine, CampaignStore
@@ -70,14 +68,16 @@ def test_scheduler_expands_to_six_for_real_parallel_obligations():
             "description": description,
             "obligation": f"lemma-{index}",
         }
-        for index, description in enumerate([
-            "Construct the direct branch",
-            "Search adversarially for a counterexample",
-            "Reconstruct the exhaustive classification",
-            "Develop an alternative independent proof",
-            "Check every boundary endpoint",
-            "Resolve semantic and foundation authority IDs",
-        ])
+        for index, description in enumerate(
+            [
+                "Construct the direct branch",
+                "Search adversarially for a counterexample",
+                "Reconstruct the exhaustive classification",
+                "Develop an alternative independent proof",
+                "Check every boundary endpoint",
+                "Resolve semantic and foundation authority IDs",
+            ]
+        )
     ]
     assignments = scheduler.assign_tasks(tasks)
     assert len(assignments) == 6
