@@ -11,7 +11,7 @@ authors = [{name = "Matěj Kripner", email = "kripner@ufal.mff.cuni.cz"}]
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0",
-    "openai>=2.53.0,<3",
+    "pydantic>=2.7,<3",
 ]
 
 [project.optional-dependencies]

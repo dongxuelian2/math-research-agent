@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,6 +23,7 @@ from .campaign import ReplayPolicy, classify_provider_exception
 from .project import ProjectError, ProjectStore, utc_now
 from .providers import create_client, load_model_config, resolve_role_config
 from .routing import ModelRouter, RoutedLLMClient
+from .schemas import AuditResultSchema, SchemaError, parse_structured_response
 from .state_machine import AuditGate
 from .trust_kernel import (
     DependencyAuthorityResolver,
@@ -67,21 +67,6 @@ def _safe_path(root: Path, relative: str) -> Path:
     if not candidate.is_file():
         raise ProjectError(f"Certification input is missing: {candidate}")
     return candidate
-
-
-def _extract_json(text: str) -> dict:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end < start:
-        raise ProjectError("Verifier did not return a JSON object")
-    value = json.loads(stripped[start:end + 1])
-    if not isinstance(value, dict):
-        raise ProjectError("Verifier JSON must be an object")
-    return value
 
 
 @dataclass(slots=True)
@@ -414,7 +399,7 @@ Notation scope: `{spec['notation_scope']}`
             client_factory=create_client,
             default_role=routing_role,
             archive_dir=self.output_dir / "archive" / label,
-            working_dir=self.output_dir / "codex" / label,
+            working_dir=self.output_dir / "gemini" / label,
         )
         self.clients.append(client)
         response = client.call(
@@ -422,8 +407,14 @@ Notation scope: `{spec['notation_scope']}`
             system_prompt=system,
             label=label,
             archive_path=output_path,
+            response_schema=AuditResultSchema,
         )
-        return _extract_json(response.get("result", ""))
+        try:
+            return parse_structured_response(
+                response, AuditResultSchema
+            ).model_dump(mode="python")
+        except SchemaError as exc:
+            raise ProjectError(f"{label} returned invalid structured output: {exc}") from exc
 
     def _run_worker_verifiers(self, prepared: PreparedCertification) -> dict:
         directives = {
@@ -510,7 +501,7 @@ Notation scope: `{spec['notation_scope']}`
         )
         result = self._safe_call(
             role_name="final_proof_auditor",
-            role_config=resolve_role_config(self.config, "final_auditor"),
+            role_config=resolve_role_config(self.config, "final_proof_auditor"),
             label="final_proof_auditor",
             system=system,
             prompt=prompt,
@@ -605,7 +596,7 @@ open a new proof route.
 """
         result = self._safe_call(
             role_name="secondary_reconstruction",
-            role_config=resolve_role_config(self.config, "final_auditor"),
+            role_config=resolve_role_config(self.config, "final_proof_auditor"),
             label="certification_secondary_reconstruction",
             system="You are the independent final replay-certification reconstruction check.",
             prompt=prompt,

@@ -52,15 +52,17 @@ def test_cross_pipeline_concurrency_dependency_blocking_and_dual_track(tmp_path)
 
     lead = window["literature"][0]
     scheduler.complete_task(lead["task_id"], {
-        "search_strategies": [
-            "exact_theorem", "equivalent_formulation", "method_search"
+        "search_tasks": [
+            {"strategy": "exact_theorem", "public_query": "exact theorem"},
+            {"strategy": "equivalent_formulation", "public_query": "equivalent formulation"},
+            {"strategy": "method_search", "public_query": "method search"},
         ]
     })
     searchers = scheduler.dispatch_window({
         "proof": 0, "literature": 3, "verification": 0,
     })["literature"]
     assert len(searchers) == 3
-    assert len({task["payload"]["search_strategy"] for task in searchers}) == 3
+    assert len({task["payload"]["strategy"] for task in searchers}) == 3
 
     source = {
         "title": "Discovered source",
@@ -93,13 +95,13 @@ def test_cross_pipeline_concurrency_dependency_blocking_and_dual_track(tmp_path)
         "citation_chain": [{"source_id": reader["payload"]["source_id"]}],
     })
     assert any(
-        task["payload"].get("search_strategy") == "citation_chain"
+        task["payload"].get("strategy") == "citation_chain"
         for task in scheduler.snapshot()["tasks"].values()
     )
 
     scheduler.apply_literature_result(
         "L", verdict="STRONGER_RESULT_FOUND",
-        authority_status="VERIFIED_EXTERNAL_AUTHORITY",
+        authority_status="VERIFIED_SOURCE_THEOREM",
         synthesis_path="literature/LITERATURE_SYNTHESIS.md",
     )
     snapshot = scheduler.snapshot()
@@ -185,7 +187,11 @@ def test_resume_does_not_requeue_completed_search(tmp_path):
         "proof": 0, "literature": 1, "verification": 0,
     })["literature"][0]
     scheduler.complete_task(lead["task_id"], {
-        "search_strategies": ["exact_theorem", "method_search", "terminology_archaeology"]
+        "search_tasks": [
+            {"strategy": "exact_theorem", "public_query": "exact theorem"},
+            {"strategy": "method_search", "public_query": "method search"},
+            {"strategy": "terminology_archaeology", "public_query": "terminology archaeology"},
+        ]
     })
     searcher = scheduler.dispatch_window({
         "proof": 0, "literature": 1, "verification": 0,
@@ -271,7 +277,9 @@ def test_synthesizer_and_authority_auditor_are_event_derived(tmp_path):
     lead = scheduler.dispatch_window({
         "proof": 0, "literature": 1, "verification": 0,
     })["literature"][0]
-    scheduler.complete_task(lead["task_id"], {"search_strategies": ["exact_theorem"]})
+    scheduler.complete_task(lead["task_id"], {
+        "search_tasks": [{"strategy": "exact_theorem", "public_query": "exact theorem"}],
+    })
     searcher = scheduler.dispatch_window({
         "proof": 0, "literature": 1, "verification": 0,
     })["literature"][0]
@@ -302,8 +310,9 @@ def test_synthesizer_and_authority_auditor_are_event_derived(tmp_path):
     })["literature"]
     assert authority_task["task_id"] in {task["task_id"] for task in claimed}
     scheduler.complete_task(authority_task["task_id"], {
-        "authority_status": "VERIFIED_EXTERNAL_AUTHORITY",
+        "authority_status": "VERIFIED_SOURCE_THEOREM",
         "literature_verdict": "EXACT_RESULT_FOUND",
+        "deterministic_verification": True,
     })
     assert any(
         task["obligation_id"] == "A" and task["role"] == "reconstruction"

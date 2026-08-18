@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from .codex_cli_provider import BILLING_MODE, CodexCLIProviderError
-from .openai_provider import OpenAIProviderError
+from .gemini_provider import GeminiProviderError
+from .formalization import run_formalization
 from .orchestrator import ResearchOrchestrator, build_run_preview
 from .project import ProjectError, ProjectStore
 from .providers import create_client, load_model_config, resolve_role_config
@@ -77,14 +76,23 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--expand-context", action="store_true")
     run.add_argument("--stop-after", choices=["context", "candidate", "audits"])
 
+    formalize = sub.add_parser(
+        "formalize",
+        help="run the explicit Gemini-to-Lean formalization lane for a candidate",
+    )
+    formalize.add_argument("--project", required=True)
+    formalize.add_argument("--target", required=True)
+    formalize.add_argument("--config", required=True)
+    formalize.add_argument("--run", required=True, help="completed run directory")
+
     smoke = sub.add_parser(
         "provider-smoke",
-        help="send exactly one minimal OpenAI API request or Codex CLI process",
+        help="send exactly one minimal Gemini request",
     )
     smoke.add_argument("--config", required=True)
-    smoke.add_argument("--role", default="auditor")
+    smoke.add_argument("--role", default="final_proof_auditor")
     smoke.add_argument("--output", required=True)
-    smoke.add_argument("--expect", default="OPENAI_PROVIDER_OK")
+    smoke.add_argument("--expect", default="GEMINI_PROVIDER_OK")
 
     status = sub.add_parser("status", help="show project and theorem state")
     status.add_argument("--project", required=True)
@@ -132,17 +140,14 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         config = load_model_config(args.config)
         role = dict(resolve_role_config(config, args.role))
         provider = role.get("provider")
-        if provider not in {"openai", "codex_cli"}:
-            raise ProjectError(
-                "provider-smoke requires an openai or codex_cli role"
-            )
+        if provider not in {"gemini", "vertex_gemini"}:
+            raise ProjectError("provider-smoke requires a Gemini role")
         # Exactly one provider attempt, even if it fails. Unit tests exercise
         # each provider's normal bounded retry path separately.
         role["max_retries"] = 0
-        if provider == "openai":
-            role["max_output_tokens"] = min(
-                32, int(role.get("max_output_tokens", 32)),
-            )
+        role["max_output_tokens"] = min(
+            32, int(role.get("max_output_tokens", 32)),
+        )
         output_dir = Path(args.output).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -153,7 +158,7 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             role,
             output_dir,
             role_name=args.role,
-            working_dir=output_dir / "codex" / args.role / stamp,
+            working_dir=output_dir / "gemini" / args.role / stamp,
         )
         started = time.perf_counter()
         try:
@@ -170,38 +175,20 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
                     label=f"{provider}_provider_smoke",
                     archive_path=archive_path,
                 )
-            except (OpenAIProviderError, CodexCLIProviderError) as exc:
+            except GeminiProviderError as exc:
                 failure = {
                     "provider": provider,
-                    "api": "responses" if provider == "openai" else None,
-                    "sdk_version": (
-                        importlib.metadata.version("openai")
-                        if provider == "openai" else None
-                    ),
                     "role": args.role,
                     "model": role.get("model"),
-                    "reasoning_effort": role.get("reasoning_effort"),
                     "passed": False,
                     "logical_calls": client.call_count,
-                    "api_requests": (
-                        client.request_count if provider == "openai" else 0
-                    ),
-                    "codex_processes": (
-                        client.request_count if provider == "codex_cli" else 0
-                    ),
-                    "process_start_attempts": getattr(
-                        client, "process_start_attempts", 0,
-                    ),
+                    "api_requests": client.request_count,
                     "duration_ms": int(
                         (time.perf_counter() - started) * 1000
                     ),
                     "usage": None,
-                    "billing_mode": (
-                        BILLING_MODE if provider == "codex_cli" else "openai_api"
-                    ),
+                    "billing_mode": getattr(client, "billing_mode", None),
                     "cost_usd": None,
-                    "cost_api_reported": False,
-                    "executable": getattr(client, "executable", None),
                     "error": exc.to_dict(),
                     "archive": str(archive_path),
                     "summary": str(summary_path),
@@ -215,28 +202,14 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             received = response.get("result", "").strip()
             summary = {
                 "provider": provider,
-                "api": "responses" if provider == "openai" else None,
-                "sdk_version": (
-                    importlib.metadata.version("openai")
-                    if provider == "openai" else None
-                ),
                 "role": args.role,
                 "model": response.get("model") or role.get("model"),
                 "requested_model": role.get("model"),
-                "reasoning_effort": role.get("reasoning_effort"),
                 "expected": args.expect,
                 "received": received,
                 "passed": received == args.expect,
                 "logical_calls": client.call_count,
-                "api_requests": (
-                    client.request_count if provider == "openai" else 0
-                ),
-                "codex_processes": (
-                    client.request_count if provider == "codex_cli" else 0
-                ),
-                "process_start_attempts": getattr(
-                    client, "process_start_attempts", 0,
-                ),
+                "api_requests": client.request_count,
                 "duration_ms": response.get(
                     "duration_ms",
                     int((time.perf_counter() - started) * 1000),
@@ -245,18 +218,16 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
                 "usage": response.get("usage"),
                 "billing_mode": response.get(
                     "billing_mode",
-                    BILLING_MODE if provider == "codex_cli" else "openai_api",
+                    getattr(client, "billing_mode", None),
                 ),
                 "cost_usd": None,
-                "cost_api_reported": False,
-                "executable": getattr(client, "executable", None),
                 "archive": str(archive_path),
                 "summary": str(summary_path),
             }
-            if provider == "codex_cli" and client.request_count != 1:
+            if client.request_count != 1:
                 summary["passed"] = False
                 summary["process_count_error"] = (
-                    "Codex provider smoke must start exactly one Codex process"
+                    "Gemini provider smoke must send exactly one API request"
                 )
             summary_path.write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -314,6 +285,13 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             expand_context=args.expand_context,
         )
         return orchestrator.run(stop_after=args.stop_after)
+    if args.command == "formalize":
+        return run_formalization(
+            store,
+            args.target,
+            config_path=args.config,
+            run_dir=args.run,
+        )
     if args.command == "status":
         if args.target:
             return store.load_theorem(args.target)
@@ -358,7 +336,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         result = dispatch(args)
-    except (OpenAIProviderError, CodexCLIProviderError) as exc:
+    except GeminiProviderError as exc:
         print(
             json.dumps({"error": exc.to_dict()}, ensure_ascii=False, indent=2),
             file=sys.stderr,
@@ -370,7 +348,6 @@ def main() -> None:
     if isinstance(result, str):
         print(result)
     else:
-        # Windows terminals may expose a legacy code page (typically GBK).
         # Reconfigure stdout for the Unicode result emitted by replay runs;
         # this must not turn a completed run into a CLI-level encoding error.
         try:

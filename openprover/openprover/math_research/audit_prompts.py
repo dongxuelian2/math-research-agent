@@ -25,8 +25,9 @@ def auditor_prompt(role: str, context: str, candidate_proof: str) -> tuple[str, 
     instruction = ROLE_INSTRUCTIONS[role]
     system = f"""You are part of a strict natural-language mathematics proof gate.
 {instruction}
-Be independent of the prover. Do not repair the proof silently. Return JSON only with keys:
-role; domain_verdict (PASS, FAIL, or INCONCLUSIVE); execution_status (OK);
+Be independent of the prover. Do not repair the proof silently. Return one complete JSON object only with keys:
+schema_version (exactly 3); role; domain_verdict (PASS, FAIL, or INCONCLUSIVE);
+execution_status (OK or ERROR); execution_error; summary;
 findings (array of strings); failure_reasons (array of strings);
 cross_audit_notes (array of strings); computational_evidence (array of strings).
 The dependency_auditor must also return authority_uses, an array whose entries contain
@@ -51,7 +52,8 @@ def final_auditor_prompt(context: str, candidate_proof: str,
     system = """You are the Final Proof Auditor and final independent gate. You receive the theorem, its three-layer authority context, the complete candidate proof, and all specialist audits. Return JSON only. Never call model auditing formal verification.
 
 Required keys:
-role, domain_verdict (PASS, FAIL, or INCONCLUSIVE), execution_status (OK),
+schema_version (exactly 3), role, domain_verdict (PASS, FAIL, or INCONCLUSIVE),
+execution_status (OK or ERROR), execution_error, summary,
 failure_reasons, cross_audit_notes, summary, authority_uses, and criteria.
 criteria must contain booleans: forward_implication, converse_if_applicable,
 exhaustive_cases, parameter_ranges, boundary_cases, dependencies_valid,

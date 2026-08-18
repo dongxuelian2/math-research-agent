@@ -1,10 +1,4 @@
-"""Heterogeneous model routing, escalation, budgets, and call accounting.
-
-The routing layer deliberately sits above provider construction.  A role only
-selects a default logical tier; every call resolves an independent provider,
-model, and reasoning effort.  Legacy role-specific configurations remain
-valid and retain their exact pre-routing behaviour.
-"""
+"""Gemini role routing, escalation, budgets, and call accounting."""
 
 from __future__ import annotations
 
@@ -17,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .project import ProjectError, utc_now
+from .gemini_tools import build_tool_payload
 
 
 TIERS = ("routine", "research", "strategic")
@@ -26,11 +21,8 @@ TIER_INDEX = {name: index for index, name in enumerate(TIERS)}
 # layers may override it, but provider/model values never live in this map.
 DEFAULT_ROLE_TIERS = {
     "planner": "strategic",
-    "alternative-proof": "strategic",
-    "alternative_proof": "strategic",
     "architecture_audit": "strategic",
     "constructive": "research",
-    "adversarial": "research",
     "worker": "research",
     "theorem_verifier": "research",
     "counterexample_hunter": "research",
@@ -39,23 +31,15 @@ DEFAULT_ROLE_TIERS = {
     "literature_lead": "research",
     "literature_synthesizer": "research",
     "literature_deep_reader": "research",
-    "boundary": "routine",
-    "dependency": "routine",
     "reconstruction": "routine",
     "worker_verifier": "routine",
     "dependency_auditor": "routine",
     "literature_searcher": "routine",
     "literature_reader": "routine",
     "literature_authority_auditor": "routine",
-    # Compatibility names used by the pre-existing harness.
-    "counterexample": "research",
-    "auditor": "research",
-    "cheap_auditor": "routine",
-    "final_auditor": "strategic",
     "final_proof_auditor": "strategic",
+    "formalization_agent": "research",
     "secondary_verifier": "research",
-    "secondary_reconstruction": "research",
-    "computational-check": "routine",
 }
 
 FAILURE_KINDS = frozenset({
@@ -104,6 +88,10 @@ ROLE_POLICIES = {
     "final_proof_auditor": (
         "Perform final synthesis only after every required deterministic and specialist "
         "gate; never promote theorem truth merely because a model says CORRECT."
+    ),
+    "formalization_agent": (
+        "Translate only the authorized theorem scope. Use Lean tools to compile the "
+        "exact source and never report VERIFIED without an observed successful compiler call."
     ),
 }
 
@@ -173,13 +161,14 @@ class ModelRoute:
         return value
 
 
-def migrate_routing_state(raw: dict | None) -> dict:
-    """Deterministically add routing state while preserving unknown old fields."""
+def initialize_routing_state(raw: dict | None) -> dict:
+    """Create the current routing state; older snapshots are not accepted."""
 
     value = copy.deepcopy(raw) if isinstance(raw, dict) else {}
-    version = int(value.get("schema_version", 1))
-    if version > 2:
-        raise ProjectError(f"Unsupported routing state schema: {version}")
+    if raw is not None and value.get("schema_version") != 2:
+        raise ProjectError(
+            "Unsupported routing state schema; delete the snapshot and start a new run"
+        )
     value["schema_version"] = 2
     value.setdefault("next_call_number", 1)
     value.setdefault("obligations", {})
@@ -238,7 +227,7 @@ class ModelRouter:
         self.state_path = Path(state_path) if state_path else None
         if state is None and self.state_path and self.state_path.exists():
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
-        self.state = migrate_routing_state(state)
+        self.state = initialize_routing_state(state)
         self._lock = threading.RLock()
         self._save()
 
@@ -284,7 +273,7 @@ class ModelRouter:
         if obligation:
             tier = higher_tier(tier, obligation.get("tier", requested))
             escalation_reason = escalation_reason or obligation.get("last_escalation_reason")
-        exact = self._exact_legacy_role(role)
+        exact = self._role_config(role)
         route_config = exact if exact is not None and not self._has_tiers() else self._tier_config(tier)
         route_config = self._apply_role_override(role, route_config)
         requested_provider = route_config.get("provider") if isinstance(route_config, dict) else None
@@ -341,7 +330,7 @@ class ModelRouter:
         reason: str,
         obligation_id: str | None = None,
     ) -> ModelRoute:
-        config = self._tier_config("research") or self._exact_legacy_role(failed_route.role)
+        config = self._tier_config("research") or self._role_config(failed_route.role)
         if not config:
             raise ProjectError(f"No research fallback for failed route: {reason}")
         config = self._apply_role_override(failed_route.role, config)
@@ -613,33 +602,17 @@ class ModelRouter:
                 found = True
         return merged if found else None
 
-    def _exact_legacy_role(self, role: str) -> dict | None:
-        aliases = [role]
-        if role == "counterexample_hunter":
-            aliases.append("counterexample")
-        if role in {
-            "counterexample_hunter", "dependency_auditor",
-            "exhaustiveness_auditor", "boundary_auditor",
-        }:
-            aliases.extend(["auditor", "cheap_auditor"])
-        if role in {"final_proof_auditor", "secondary_reconstruction"}:
-            aliases.append("final_auditor")
-        if role == "worker_verifier":
-            aliases.append("worker")
-        # New roles on a legacy configuration inherit the old shared Worker
-        # route, preserving the exact single-model behaviour.
-        if role not in {"planner", "final_auditor", "final_proof_auditor"}:
-            aliases.append("worker")
+    def _role_config(self, role: str) -> dict | None:
+        """Return only the exact role entry from a role-based config."""
+
         result = None
         for layer in self.layers:
             roles = layer.get("roles")
             if not isinstance(roles, dict):
                 continue
-            for alias in aliases:
-                candidate = roles.get(alias)
-                if isinstance(candidate, dict) and candidate.get("provider"):
-                    result = copy.deepcopy(candidate)
-                    break
+            candidate = roles.get(role)
+            if isinstance(candidate, dict) and candidate.get("provider"):
+                result = copy.deepcopy(candidate)
         return result
 
     def _apply_role_override(self, role: str, route: dict | None) -> dict:
@@ -657,6 +630,9 @@ class ModelRouter:
                         for key, value in candidate.items()
                         if key != "default_tier"
                     })
+            tool_map = layer.get("tools")
+            if isinstance(tool_map, dict) and role in tool_map:
+                merged["tools"] = copy.deepcopy(tool_map[role])
         return merged
 
     @staticmethod
@@ -738,8 +714,8 @@ class RoutedLLMClient:
         self.call_count = 0
         self.request_count = 0
         self.total_retries = 0
-        self.total_cost = None
-        self.billing_mode = "heterogeneous"
+        self.total_cost = 0.0
+        self.billing_mode = "gemini_heterogeneous"
         default_route = router.resolve(self.default_role, reserve=False)
         self.model = default_route.model or f"{default_route.provider}-default"
         self.context_length = int(default_route.config.get("context_length", 200_000))
@@ -764,19 +740,19 @@ class RoutedLLMClient:
         return sum(
             int(getattr(client, "request_count", 0))
             for client in self._clients.values()
-            if getattr(client, "billing_mode", None) != "chatgpt_codex_subscription"
-        )
-
-    @property
-    def codex_process_count(self) -> int:
-        return sum(
-            int(getattr(client, "request_count", 0))
-            for client in self._clients.values()
-            if getattr(client, "billing_mode", None) == "chatgpt_codex_subscription"
         )
 
     def call(self, prompt: str, system_prompt: str, **kwargs) -> dict:
         label = str(kwargs.get("label", ""))
+        response_contract = kwargs.pop("response_schema", None)
+        if response_contract is not None:
+            if kwargs.get("json_schema") is not None:
+                raise ProjectError(
+                    "Pass only one of json_schema or response_schema"
+                )
+            # Keep the typed provider contract intact. The Gemini adapter is
+            # the single place that materializes its JSON Schema.
+            kwargs["response_schema"] = response_contract
         role, obligation_id, branch_id = self._detect_context(prompt, label)
         step_id = self._step_id(label)
         route = self.router.resolve(
@@ -784,6 +760,7 @@ class RoutedLLMClient:
             obligation_id=obligation_id,
             step_id=step_id,
         )
+        kwargs = self._with_route_tools(route, kwargs)
         layered_system = compose_system_prompt(
             system_prompt,
             role=role,
@@ -802,6 +779,13 @@ class RoutedLLMClient:
 
     def chat(self, messages: list[dict], **kwargs) -> dict:
         label = str(kwargs.get("label", ""))
+        response_contract = kwargs.pop("response_schema", None)
+        if response_contract is not None:
+            if kwargs.get("json_schema") is not None:
+                raise ProjectError(
+                    "Pass only one of json_schema or response_schema"
+                )
+            kwargs["response_schema"] = response_contract
         visible = "\n".join(str(item.get("content", "")) for item in messages)
         role, obligation_id, branch_id = self._detect_context(visible, label)
         route = self.router.resolve(
@@ -809,6 +793,7 @@ class RoutedLLMClient:
             obligation_id=obligation_id,
             step_id=self._step_id(label),
         )
+        kwargs = self._with_route_tools(route, kwargs)
         layered = copy.deepcopy(messages)
         policy_text = "\n\n".join(filter(None, (
             f"Role: {role}",
@@ -826,6 +811,15 @@ class RoutedLLMClient:
             branch_id=branch_id,
             kwargs=kwargs,
         )
+
+    @staticmethod
+    def _with_route_tools(route: ModelRoute, kwargs: dict) -> dict:
+        """Materialize only the tools declared by the resolved role."""
+
+        prepared = dict(kwargs)
+        if route.config.get("tools") and "tools" not in prepared:
+            prepared["tools"] = build_tool_payload(route.config["tools"])
+        return prepared
 
     def _execute_route(
         self,
@@ -936,7 +930,7 @@ class RoutedLLMClient:
         details = getattr(exc, "details", {})
         error_type = details.get("error_type") if isinstance(details, dict) else None
         if error_type in {
-            "invalid_model", "unsupported_reasoning_effort", "codex_not_found",
+            "invalid_model", "unsupported_reasoning_effort", "gemini_unavailable",
             "not_authenticated", "provider_unavailable",
         }:
             return True

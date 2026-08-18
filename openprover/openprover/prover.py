@@ -25,9 +25,8 @@ logger = logging.getLogger("openprover")
 def _use_thinking_as_result(resp: dict) -> dict:
     """If result is empty but thinking has content, use thinking as result.
 
-    Some models (e.g. Mistral/Leanstral) occasionally put all output into the
-    thinking trace and produce an empty result.  Fall back to thinking so that
-    downstream parsing (TOML, verdicts, etc.) can still work.
+    Some provider responses occasionally put all output into the thinking trace
+    and produce an empty result. Fall back to thinking for the core archive.
     """
     if not resp.get("result") and resp.get("thinking"):
         resp = dict(resp)  # shallow copy
@@ -249,7 +248,8 @@ class Prover:
                  history_budget: int = 0,
                  on_budget_out: str | None = None,
                  on_rate_limited: str | None = None,
-                 verifier: bool = True):
+                 verifier: bool = True,
+                 research_policy=None):
         self.model = model_name
         self._make_llm = make_llm
         self._make_worker_llm = make_worker_llm or make_llm
@@ -257,6 +257,10 @@ class Prover:
         self.lean_worker_tools = lean_worker_tools
         self._history_budget_override = history_budget
         self.verifier = verifier
+        # Optional public extension point for the outer research layer.  The
+        # core engine owns the loop; policy objects may only prepare a spawn,
+        # gate a submission, and observe typed sidecars after a spawn.
+        self.research_policy = research_policy
         self.on_budget_out = on_budget_out  # "backoff", "exit", or None
         self.on_rate_limited = on_rate_limited  # "backoff", "exit", or None
         self._spending_limit_hit = False
@@ -352,7 +356,7 @@ class Prover:
         self.lean_explore_service = None
         if self.lean_worker_tools:
             if isinstance(self.worker_llm, LLMClient):
-                # Claude CLI: configure MCP server for tool calling
+                # A client may opt into the MCP-backed Lean tool contract.
                 mcp_config = {
                     "mcpServers": {
                         "lean_tools": {
@@ -369,18 +373,6 @@ class Prover:
                     }
                 }
                 self.worker_llm.mcp_config = mcp_config
-                logger.info("Claude MCP tool calling configured")
-            elif getattr(self.worker_llm, 'vllm', False) or getattr(self.worker_llm, 'mistral', False):
-                # vLLM / Mistral: initialize LeanExplore for in-process tool execution
-                try:
-                    from lean_explore.search import SearchEngine, Service
-                    engine = SearchEngine(use_local_data=False)
-                    self.lean_explore_service = Service(engine=engine)
-                    logger.info("LeanExplore service initialized")
-                except ImportError:
-                    logger.warning("lean_explore not installed - lean_search tool disabled")
-                except Exception as e:
-                    logger.warning("LeanExplore init failed: %s", e)
             else:
                 logger.warning("lean_worker_tools enabled but worker has no tool support - tools disabled")
 
@@ -1077,6 +1069,12 @@ class Prover:
 
     def _handle_submit_proof(self, plan: dict, _step_dir: Path) -> str:
         """Handle submit_proof - informal markdown proof only."""
+        if self.research_policy is not None:
+            decision = self.research_policy.before_submit(
+                self, plan, _step_dir,
+            )
+            if decision is not None:
+                return decision
         proof_slug = plan.get("proof_slug", "")
 
         if not proof_slug:
@@ -1520,6 +1518,17 @@ class Prover:
 
     def _handle_spawn(self, plan: dict, step_dir: Path,
                       planner_resp: dict | None = None) -> str:
+        if self.research_policy is not None:
+            prepared = self.research_policy.prepare_spawn(
+                self, plan, step_dir, planner_resp,
+            )
+            if prepared is not None:
+                if isinstance(prepared, tuple):
+                    plan, control = prepared
+                    if control:
+                        return control
+                else:
+                    plan = prepared
         tasks = plan.get("tasks", [])
         completed_workers = plan.get("completed_workers", {})
         if not tasks and not completed_workers:
@@ -1745,6 +1754,11 @@ class Prover:
         # Store worker tab snapshots for history
         self.tui.snapshot_worker_tabs(self.step_num)
 
+        if self.research_policy is not None:
+            self.research_policy.after_spawn(
+                self, plan, step_dir, "interrupted" if any_interrupted else "ok",
+            )
+
         return "continue"
 
     def _handle_literature_search(self, plan: dict, step_dir: Path,
@@ -1851,13 +1865,14 @@ class Prover:
         description = task.get("description", "")
         resolved_refs = self.repo.resolve_wikilinks(description)
         prompt = prompts.format_worker_prompt(description, resolved_refs)
-        use_vllm_tools = self.lean_worker_tools and getattr(self.worker_llm, 'vllm', False)
-        use_mistral_tools = self.lean_worker_tools and getattr(self.worker_llm, 'mistral', False)
+        use_native_tools = self.lean_worker_tools and getattr(
+            self.worker_llm, "supports_native_tools", False
+        )
         use_mcp_tools = self.lean_worker_tools and getattr(self.worker_llm, 'mcp_config', None)
-        use_tools = use_vllm_tools or use_mistral_tools or use_mcp_tools
+        use_tools = use_native_tools or use_mcp_tools
         system_prompt = prompts.worker_system_prompt(lean_worker_tools=use_tools)
 
-        if use_vllm_tools or use_mistral_tools:
+        if use_native_tools:
             return self._run_worker_multi_turn(
                 prompt, system_prompt, worker_id, archive_path,
             )
@@ -1869,7 +1884,7 @@ class Prover:
     def _run_worker_single_turn(self, prompt: str, system_prompt: str,
                                 worker_id: str, archive_path: Path | None,
                                 *, use_mcp_tools: bool = False) -> dict:
-        """Single-turn worker: Claude CLI (with or without MCP) or non-vLLM."""
+        """Single-turn worker with optional MCP-backed Lean tools."""
         tool_calls_log: list[dict] = []
 
         def _tool_start_cb(name, tool_input):
@@ -1912,7 +1927,7 @@ class Prover:
 
                     conv_id = resp.get("conversation_id")
                     if conv_id and hasattr(self.worker_llm, 'chat'):
-                        # Mistral: continue the conversation to preserve thinking context
+                        # Continue the provider conversation when it exposes one.
                         messages = [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": prompt},
@@ -1932,7 +1947,7 @@ class Prover:
                             conversation_id=conv_id,
                         )
                     else:
-                        # Claude CLI / others: fresh call with context snippet
+                        # Otherwise issue a fresh call with a bounded context snippet.
                         phase2_prompt = (
                             f"{prompt}\n\n---\n\n"
                             f"Your previous reasoning was cut off. Write your final answer now. "
@@ -1991,7 +2006,7 @@ class Prover:
 
     def _run_worker_multi_turn(self, prompt: str, system_prompt: str,
                                worker_id: str, archive_path: Path | None) -> dict:
-        """Multi-turn tool-calling worker (vLLM/Mistral)."""
+        """Multi-turn tool-calling worker for clients that opt in."""
         tool_calls_log: list[dict] = []
         messages = [
             {"role": "system", "content": system_prompt},
@@ -2000,7 +2015,7 @@ class Prover:
         total_cost = 0.0
         total_duration = 0
         call_idx = 0
-        conversation_id = None  # Mistral stateful conversation
+        conversation_id = None
 
         # Context limit: reserve space for the model's response.
         # ~4 chars per token is a rough estimate.
@@ -2436,7 +2451,7 @@ class Prover:
     def _extract_token_usage(resp: dict) -> dict:
         """Pull token counts from an LLM response dict."""
         raw = resp.get("raw") or {}
-        # Claude CLI puts usage at top level; HF may have it in usage
+        # Providers may place usage at the top level or under raw.usage.
         usage = raw.get("usage", {})
         input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
         output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
@@ -2449,7 +2464,7 @@ class Prover:
 
     @staticmethod
     def _is_spending_limit_error(error: Exception) -> bool:
-        """Check if a RuntimeError indicates a Claude spending limit hit."""
+        """Check if an error indicates a provider spending limit."""
         msg = str(error).lower()
         return ("spending" in msg or "spend limit" in msg
                 or "billing" in msg or "quota" in msg

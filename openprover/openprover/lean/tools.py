@@ -1,4 +1,4 @@
-"""Lean tool definitions and execution for vLLM worker tool-calling."""
+"""Lean tool definitions and execution for native worker tool-calling."""
 
 import asyncio
 import logging
@@ -8,7 +8,7 @@ from .core import LeanWorkDir, lean_has_errors, merge_lean_imports, run_lean_che
 
 logger = logging.getLogger("openprover.lean")
 
-# Per-worker store state (vLLM path only; MCP uses per-process module state)
+# Per-worker store state; MCP uses per-process module state.
 _worker_stores: dict[str, str] = {}
 
 WORKER_TOOLS = [
