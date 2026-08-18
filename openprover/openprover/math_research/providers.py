@@ -5,18 +5,12 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import threading
 import time
 from pathlib import Path
 
-from openprover.llm import GLMClient, HFClient, LLMClient, MistralClient, OpenRouterClient
-
-from .codex_cli_provider import (
-    CODEX_REASONING_EFFORTS,
-    CodexCLIClient,
-)
-from .openai_provider import OPENAI_REASONING_EFFORTS, OpenAIResponsesClient
+from .gemini_provider import GeminiClient
+from .gemini_tools import make_tool_executor
 from .project import ProjectError
 
 
@@ -27,14 +21,9 @@ SPECIALIST_ROLES = (
     "boundary_auditor",
 )
 SUPPORTED_PROVIDERS = {
+    "gemini",
+    "vertex_gemini",
     "mock",
-    "claude_cli",
-    "mistral",
-    "glm",
-    "openrouter",
-    "local_openai_compatible",
-    "openai",
-    "codex_cli",
 }
 
 
@@ -142,6 +131,7 @@ class MockLLMClient:
         pass
 
     def call(self, prompt: str, system_prompt: str, json_schema=None,
+             response_schema=None,
              label: str = "", web_search: bool = False,
              stream_callback=None, archive_path: Path | None = None,
              max_tokens: int | None = None, **kwargs) -> dict:
@@ -164,15 +154,15 @@ class MockLLMClient:
             "CORRECT", "UNCERTAIN", "FLAWED", "CRITICALLY_FLAWED",
             "NO_PROGRESS",
         }:
-            result = f"Mock forced outcome.\n\nVERDICT: {forced_outcome}"
+            result = self._forced_structured_result(label, forced_outcome)
         elif forced_outcome in {
             "EXACT_RESULT_FOUND", "PARTIAL_RESULT_FOUND",
             "NO_SUFFICIENT_RESULT_FOUND", "INSUFFICIENT_SEARCH",
         }:
             result = json.dumps({
+                "schema_version": 3,
                 "literature_verdict": forced_outcome,
                 "sources": [],
-                "mock": True,
             })
         duration_ms = max(1, int((time.perf_counter() - start) * 1000))
         response = {
@@ -195,6 +185,13 @@ class MockLLMClient:
                 "output_tokens": max(1, len(result) // 4),
             },
         }
+        if json_schema is not None or response_schema is not None:
+            try:
+                response["structured"] = json.loads(result)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    "mock structured response is not a complete JSON document"
+                ) from exc
         with self._lock:
             self.total_usage["input_tokens"] += response["usage"]["input_tokens"]
             self.total_usage["output_tokens"] += response["usage"]["output_tokens"]
@@ -209,34 +206,68 @@ class MockLLMClient:
             )
         return response
 
+    @staticmethod
+    def _forced_structured_result(label: str, outcome: str) -> str:
+        if label.startswith("audit_") or label.startswith("secondary_"):
+            role = label.removeprefix("audit_").removeprefix("secondary_")
+            return json.dumps({
+                "schema_version": 3,
+                "role": role,
+                "domain_verdict": "PASS" if outcome == "CORRECT" else "FAIL",
+                "execution_status": "OK",
+                "findings": [],
+                "failure_reasons": [] if outcome == "CORRECT" else [outcome],
+                "cross_audit_notes": [],
+                "computational_evidence": [],
+                "summary": "Deterministic structured mock result.",
+                "execution_error": "",
+                "authority_uses": [],
+                "criteria": {},
+            })
+        return f"Mock forced outcome: {outcome}"
+
     def _result_for(self, label: str, prompt: str, system_prompt: str) -> str:
+        if label == "formalization_agent":
+            return json.dumps({
+                "schema_version": 3,
+                "status": "PENDING_FORMALIZATION",
+                "theorem_id": "",
+                "lean_code": "",
+                "compiler_output": "",
+                "certificate_path": "",
+                "certificate_sha256": "",
+                "summary": "Mock fixture does not run a Lean compiler.",
+                "error": "",
+            })
         if label.startswith("literature_lead"):
             return json.dumps({
-                "search_strategies": [
-                    "exact_theorem", "equivalent_formulation", "method_search"
+                "schema_version": 3,
+                "search_tasks": [
+                    {"strategy": "exact_theorem", "public_query": "exact theorem"},
+                    {"strategy": "equivalent_formulation", "public_query": "equivalent formulation"},
+                    {"strategy": "method_search", "public_query": "method search"},
                 ],
-                "mock": True,
             })
         if label.startswith("literature_searcher"):
             return json.dumps({
+                "schema_version": 3,
                 "sources": [{
                     "title": "Mock discovery source",
                     "stable_identifier": "mock:source:1",
                     "source_type": "original_paper",
                     "deep_read_required": True,
                 }],
-                "mock": True,
             })
         if label.startswith("literature_reader") or label.startswith("literature_deep_reader"):
             return json.dumps({
+                "schema_version": 3,
                 "reader_verdict": "THEOREM_EXTRACTED",
                 "theorems": [{"statement": "Mock theorem; never real authority."}],
-                "mock": True,
             })
         if label.startswith("literature_authority_auditor"):
             return json.dumps({
+                "schema_version": 3,
                 "verdict": "UNVERIFIED_REFERENCE",
-                "mock": True,
             })
         if label.startswith("planner_step_1"):
             return '''I will ask three workers to pursue independent checks.
@@ -285,6 +316,7 @@ proof_slug = "candidate-proof"
         if label.startswith("secondary_"):
             role = label.removeprefix("secondary_")
             return json.dumps({
+                "schema_version": 3,
                 "role": role,
                 "domain_verdict": "PASS",
                 "execution_status": "OK",
@@ -292,9 +324,13 @@ proof_slug = "candidate-proof"
                 "failure_reasons": [],
                 "cross_audit_notes": [],
                 "authority_uses": [],
+                "summary": "Independent bounded secondary check passed.",
+                "execution_error": "",
+                "criteria": {},
             })
         if label.startswith("certification_worker_verifier_") or label == "certification_secondary_reconstruction":
             return json.dumps({
+                "schema_version": 3,
                 "role": label,
                 "domain_verdict": "PASS",
                 "execution_status": "OK",
@@ -302,6 +338,9 @@ proof_slug = "candidate-proof"
                 "failure_reasons": [],
                 "cross_audit_notes": [],
                 "authority_uses": [],
+                "summary": "Bounded replay certification check passed.",
+                "execution_error": "",
+                "criteria": {},
             })
         if label == "discussion":
             return "# Discussion\n\nMocked demo completed two planner steps, three parallel workers, worker verification, and candidate submission. The outer project audit remains authoritative."
@@ -317,6 +356,7 @@ proof_slug = "candidate-proof"
                     "proof_location": "",
                 }]
             return json.dumps({
+                "schema_version": 3,
                 "role": role,
                 "domain_verdict": "PASS",
                 "execution_status": "OK",
@@ -325,15 +365,20 @@ proof_slug = "candidate-proof"
                 "cross_audit_notes": [],
                 "computational_evidence": [],
                 "authority_uses": authority_uses,
+                "summary": "Structured mock specialist audit passed.",
+                "execution_error": "",
+                "criteria": {},
             })
         if label == "final_proof_auditor":
             return json.dumps({
+                "schema_version": 3,
                 "role": "final_proof_auditor",
                 "domain_verdict": "PASS",
                 "execution_status": "OK",
                 "failure_reasons": [],
                 "cross_audit_notes": [],
                 "authority_uses": [],
+                "execution_error": "",
                 "summary": "The demo induction is complete and uses only the allowed proved identity.",
                 "criteria": {
                     "forward_implication": True,
@@ -359,6 +404,20 @@ def load_model_config(path: str | Path) -> dict:
     roles = config.get("roles", {})
     if not isinstance(roles, dict):
         raise ProjectError("Model config roles must be an object")
+    tool_map = config.get("tools", {})
+    if not isinstance(tool_map, dict):
+        raise ProjectError("Model config tools must be an object")
+    from .gemini_tools import build_tool_payload
+
+    for role_name, tool_names in tool_map.items():
+        if not isinstance(role_name, str):
+            raise ProjectError("Model config tool role names must be strings")
+        try:
+            build_tool_payload(tool_names)
+        except ValueError as exc:
+            raise ProjectError(
+                f"Invalid Gemini tools for role {role_name}: {exc}"
+            ) from exc
     tiers = config.get("tiers")
     if tiers is not None:
         if not isinstance(tiers, dict):
@@ -396,20 +455,22 @@ def load_model_config(path: str | Path) -> dict:
         for name, override in role_overrides.items():
             if not isinstance(override, dict):
                 raise ProjectError(f"Role override {name} must be an object")
-        # Resolve the trust-critical routes now so a typo fails before a run.
-        for name in ("planner", "worker", *SPECIALIST_ROLES, "final_proof_auditor"):
+        # Resolve every trust-critical role now so a typo fails before a run.
+        for name in (
+            "planner", "worker", *SPECIALIST_ROLES, "final_proof_auditor",
+        ):
             resolve_role_config(config, name)
         return config
     if config.get("provider"):
         _validate_role("global", config)
         return config
-    required = {"planner", "worker", "final_auditor"}
+    required = {"planner", "worker", *SPECIALIST_ROLES, "final_proof_auditor"}
     missing = required - set(roles)
     if missing:
         raise ProjectError(f"Model config missing roles: {', '.join(sorted(missing))}")
     for name, role in roles.items():
         _validate_role(name, role)
-    for name in SPECIALIST_ROLES:
+    for name in (*SPECIALIST_ROLES, "final_proof_auditor"):
         resolve_role_config(config, name)
     return config
 
@@ -420,108 +481,39 @@ def _validate_role(name: str, role: dict) -> None:
     provider = role.get("provider")
     if provider not in SUPPORTED_PROVIDERS:
         raise ProjectError(f"Unsupported provider type in model config: {provider}")
-    if provider == "codex_cli":
-        model = role.get("model")
-        if model is not None and (not isinstance(model, str) or not model.strip()):
-            raise ProjectError(
-                f"Codex CLI role {name} model must be null or a non-empty string"
-            )
+    if provider in {"gemini", "vertex_gemini"}:
+        if not isinstance(role.get("model"), str) or not role["model"].strip():
+            raise ProjectError(f"Gemini role {name} requires a non-empty model")
         if "api_key" in role:
             raise ProjectError(
-                f"Codex CLI role {name} must not contain api_key; use `codex login`"
-            )
-        effort = role.get("reasoning_effort")
-        if effort not in CODEX_REASONING_EFFORTS | {None}:
-            allowed = ", ".join(sorted(CODEX_REASONING_EFFORTS))
-            raise ProjectError(
-                f"Invalid Codex CLI reasoning_effort for role {name}: {effort!r}; "
-                f"expected one of {allowed}"
-            )
-        if model == "gpt-5.6-luna" and effort == "ultra":
-            raise ProjectError(
-                "Codex CLI 0.147.0 catalog does not advertise ultra for "
-                f"gpt-5.6-luna ({name}); use max or lower"
-            )
-        executable = role.get("executable")
-        if executable is not None and (
-            not isinstance(executable, str) or not executable.strip()
-        ):
-            raise ProjectError(
-                f"Codex CLI role {name} executable must be a non-empty string"
+                f"Gemini role {name} must not contain api_key; use GEMINI_API_KEY"
             )
         timeout = float(role.get("timeout_seconds", 600))
-        retries = int(role.get("max_retries", 1))
+        retries = int(role.get("max_retries", 2))
         retry_base = float(role.get("retry_base_seconds", 1))
-        sandbox = role.get("sandbox", "read-only")
-        allow_web_search = role.get("allow_web_search", False)
+        output = int(role.get("max_output_tokens", 8192))
         if timeout <= 0:
-            raise ProjectError(
-                f"Codex CLI role {name} timeout_seconds must be positive"
-            )
+            raise ProjectError(f"Gemini role {name} timeout_seconds must be positive")
         if not 0 <= retries <= 10:
-            raise ProjectError(
-                f"Codex CLI role {name} max_retries must be between 0 and 10"
-            )
+            raise ProjectError(f"Gemini role {name} max_retries must be between 0 and 10")
         if retry_base < 0:
-            raise ProjectError(
-                f"Codex CLI role {name} retry_base_seconds cannot be negative"
-            )
-        if sandbox not in {"read-only", "workspace-write"}:
-            raise ProjectError(
-                f"Codex CLI role {name} sandbox must be read-only or workspace-write"
-            )
-        if not isinstance(allow_web_search, bool):
-            raise ProjectError(
-                f"Codex CLI role {name} allow_web_search must be boolean"
-            )
+            raise ProjectError(f"Gemini role {name} retry_base_seconds cannot be negative")
+        if output < 1:
+            raise ProjectError(f"Gemini role {name} max_output_tokens must be positive")
+        if provider == "vertex_gemini" and not role.get("project"):
+            raise ProjectError(f"Vertex Gemini role {name} requires project")
         return
-    if not isinstance(role.get("model"), str) or not role["model"].strip():
-        raise ProjectError(f"Model role {name} requires a non-empty model")
-    if provider != "openai":
-        return
-    if "api_key" in role:
-        raise ProjectError(
-            f"Model role {name} must not contain api_key; use OPENAI_API_KEY"
-        )
-    effort = role.get("reasoning_effort")
-    if effort not in OPENAI_REASONING_EFFORTS | {None}:
-        allowed = ", ".join(sorted(OPENAI_REASONING_EFFORTS))
-        raise ProjectError(
-            f"Invalid OpenAI reasoning_effort for role {name}: {effort!r}; "
-            f"expected one of {allowed}"
-        )
-    timeout = float(role.get("timeout_seconds", 600))
-    retries = int(role.get("max_retries", 2))
-    retry_base = float(role.get("retry_base_seconds", 1))
-    output = int(role.get("max_output_tokens", 4096))
-    if timeout <= 0:
-        raise ProjectError(f"OpenAI role {name} timeout_seconds must be positive")
-    if not 0 <= retries <= 10:
-        raise ProjectError(f"OpenAI role {name} max_retries must be between 0 and 10")
-    if retry_base < 0:
-        raise ProjectError(f"OpenAI role {name} retry_base_seconds cannot be negative")
-    if output < 1:
-        raise ProjectError(f"OpenAI role {name} max_output_tokens must be positive")
-
-
 def resolve_role_config(config: dict, role_name: str) -> dict:
-    """Resolve actual agent roles while preserving legacy cheap_auditor configs."""
+    """Resolve one exact role from the active configuration."""
     if config.get("tiers") or (config.get("provider") and not config.get("roles")):
         from .routing import ModelRouter
 
         return ModelRouter(config).resolve(role_name, reserve=False).config
     roles = config.get("roles", {})
-    aliases = [role_name]
-    if role_name == "counterexample_hunter":
-        aliases.append("counterexample")
-    if role_name in SPECIALIST_ROLES:
-        aliases.extend(["auditor", "cheap_auditor"])
-    for alias in aliases:
-        if alias in roles:
-            return roles[alias]
+    if role_name in roles and isinstance(roles[role_name], dict):
+        return roles[role_name]
     raise ProjectError(
-        f"Model config has no provider for role {role_name}; configure the exact "
-        "role, auditor, or legacy cheap_auditor"
+        f"Model config has no exact provider for role {role_name}"
     )
 
 
@@ -548,85 +540,37 @@ def create_client(role: dict, archive_dir: Path, *, role_name: str = "unknown",
     answer_reserve = int(role.get("answer_reserve", 4096))
     if provider == "mock":
         return MockLLMClient(model or "mock", archive_dir)
-    if provider == "claude_cli":
-        if not shutil.which("claude"):
-            raise ProjectError("claude command not found; install/login to Claude Code or choose another provider")
-        return LLMClient(model, archive_dir, effort=effort)
-    if provider == "openai":
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
+    if provider in {"gemini", "vertex_gemini"}:
+        vertex = provider == "vertex_gemini"
+        api_key = os.environ.get("GEMINI_API_KEY") if not vertex else None
+        if not vertex and not api_key:
             raise ProjectError(
-                f"OPENAI_API_KEY is required by the configured OpenAI role {role_name}"
+                f"GEMINI_API_KEY is required by the configured Gemini role {role_name}"
             )
-        return OpenAIResponsesClient(
+        return GeminiClient(
             model,
             archive_dir,
-            api_key=key,
-            role_name=role_name,
-            reasoning_effort=effort,
+            api_key=api_key,
+            project=role.get("project") or os.environ.get("GOOGLE_CLOUD_PROJECT"),
+            location=role.get("location", "us-central1"),
+            access_token=role.get("access_token") or os.environ.get("GOOGLE_CLOUD_ACCESS_TOKEN"),
+            vertex=vertex,
             timeout_seconds=float(role.get("timeout_seconds", 600)),
             max_retries=int(role.get("max_retries", 2)),
             retry_base_seconds=float(role.get("retry_base_seconds", 1)),
-            max_output_tokens=int(role.get("max_output_tokens", 4096)),
+            max_output_tokens=int(role.get("max_output_tokens", 8192)),
             answer_reserve=answer_reserve,
-            context_length=int(role.get("context_length", 200_000)),
-            store=bool(role.get("store", False)),
-        )
-    if provider == "codex_cli":
-        return CodexCLIClient(
-            model or None,
-            archive_dir,
-            role_name=role_name,
-            working_dir=(
-                Path(working_dir)
-                if working_dir is not None
-                else Path(archive_dir).parent / "codex" / role_name
+            context_length=int(role.get("context_length", 1_000_000)),
+            temperature=(
+                float(role["temperature"])
+                if role.get("temperature") is not None else None
             ),
-            executable=role.get("executable"),
-            reasoning_effort=effort,
-            timeout_seconds=float(role.get("timeout_seconds", 600)),
-            max_retries=int(role.get("max_retries", 1)),
-            retry_base_seconds=float(role.get("retry_base_seconds", 1)),
-            answer_reserve=answer_reserve,
-            context_length=int(role.get("context_length", 200_000)),
-            sandbox=role.get("sandbox", "read-only"),
-            allow_web_search=bool(role.get("allow_web_search", False)),
-        )
-    if effort is not None:
-        raise ProjectError(
-            f"reasoning_effort is configured for provider {provider}, but this OpenProver backend does not support it"
-        )
-    if provider == "mistral":
-        if not os.environ.get("MISTRAL_API_KEY"):
-            raise ProjectError("MISTRAL_API_KEY is required by the configured Mistral role")
-        return MistralClient(model, archive_dir, answer_reserve=answer_reserve)
-    if provider == "glm":
-        key = os.environ.get("GLM_API_KEY")
-        if not key:
-            raise ProjectError("GLM_API_KEY is required by the configured GLM role")
-        return GLMClient(
-            model,
-            archive_dir,
-            api_key=key,
-            base_url=role.get("base_url", "https://api.z.ai/api/coding/paas/v4"),
-            answer_reserve=answer_reserve,
-        )
-    if provider == "openrouter":
-        key = os.environ.get("OPENROUTER_API_KEY")
-        if not key:
-            raise ProjectError("OPENROUTER_API_KEY is required by the configured OpenRouter role")
-        return OpenRouterClient(
-            model,
-            archive_dir,
-            api_key=key,
-            answer_reserve=answer_reserve,
-        )
-    if provider == "local_openai_compatible":
-        return HFClient(
-            model,
-            archive_dir,
-            base_url=role.get("base_url", "http://localhost:8000"),
-            answer_reserve=answer_reserve,
-            vllm=bool(role.get("vllm", True)),
+            tool_executor=make_tool_executor(
+                role.get("tools"),
+                worker_id=role_name,
+                working_dir=working_dir,
+                lean_project_dir=role.get("lean_project_dir"),
+            ),
+            max_tool_rounds=int(role.get("max_tool_rounds", 8)),
         )
     raise ProjectError(f"Unsupported provider type in model config: {provider}")

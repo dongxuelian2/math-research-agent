@@ -1,12 +1,10 @@
-"""LLM client wrappers for OpenProver."""
+"""Core cancellation and archive contracts used by the Gemini engine."""
 
-from .claude import LLMClient
-from .glm import GLMClient
-from .hf import HFClient, MODEL_CONTEXT_LENGTHS
-from .mistral import MistralClient
-from .openrouter import OpenRouterClient
-from ._base import Interrupted, StreamingUnavailable
+from ._base import Interrupted, StreamingUnavailable, is_transient_error
 
-__all__ = ["LLMClient", "GLMClient", "HFClient", "MistralClient",
-           "OpenRouterClient", "MODEL_CONTEXT_LENGTHS", "Interrupted",
-           "StreamingUnavailable"]
+
+class LLMClient:
+    """Marker for clients that expose the core engine's optional tool hook."""
+
+
+__all__ = ["LLMClient", "Interrupted", "StreamingUnavailable", "is_transient_error"]

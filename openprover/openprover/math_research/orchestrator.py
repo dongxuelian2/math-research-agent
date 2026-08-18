@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import re
 import shutil
 import threading
 import time
@@ -18,19 +17,16 @@ from openprover.prover import Prover
 from openprover.tui import HeadlessTUI
 
 from .audit_prompts import AUDITOR_ROLES, auditor_prompt, final_auditor_prompt
-from .audit_protocol import AuditResult, normalize_audit_result
+from .audit_protocol import AuditResult, normalize_audit_result, parse_audit_response
 from .campaign import (
     FailureMap,
     PreSubmitGate,
     ReplayPolicy,
     classify_provider_exception,
 )
-from .codex_cli_provider import (
-    BILLING_MODE,
-    CodexCLIProviderError,
-    resolve_codex_executable,
-)
-from .openai_provider import OpenAIProviderError
+from .gemini_provider import GeminiProviderError
+from .candidate_engine import CandidateEngine
+from .audit_coordinator import AuditCoordinator
 from .project import ProjectError, ProjectStore, utc_now
 from .pipelines import AsyncDAGScheduler, AsynchronousPipelineRuntime
 from .literature import ExternalAuthorityRegistry, LiteratureTaskExecutor
@@ -41,6 +37,12 @@ from .providers import (
 )
 from .retrieval import ContextBuilder
 from .routing import ModelRouter, RoutedLLMClient
+from .schemas import (
+    AuditResultSchema,
+    PipelineResultSchema,
+    SchemaError,
+    parse_structured_response,
+)
 from .scheduler import (
     RoleScheduler,
     StopController,
@@ -58,24 +60,6 @@ CHECKPOINT_PHASE = "CHECKPOINT"
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _extract_json(text: str) -> dict:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-        stripped = re.sub(r"\s*```$", "", stripped)
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start < 0 or end < start:
-        raise ProjectError("Auditor did not return a JSON object")
-    try:
-        value = json.loads(stripped[start:end + 1])
-    except json.JSONDecodeError as exc:
-        raise ProjectError(f"Invalid auditor JSON: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ProjectError("Auditor JSON must be an object")
-    return value
 
 
 def _usage_metrics(client: object | None) -> dict:
@@ -101,250 +85,7 @@ def _api_request_count(client: object | None) -> int:
         return 0
     if hasattr(client, "api_request_count"):
         return int(getattr(client, "api_request_count"))
-    if getattr(client, "billing_mode", None) == BILLING_MODE:
-        return 0
     return int(getattr(client, "request_count", 0))
-
-
-def _codex_process_count(client: object | None) -> int:
-    if client is None:
-        return 0
-    if hasattr(client, "codex_process_count"):
-        return int(getattr(client, "codex_process_count"))
-    if getattr(client, "billing_mode", None) != BILLING_MODE:
-        return 0
-    return int(getattr(client, "request_count", 0))
-
-
-class SubmissionGuardedProver(Prover):
-    """Apply the harness hard gate before the core writes ``PROOF.md``."""
-
-    def __init__(self, *args, pre_submit_gate: PreSubmitGate | None = None,
-                 pre_submit_gate_path: Path | None = None,
-                 role_scheduler: RoleScheduler | None = None,
-                 stop_controller: StopController | None = None, **kwargs):
-        self._harness_pre_submit_gate = pre_submit_gate
-        self._harness_pre_submit_gate_path = pre_submit_gate_path
-        self._harness_role_scheduler = role_scheduler
-        self._harness_stop_controller = stop_controller
-        self._harness_pipeline_scheduler = kwargs.pop("pipeline_scheduler", None)
-        self._harness_model_router = kwargs.pop("model_router", None)
-        self._harness_root_obligation_id = kwargs.pop("root_obligation_id", None)
-        super().__init__(*args, **kwargs)
-
-    def _handle_submit_proof(self, plan: dict, step_dir: Path) -> str:
-        proof_slug = plan.get("proof_slug", "")
-        content = self.repo.read_item(proof_slug) if proof_slug else None
-        if not content:
-            return super()._handle_submit_proof(plan, step_dir)
-        if self._harness_pre_submit_gate is None:
-            return super()._handle_submit_proof(plan, step_dir)
-        decision = self._harness_pre_submit_gate.evaluate(content)
-        if self._harness_pre_submit_gate_path is not None:
-            _write_json(self._harness_pre_submit_gate_path, decision.to_dict())
-        if not decision.allowed:
-            blocker_text = "; ".join(
-                f"{item['type']}: {item['detail']}"
-                for item in decision.blockers
-            )
-            self.tui.log(
-                f"submit_proof blocked by research harness: {blocker_text}",
-                color="red",
-            )
-            self._push_output(
-                "submit_proof forbidden by the code-level pre-submit gate. "
-                + blocker_text
-            )
-            return "continue"
-        return super()._handle_submit_proof(plan, step_dir)
-
-    def _handle_spawn(self, plan: dict, step_dir: Path,
-                      planner_resp: dict | None = None) -> str:
-        if (
-            self._harness_stop_controller is not None
-            and self._harness_stop_controller.requested()
-        ):
-            _write_json(self.work_dir / "graceful_stop.json", {
-                "status": "STOPPED_BEFORE_NEW_WORKER",
-                "step": self.step_num,
-                "created_at": utc_now(),
-            })
-            self._push_output(
-                "Graceful stop requested: no new Worker was started; checkpoint now."
-            )
-            return "stop"
-        if self._harness_role_scheduler is not None:
-            assignments = self._harness_role_scheduler.assign_tasks(
-                list(plan.get("tasks", []))
-            )
-            plan = dict(plan)
-            plan["tasks"] = [
-                {
-                    **dict(plan.get("tasks", [])[item.index]),
-                    "summary": f"[{item.role}] {item.summary}",
-                    "description": item.description,
-                    "worker_role": item.role,
-                }
-                for item in assignments
-            ]
-            _write_json(
-                step_dir / "worker_assignments.json",
-                {
-                    "schema_version": 1,
-                    "capacity": len(assignments),
-                    "assignments": [item.to_dict() for item in assignments],
-                },
-            )
-        result = super()._handle_spawn(plan, step_dir, planner_resp)
-        self._record_worker_events(plan, step_dir)
-        return result
-
-    def _record_worker_events(self, plan: dict, step_dir: Path) -> None:
-        """Bridge Worker requests/verdicts into durable routing and DAG state."""
-
-        tasks = list(plan.get("tasks", []))
-        workers_dir = step_dir / "workers"
-        for index, task in enumerate(tasks):
-            obligation_id = str(
-                task.get("obligation_id") or task.get("obligation") or self.work_dir.name
-            )
-            result_path = workers_dir / f"result_{index}.md"
-            verifier_path = workers_dir / f"verifier_result_{index}.md"
-            worker_text = (
-                result_path.read_text(encoding="utf-8") if result_path.exists() else ""
-            )
-            verifier_text = (
-                verifier_path.read_text(encoding="utf-8") if verifier_path.exists() else ""
-            )
-            request = self._extract_literature_request(worker_text)
-            if request and self._harness_pipeline_scheduler is not None:
-                request.setdefault("obligation_id", obligation_id)
-                try:
-                    self._harness_pipeline_scheduler.add_literature_request(request)
-                except ProjectError:
-                    # A malformed/unknown request remains visible in Worker output;
-                    # it never becomes silent authority or freezes sibling work.
-                    pass
-            if self._harness_model_router is None:
-                continue
-            worker_verdict = self._worker_verdict(worker_text)
-            verifier_verdict = self._verifier_verdict(verifier_text)
-            if (
-                worker_verdict == "CORRECT"
-                and verifier_verdict in {"FLAWED", "CRITICALLY_FLAWED", "UNCERTAIN"}
-            ):
-                self._harness_model_router.record_verifier_disagreement(
-                    obligation_id,
-                    worker_verdict=worker_verdict,
-                    verifier_verdict=verifier_verdict,
-                )
-            failure_markers = {
-                "NO_PROGRESS": "NO_PROGRESS",
-                "REPEATED_FAILED_ROUTE": "REPEATED_FAILED_ROUTE",
-                "MALFORMED_RESULT": "MALFORMED_RESULT",
-                "AUTHORITY_FAILURE": "AUTHORITY_FAILURE",
-                "MATHEMATICAL_OBSTRUCTION": "MATHEMATICAL_OBSTRUCTION",
-            }
-            upper = (worker_text + "\n" + verifier_text).upper()
-            for marker, failure_kind in failure_markers.items():
-                if marker in upper:
-                    self._harness_model_router.record_failure(
-                        obligation_id, failure_kind, detail=marker
-                    )
-                    break
-            high_value = any(marker in upper for marker in (
-                "ENTIRE BRANCH CLOSURE", "EXACT CLASSIFICATION", "MASTER LEMMA",
-                "INFINITE FAMILY EXCLUSION", "MULTI-BRANCH COLLAPSE",
-                "NEW GLOBAL INVARIANT",
-            ))
-            if high_value:
-                branch = str(task.get("branch_id") or task.get("branch") or "main")
-                main_impact = branch in {"main", "global"} or any(
-                    marker in upper for marker in (
-                        "EXACT CLASSIFICATION", "MULTI-BRANCH COLLAPSE",
-                        "NEW GLOBAL INVARIANT",
-                    )
-                )
-                self._harness_model_router.promote_high_value(
-                    obligation_id, theorem_level=main_impact
-                )
-        if self._harness_model_router is not None and tasks:
-            combined = "\n".join(
-                (workers_dir / f"result_{index}.md").read_text(encoding="utf-8")
-                for index in range(len(tasks))
-                if (workers_dir / f"result_{index}.md").exists()
-            ).upper()
-            self._harness_model_router.record_frontier_cycle(
-                self._harness_root_obligation_id or self.work_dir.name,
-                progress={
-                    "branch_closure": "BRANCH CLOSURE" in combined,
-                    "parameter_reduction": "PARAMETER REDUCTION" in combined,
-                    "stronger_invariant": "STRONGER INVARIANT" in combined
-                        or "NEW GLOBAL INVARIANT" in combined,
-                    "verified_lemma": "VERIFIED LEMMA" in combined,
-                    "dependency_simplification": "DEPENDENCY SIMPLIFICATION" in combined,
-                },
-            )
-
-    @staticmethod
-    def _extract_literature_request(text: str) -> dict | None:
-        marker = text.find("LITERATURE_REQUEST")
-        if marker < 0:
-            return None
-        tail = text[marker + len("LITERATURE_REQUEST"):]
-        fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", tail, re.DOTALL)
-        candidate = fenced.group(1) if fenced else None
-        if candidate is None:
-            start = tail.find("{")
-            if start >= 0:
-                depth = 0
-                in_string = False
-                escaped = False
-                for offset, character in enumerate(tail[start:], start=start):
-                    if in_string:
-                        if escaped:
-                            escaped = False
-                        elif character == "\\":
-                            escaped = True
-                        elif character == '"':
-                            in_string = False
-                        continue
-                    if character == '"':
-                        in_string = True
-                    elif character == "{":
-                        depth += 1
-                    elif character == "}":
-                        depth -= 1
-                        if depth == 0:
-                            candidate = tail[start:offset + 1]
-                            break
-        if not candidate:
-            return None
-        try:
-            value = json.loads(candidate)
-        except json.JSONDecodeError:
-            return None
-        return value if isinstance(value, dict) else None
-
-    @staticmethod
-    def _worker_verdict(text: str) -> str:
-        upper = text.upper()
-        if "CRITICALLY_FLAWED" in upper:
-            return "CRITICALLY_FLAWED"
-        if "FLAWED" in upper:
-            return "FLAWED"
-        if "CORRECT" in upper or "COMPLETE PROOF" in upper:
-            return "CORRECT"
-        return "UNCERTAIN"
-
-    @staticmethod
-    def _verifier_verdict(text: str) -> str:
-        match = re.search(
-            r"(?:VERDICT\s*:\s*)?(CRITICALLY_FLAWED|FLAWED|CORRECT|UNCERTAIN)",
-            text,
-            re.IGNORECASE,
-        )
-        return match.group(1).upper() if match else "UNCERTAIN"
 
 
 def build_run_preview(project: ProjectStore, target_id: str, *,
@@ -365,7 +106,7 @@ def build_run_preview(project: ProjectStore, target_id: str, *,
         "dependency_auditor",
         "exhaustiveness_auditor",
         "boundary_auditor",
-        "final_auditor",
+        "final_proof_auditor",
         "literature_lead",
         "literature_searcher",
         "literature_reader",
@@ -394,28 +135,21 @@ def build_run_preview(project: ProjectStore, target_id: str, *,
             "fallback": route.fallback,
             "fallback_reason": route.fallback_reason,
         })
-        if provider == "openai":
+        if provider == "gemini":
             credentials[role_name] = {
-                "environment_variable": "OPENAI_API_KEY",
-                "present": bool(os.environ.get("OPENAI_API_KEY")),
+                "environment_variable": "GEMINI_API_KEY",
+                "present": bool(os.environ.get("GEMINI_API_KEY")),
             }
-        elif provider == "codex_cli":
-            executable = resolve_codex_executable(role.get("executable"))
-            assignments[role_name].update({
-                "requested_model": role.get("model"),
-                "model_source": "configured" if role.get("model") else "codex_cli_default",
-                "requested_reasoning_effort": role.get("reasoning_effort"),
-                "resolved_executable": executable,
-                "working_directory": str(
-                    project.root / "runs" / "<run-id>" / "codex" / role_name
-                ),
-                "prompt_transport": "stdin",
-                "output_mode": "jsonl+output-last-message",
-            })
+        elif provider == "vertex_gemini":
             credentials[role_name] = {
-                "source": "codex_cli_login",
-                "status_check_performed": False,
-                "openai_api_key_forwarded": False,
+                "environment_variables": [
+                    "GOOGLE_CLOUD_PROJECT",
+                    "GOOGLE_CLOUD_ACCESS_TOKEN",
+                ],
+                "project_configured": bool(role.get("project") or os.environ.get("GOOGLE_CLOUD_PROJECT")),
+                "access_token_configured": bool(
+                    role.get("access_token") or os.environ.get("GOOGLE_CLOUD_ACCESS_TOKEN")
+                ),
             }
     return {
         "dry_run": True,
@@ -500,6 +234,8 @@ class ResearchOrchestrator:
         self.pipeline_runtime: AsynchronousPipelineRuntime | None = None
         self._pipeline_monitor_stop = threading.Event()
         self._pipeline_monitor_thread: threading.Thread | None = None
+        self.candidate_engine = CandidateEngine(self)
+        self.audit_coordinator = AuditCoordinator(self)
         if self.initial_worker_count < 1 or self.initial_worker_count > self.worker_count:
             raise ProjectError("initial_worker_count must be between 1 and worker_count")
         if dry_run:
@@ -585,25 +321,17 @@ class ResearchOrchestrator:
                 raise ProjectError("Resume run target does not match --target")
             if state.get("campaign_id") != self.campaign_id:
                 raise ProjectError("Run belongs to a different campaign")
-            # Completed run evidence is byte-immutable.  Migration occurs only
-            # when creating/resuming an active successor, never in-place here.
             if state.get("phase") == "COMPLETE":
                 return state
-            version = int(state.get("schema_version", 1))
-            if version > 2:
-                raise ProjectError(f"Unsupported run state schema: {version}")
-            state["schema_version"] = 2
-            state.setdefault("routing_state_file", "routing_state.json")
-            state.setdefault("pipeline_state_file", "pipeline_state.json")
-            state.setdefault("checkpoint_migrations", [])
-            if version < 2:
-                state["checkpoint_migrations"].append({
-                    "from": version,
-                    "to": 2,
-                    "migration": "add heterogeneous routing and async pipeline state",
-                    "at": utc_now(),
-                })
-                _write_json(self.state_path, state)
+            if state.get("schema_version") != 2:
+                raise ProjectError(
+                    "Unsupported run state schema; start a new run instead of migrating it"
+                )
+            required = {"routing_state_file", "pipeline_state_file"}
+            if not required <= set(state):
+                raise ProjectError(
+                    "Run state is incomplete; start a new run instead of migrating it"
+                )
             return state
         state = {
             "schema_version": 2,
@@ -631,7 +359,6 @@ class ResearchOrchestrator:
             "secondary_verification": self.secondary_verification,
             "routing_state_file": "routing_state.json",
             "pipeline_state_file": "pipeline_state.json",
-            "checkpoint_migrations": [],
         }
         _write_json(self.state_path, state)
         return state
@@ -679,7 +406,7 @@ class ResearchOrchestrator:
             self.model_router,
             client_factory=create_client,
             archive_dir=self.run_dir / "archive" / "literature",
-            working_dir=self.run_dir / "codex" / "literature",
+            working_dir=self.run_dir / "gemini" / "literature",
             external_transmission_approved=bool(
                 self.config.get("literature", {}).get("external_transmission_approved", False)
             ),
@@ -717,7 +444,7 @@ class ResearchOrchestrator:
             client_factory=create_client,
             default_role=role,
             archive_dir=self.run_dir / "archive" / "pipeline" / task["task_id"],
-            working_dir=self.run_dir / "codex" / "pipeline" / task["task_id"],
+            working_dir=self.run_dir / "gemini" / "pipeline" / task["task_id"],
         )
         context.set_handle(client)
         prompt = (
@@ -733,13 +460,18 @@ class ResearchOrchestrator:
                 system_prompt or f"You are the bounded production {role}. Return one JSON object.",
                 label=f"{role}_{task['task_id']}",
                 archive_path=self.run_dir / "archive" / "pipeline" / f"{task['task_id']}.md",
+                response_schema=PipelineResultSchema,
             )
             if context.cancel_event.is_set():
                 raise RuntimeError("task-scoped cancellation requested")
             try:
-                value = _extract_json(response.get("result", ""))
-            except ProjectError:
-                value = {"success": False, "verdict": "UNCERTAIN", "raw": response.get("result", "")}
+                value = parse_structured_response(
+                    response, PipelineResultSchema
+                ).model_dump(mode="python")
+            except SchemaError as exc:
+                raise ProjectError(
+                    f"{role} returned invalid structured output: {exc}"
+                ) from exc
             value.setdefault("routing", response.get("routing", {}))
             return value
         finally:
@@ -1056,7 +788,7 @@ class ResearchOrchestrator:
         if not self._phase_at_least("CANDIDATE_READY"):
             try:
                 self._run_openprover_candidate()
-            except (OpenAIProviderError, CodexCLIProviderError) as exc:
+            except GeminiProviderError as exc:
                 status, details = classify_provider_exception(exc)
                 self._checkpoint(
                     CHECKPOINT_PHASE,
@@ -1329,538 +1061,16 @@ changed failure condition is explicitly recorded.
         )
 
     def _run_audits_with_retry(self) -> tuple[dict[str, dict], AuditGate]:
-        attempts = 0
-        while True:
-            audits, gate = self._run_audits()
-            if not gate.execution_errors or attempts >= self.infrastructure_retries:
-                self.state["infrastructure_retry_count"] = attempts
-                return audits, gate
-            attempts += 1
-            _write_json(
-                self.run_dir / "audits" / f"infrastructure_retry_{attempts}.json",
-                {
-                    "attempt": attempts,
-                    "errors": gate.execution_errors,
-                    "created_at": utc_now(),
-                },
-            )
+        return self.audit_coordinator.run_with_retry()
 
     def _run_secondary_verification(self) -> dict:
-        """Run five bounded checks after the primary gate first passes."""
-
-        checks = {
-            "independent_reconstruction": (
-                "Reconstruct the proof independently from the theorem statement and authorized sources. "
-                "Do not trust the primary audit summaries."
-            ),
-            "adversarial_review": (
-                "Attack the candidate for a concrete mathematical gap, omitted branch, or counterexample."
-            ),
-            "certificate_rerun": (
-                "Recheck every cited computational certificate and its finite-reduction claim. "
-                "If none is used, verify that none is silently required."
-            ),
-            "dependency_coverage": (
-                "Reconstruct every external claim and confirm exact Foundation, Semantic, Project, "
-                "Local Proof, or Computational Certificate coverage."
-            ),
-            "statement_scope_reconstruction": (
-                "Reconstruct the theorem statement, notation scope, parameter ranges, converse, and branches "
-                "from source, then compare them with the candidate."
-            ),
-        }
-        secondary_dir = self.run_dir / "secondary_verification"
-        secondary_dir.mkdir(parents=True, exist_ok=True)
-        context = (self.run_dir / "context" / "CONTEXT.md").read_text(
-            encoding="utf-8"
-        )
-        candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(
-            encoding="utf-8"
-        )
-        clients: dict[str, object] = {}
-
-        def execute(name: str, directive: str) -> tuple[str, dict, object]:
-            system = (
-                "You are an independent secondary verifier. Return one JSON object with "
-                "domain_verdict PASS/FAIL/INCONCLUSIVE, execution_status OK/ERROR, "
-                "failure_reasons, findings, and cross_audit_notes. Mathematical doubts are "
-                "not infrastructure errors."
-            )
-            prompt = f"""# Secondary check: {name}
-
-{directive}
-
-# Authorized context
-
-{context}
-
-# Candidate
-
-{candidate}
-"""
-            client = None
-            try:
-                client = RoutedLLMClient(
-                    self.model_router,
-                    client_factory=create_client,
-                    default_role="secondary_verifier",
-                    archive_dir=self.run_dir / "archive" / "secondary" / name,
-                    working_dir=self.run_dir / "codex" / "secondary" / name,
-                )
-                response = client.call(
-                    prompt=prompt,
-                    system_prompt=system,
-                    label=f"secondary_{name}",
-                    archive_path=secondary_dir / f"{name}_call.md",
-                )
-                result = normalize_audit_result(
-                    name, _extract_json(response.get("result", ""))
-                ).to_dict()
-            except Exception as exc:
-                result = AuditResult.from_exception(name, exc).to_dict()
-            return name, result, client
-
-        results = {}
-        with ThreadPoolExecutor(max_workers=len(checks)) as pool:
-            futures = [
-                pool.submit(execute, name, directive)
-                for name, directive in checks.items()
-            ]
-            for future in as_completed(futures):
-                name, result, client = future.result()
-                results[name] = result
-                if client is not None:
-                    clients[name] = client
-                _write_json(secondary_dir / f"{name}.json", result)
-
-        deterministic_failures = []
-        dependency_path = self.run_dir / "audits" / "dependency_report.json"
-        if not dependency_path.exists():
-            deterministic_failures.append("secondary dependency coverage: dependency report is missing")
-        else:
-            dependency_report = json.loads(
-                dependency_path.read_text(encoding="utf-8")
-            )
-            if not dependency_report.get("admissible", False):
-                deterministic_failures.append(
-                    "secondary dependency coverage: deterministic authority report is not admissible"
-                )
-            certificate_ids = dependency_report.get(
-                "computational_certificates", []
-            )
-            for certificate_id in certificate_ids:
-                candidates = [
-                    self.project.root / "certificates" / f"{certificate_id}{suffix}"
-                    for suffix in (".json", ".md", ".txt")
-                ]
-                if not any(path.is_file() for path in candidates):
-                    deterministic_failures.append(
-                        f"secondary certificate rerun: missing certificate {certificate_id}"
-                    )
-        if self.hard_submit_gate:
-            pre_submit_path = self.run_dir / "pre_submit_gate.json"
-            if not pre_submit_path.exists() or not json.loads(
-                pre_submit_path.read_text(encoding="utf-8")
-            ).get("allowed", False):
-                deterministic_failures.append(
-                    "secondary scope reconstruction: pre-submit hard gate was not PASS"
-                )
-
-        failure_reasons = list(deterministic_failures)
-        execution_errors = []
-        inconclusive = []
-        for name, data in results.items():
-            result = normalize_audit_result(name, data)
-            if result.execution_status == "ERROR":
-                execution_errors.append(
-                    f"secondary {name}: {result.execution_error or 'execution failed'}"
-                )
-            elif result.domain_verdict == "INCONCLUSIVE":
-                inconclusive.append(name)
-            elif result.domain_verdict == "FAIL":
-                failure_reasons.extend(
-                    result.failure_reasons or [f"secondary {name} returned FAIL"]
-                )
-        for client in clients.values():
-            client.cleanup()
-        result = {
-            "schema_version": 1,
-            "passed": not failure_reasons and not execution_errors and not inconclusive,
-            "checks": results,
-            "failure_reasons": failure_reasons,
-            "execution_errors": execution_errors,
-            "inconclusive_checks": inconclusive,
-            "completed_at": utc_now(),
-        }
-        _write_json(secondary_dir / "gate.json", result)
-        self.metrics["secondary_verification"] = {
-            "calls": sum(getattr(client, "call_count", 0) for client in clients.values()),
-            "success": result["passed"],
-            "api_request_count": sum(_api_request_count(client) for client in clients.values()),
-            "codex_process_count": sum(_codex_process_count(client) for client in clients.values()),
-            "usage": _sum_usage(list(clients.values())),
-        }
-        return result
+        return self.audit_coordinator.run_secondary_verification()
 
     def _run_openprover_candidate(self) -> None:
-        context_path = self.run_dir / "context" / "CONTEXT.md"
-        context_text = context_path.read_text(encoding="utf-8")
-        repair_context = self.run_dir / "context" / "REPAIR_CONTEXT.md"
-        if repair_context.exists():
-            context_text += "\n\n" + repair_context.read_text(encoding="utf-8")
-        op_dir = self.run_dir / "openprover"
-        op_dir.mkdir(parents=True, exist_ok=True)
-        archive = self.run_dir / "archive"
-        archive.mkdir(parents=True, exist_ok=True)
-        holders: dict[str, object] = {}
-
-        def make_planner(_archive_dir):
-            client = RoutedLLMClient(
-                self.model_router,
-                client_factory=create_client,
-                default_role="planner",
-                archive_dir=archive / "planner",
-                working_dir=self.run_dir / "codex" / "planner",
-            )
-            holders["planner"] = client
-            return client
-
-        def make_worker(_archive_dir):
-            client = RoutedLLMClient(
-                self.model_router,
-                client_factory=create_client,
-                default_role="worker",
-                archive_dir=archive / "worker",
-                working_dir=self.run_dir / "codex" / "worker",
-            )
-            holders["worker"] = client
-            return client
-
-        planner_route = self.model_router.resolve(
-            "planner", obligation_id=self.target_id, reserve=False
-        )
-        worker_route = self.model_router.resolve(
-            "worker", obligation_id=self.target_id, reserve=False
-        )
-
-        budget_cfg = self.config.get("budget", {})
-        budget_mode = budget_cfg.get("mode", "time")
-        budget_limit = (
-            self.budget_limit_seconds
-            if self.budget_limit_seconds is not None
-            else int(budget_cfg.get("limit", 900 if not self.dry_run else 120))
-        )
-        budget = Budget(
-            mode=budget_mode,
-            limit=budget_limit,
-            conclude_after=float(budget_cfg.get("conclude_after", 0.99)),
-        )
-        resumed = (op_dir / "WHITEBOARD.md").exists() and not (op_dir / "PROOF.md").exists()
-        started = time.perf_counter()
-        use_harness_prover = bool(
-            self.hard_submit_gate
-            or self.role_scheduling
-            or self.stop_controller
-            or self.model_router
-            or self.pipeline_scheduler
-        )
-        prover_type = SubmissionGuardedProver if use_harness_prover else Prover
-        prover_kwargs = dict(
-            work_dir=op_dir,
-            theorem_text=context_text,
-            mode="prove",
-            make_llm=make_planner,
-            make_worker_llm=make_worker,
-            model_name=(
-                f"{planner_route.model or 'provider-default'}/"
-                f"{worker_route.model or 'provider-default'}"
-            ),
-            budget=budget,
-            autonomous=True,
-            verbose=False,
-            tui=HeadlessTUI(),
-            isolation=bool(self.config.get("isolation", True)),
-            max_workers=self.worker_count,
-            resumed=resumed,
-            verifier=True,
-            history_budget=int(self.config.get("history_budget", 0)),
-            on_budget_out="exit",
-            on_rate_limited="exit",
-        )
-        harness_kwargs = {}
-        if self.hard_submit_gate:
-            context_data = json.loads(
-                (self.run_dir / "context" / "context.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            trust_kernel = TrustKernel.for_project(self.project)
-            resolver = DependencyAuthorityResolver(
-                foundations=trust_kernel.foundations,
-                semantics=trust_kernel.semantics,
-                project=self.project,
-                notation_scope=context_data.get("notation_scope", ""),
-            )
-            harness_kwargs.update({
-                "pre_submit_gate": PreSubmitGate(
-                    resolver=resolver,
-                    blocked_dependencies=self.state.get("blocked_dependencies", []),
-                    dependency_cycles=self.state.get("dependency_cycles", []),
-                    replay_policy=self.replay_policy,
-                    require_manifest=True,
-                ),
-                "pre_submit_gate_path": self.run_dir / "pre_submit_gate.json",
-            })
-        if self.role_scheduling:
-            harness_kwargs["role_scheduler"] = RoleScheduler(
-                initial_workers=self.initial_worker_count,
-                max_workers=self.worker_count,
-            )
-        if self.stop_controller is not None:
-            harness_kwargs["stop_controller"] = self.stop_controller
-        harness_kwargs["pipeline_scheduler"] = self.pipeline_scheduler
-        harness_kwargs["model_router"] = self.model_router
-        harness_kwargs["root_obligation_id"] = self.target_id
-        prover_kwargs.update(harness_kwargs)
-        active_proof_task = self._claim_target_pipeline_task("proof")
-        # Literature and verification tasks belong to the same run lifetime as
-        # the long-running OpenProver call.  They are monitored in parallel;
-        # only the target proof task itself remains owned by OpenProver.
-        self._start_async_pipeline_monitor(include_proof=False)
-        prover = prover_type(**prover_kwargs)
-        try:
-            prover.run()
-        finally:
-            for client in holders.values():
-                client.cleanup()
-            self._stop_async_pipeline_monitor()
-        proof_path = op_dir / "PROOF.md"
-        if proof_path.exists():
-            shutil.copy2(proof_path, self.run_dir / "CANDIDATE_PROOF.md")
-        if active_proof_task:
-            self.pipeline_scheduler.complete_task(
-                active_proof_task,
-                {
-                    "success": proof_path.exists(),
-                    "proof_candidate": proof_path.exists(),
-                    "high_value": proof_path.exists(),
-                },
-            )
-        self._drain_async_pipeline_tasks()
-        self.metrics["planner"] = {
-            "calls": getattr(holders.get("planner"), "call_count", 0),
-            "cost_usd": getattr(holders.get("planner"), "total_cost", 0.0),
-            "wall_clock_seconds": round(time.perf_counter() - started, 3),
-            "success": proof_path.exists(),
-            "retry_count": len(list(op_dir.glob("steps/*/planner_call_retry_*.md"))),
-            "provider_retry_count": getattr(holders.get("planner"), "total_retries", 0),
-            "api_request_count": _api_request_count(holders.get("planner")),
-            "codex_process_count": _codex_process_count(holders.get("planner")),
-            "billing_mode": getattr(holders.get("planner"), "billing_mode", None),
-            "usage": _usage_metrics(holders.get("planner")),
-        }
-        workers = len(list(op_dir.glob("steps/*/workers/worker_*_call.md")))
-        verifiers = len(list(op_dir.glob("steps/*/workers/verifier_*_call.md")))
-        self.metrics["worker_and_upstream_verifier"] = {
-            "calls": getattr(holders.get("worker"), "call_count", 0),
-            "worker_calls": workers,
-            "verifier_calls": verifiers,
-            "output_tokens": budget.total_output_tokens,
-            "cost_usd": getattr(holders.get("worker"), "total_cost", 0.0),
-            "success": proof_path.exists(),
-            "retry_count": 0,
-            "provider_retry_count": getattr(holders.get("worker"), "total_retries", 0),
-            "api_request_count": _api_request_count(holders.get("worker")),
-            "codex_process_count": _codex_process_count(holders.get("worker")),
-            "billing_mode": getattr(holders.get("worker"), "billing_mode", None),
-            "usage": _usage_metrics(holders.get("worker")),
-        }
-        self.metrics["routing"] = self.model_router.snapshot()
-        self.metrics["pipelines"] = self.pipeline_scheduler.snapshot()
-        _write_json(self.run_dir / "usage.json", self.metrics)
+        self.candidate_engine.run()
 
     def _run_audits(self) -> tuple[dict[str, dict], AuditGate]:
-        context = (self.run_dir / "context" / "CONTEXT.md").read_text(encoding="utf-8")
-        candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(encoding="utf-8")
-        audits_dir = self.run_dir / "audits"
-        audits_dir.mkdir(parents=True, exist_ok=True)
-        clients = {}
-        started = time.perf_counter()
-
-        def execute(role: str) -> tuple[str, dict, object]:
-            client = RoutedLLMClient(
-                self.model_router,
-                client_factory=create_client,
-                default_role=role,
-                archive_dir=self.run_dir / "archive" / role,
-                working_dir=self.run_dir / "codex" / role,
-            )
-            system, prompt = auditor_prompt(role, context, candidate)
-            try:
-                response = client.call(
-                    prompt=prompt,
-                    system_prompt=system,
-                    label=f"audit_{role}",
-                    archive_path=audits_dir / f"{role}_call.md",
-                )
-                data = normalize_audit_result(
-                    role, _extract_json(response.get("result", ""))
-                ).to_dict()
-            except Exception as exc:
-                data = AuditResult.from_exception(role, exc).to_dict()
-            return role, data, client
-
-        audits: dict[str, dict] = {}
-        with ThreadPoolExecutor(max_workers=len(AUDITOR_ROLES)) as pool:
-            futures = [pool.submit(execute, role) for role in AUDITOR_ROLES]
-            for future in as_completed(futures):
-                role, data, client = future.result()
-                audits[role] = data
-                clients[role] = client
-                _write_json(audits_dir / f"{role}.json", data)
-
-        context_data = json.loads(
-            (self.run_dir / "context" / "context.json").read_text(encoding="utf-8")
-        )
-        dependency_audit = normalize_audit_result(
-            "dependency_auditor", audits["dependency_auditor"]
-        )
-        trust_kernel = TrustKernel.for_project(self.project)
-        resolver = DependencyAuthorityResolver(
-            foundations=trust_kernel.foundations,
-            semantics=trust_kernel.semantics,
-            project=self.project,
-            notation_scope=context_data.get("notation_scope", ""),
-        )
-        dependency_report = resolver.resolve(dependency_audit.authority_uses)
-        if (
-            dependency_audit.execution_status == "OK"
-            and not dependency_report.admissible
-        ):
-            dependency_audit.domain_verdict = "FAIL"
-            dependency_audit.failure_reasons.extend(dependency_report.errors)
-        audits["dependency_auditor"] = dependency_audit.to_dict()
-        _write_json(
-            audits_dir / "dependency_auditor.json",
-            audits["dependency_auditor"],
-        )
-        _write_json(audits_dir / "dependency_report.json", dependency_report.to_dict())
-
-        final_client = RoutedLLMClient(
-            self.model_router,
-            client_factory=create_client,
-            default_role="final_proof_auditor",
-            archive_dir=self.run_dir / "archive" / "final_auditor",
-            working_dir=self.run_dir / "codex" / "final_auditor",
-        )
-        system, prompt = final_auditor_prompt(context, candidate, audits)
-        try:
-            response = final_client.call(
-                prompt=prompt,
-                system_prompt=system,
-                label="final_proof_auditor",
-                archive_path=audits_dir / "final_proof_auditor_call.md",
-            )
-            final = normalize_audit_result(
-                "final_proof_auditor",
-                _extract_json(response.get("result", "")),
-            ).to_dict()
-        except Exception as exc:
-            final = AuditResult.from_exception(
-                "final_proof_auditor", exc
-            ).to_dict()
-        audits["final_proof_auditor"] = final
-        _write_json(audits_dir / "final_proof_auditor.json", final)
-
-        for client in list(clients.values()) + [final_client]:
-            client.cleanup()
-        normalized = {
-            role: normalize_audit_result(role, data)
-            for role, data in audits.items()
-        }
-        specialist_pass = all(normalized[role].passed for role in AUDITOR_ROLES)
-        criteria = final.get("criteria", {})
-        failure_reasons = []
-        execution_errors = []
-        inconclusive_audits = []
-        for role, result in normalized.items():
-            if result.execution_status == "ERROR":
-                execution_errors.append(
-                    f"{role}: {result.execution_error or 'auditor execution failed'}"
-                )
-            elif result.domain_verdict == "INCONCLUSIVE":
-                inconclusive_audits.append(role)
-            elif result.mathematically_failed:
-                reasons = result.failure_reasons or [f"{role} returned FAIL"]
-                failure_reasons.extend(str(reason) for reason in reasons)
-        blocked = self.state.get("blocked_dependencies", [])
-        cycles = self.state.get("dependency_cycles", [])
-        if blocked:
-            failure_reasons.append("Non-PROVED dependencies in slice: " + ", ".join(blocked))
-        if cycles:
-            failure_reasons.append("Dependency cycle detected")
-        if is_mock_config(self.config) and not self.project.load_project().get("demo", False):
-            failure_reasons.append("Mock auditors cannot promote a non-demo project to PROVED")
-
-        gate = AuditGate(
-            forward_implication=bool(criteria.get("forward_implication")),
-            converse_if_applicable=bool(criteria.get("converse_if_applicable")),
-            exhaustive_cases=bool(criteria.get("exhaustive_cases")),
-            parameter_ranges=bool(criteria.get("parameter_ranges")),
-            boundary_cases=bool(criteria.get("boundary_cases")),
-            dependencies_valid=(
-                bool(criteria.get("dependencies_valid"))
-                and dependency_report.admissible
-                and normalized["dependency_auditor"].passed
-                and not blocked
-                and not cycles
-            ),
-            no_counterexample=(
-                bool(criteria.get("no_counterexample"))
-                and normalized["counterexample_hunter"].passed
-            ),
-            auditors_pass=bool(criteria.get("auditors_pass")) and specialist_pass,
-            final_auditor_pass=normalized["final_proof_auditor"].passed,
-            computational_evidence_separated=bool(criteria.get("computational_evidence_separated")),
-            failure_reasons=failure_reasons,
-            execution_errors=execution_errors,
-            inconclusive_audits=inconclusive_audits,
-            dependency_report=dependency_report.to_dict(),
-        )
-        self.metrics["specialist_auditors"] = {
-            "calls": sum(getattr(client, "call_count", 0) for client in clients.values()),
-            "wall_clock_seconds": round(time.perf_counter() - started, 3),
-            "success": specialist_pass,
-            "retry_count": 0,
-            "provider_retry_count": sum(
-                getattr(client, "total_retries", 0) for client in clients.values()
-            ),
-            "api_request_count": sum(
-                _api_request_count(client) for client in clients.values()
-            ),
-            "codex_process_count": sum(
-                _codex_process_count(client) for client in clients.values()
-            ),
-            "billing_modes": sorted({
-                mode for client in clients.values()
-                if (mode := getattr(client, "billing_mode", None))
-            }),
-            "usage": _sum_usage(list(clients.values())),
-        }
-        self.metrics["final_auditor"] = {
-            "calls": getattr(final_client, "call_count", 0),
-            "success": normalized["final_proof_auditor"].passed,
-            "retry_count": 0,
-            "provider_retry_count": getattr(final_client, "total_retries", 0),
-            "api_request_count": _api_request_count(final_client),
-            "codex_process_count": _codex_process_count(final_client),
-            "billing_mode": getattr(final_client, "billing_mode", None),
-            "usage": _usage_metrics(final_client),
-        }
-        self.metrics["routing"] = self.model_router.snapshot()
-        self.metrics["pipelines"] = self.pipeline_scheduler.snapshot()
-        _write_json(self.run_dir / "usage.json", self.metrics)
-        return audits, gate
+        return self.audit_coordinator.run_audits()
 
     def _finalize(self, gate: AuditGate) -> None:
         if gate.passed:

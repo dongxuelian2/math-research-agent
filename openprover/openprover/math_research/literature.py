@@ -13,6 +13,7 @@ from typing import Any
 
 from .pipelines import LITERATURE_VERDICTS
 from .project import ProjectError, utc_now
+from .schemas import LiteratureResultSchema, SchemaError, parse_structured_response
 from .routing import ModelRouter, RoutedLLMClient
 
 
@@ -26,10 +27,6 @@ AUTHORITY_STATUSES = frozenset({
     "UNVERIFIED_REFERENCE",
     "AUTHORITY_VERIFICATION_PENDING",
     "VERIFIED_SOURCE_THEOREM",
-    # Backward-compatible source-authenticity spelling.  It must never be
-    # interpreted as obligation-specific applicability.
-    "VERIFIED_EXTERNAL_AUTHORITY",
-    "REJECTED_EXTERNAL_AUTHORITY",
     "AUTHORITY_VERIFICATION_FAILED",
     "AUTHORITY_INCOMPLETE",
 })
@@ -146,22 +143,15 @@ class ExternalAuthorityRegistry:
     def load(self) -> dict:
         value = _read_json(self.path, {
             "schema_version": 2,
-            "authorities": {},
             "source_theorems": {},
             "applicability_records": {},
             "last_updated": None,
         })
-        if value.get("schema_version") not in {1, 2}:
+        if value.get("schema_version") != 2:
             raise ProjectError("Unsupported external authority registry schema")
-        # ``authorities`` remains a read-compatible alias.  New writes keep
-        # source theorem identity in ``source_theorems`` and applicability in
-        # its own relation table.
-        value.setdefault("authorities", {})
-        value.setdefault("source_theorems", copy.deepcopy(value["authorities"]))
-        if not value["authorities"] and value["source_theorems"]:
-            value["authorities"] = copy.deepcopy(value["source_theorems"])
         value.setdefault("applicability_records", {})
-        value["schema_version"] = 2
+        if not isinstance(value.get("source_theorems"), dict):
+            raise ProjectError("External authority registry source_theorems must be an object")
         return value
 
     @staticmethod
@@ -210,9 +200,8 @@ class ExternalAuthorityRegistry:
         value["registered_at"] = utc_now()
         with self._lock:
             data = self.load()
-            if authority_id in data["authorities"]:
+            if authority_id in data["source_theorems"]:
                 raise ProjectError(f"External authority already registered: {authority_id}")
-            data["authorities"][authority_id] = value
             data["source_theorems"][authority_id] = copy.deepcopy(value)
             data["last_updated"] = utc_now()
             _write_json(self.path, data)
@@ -223,9 +212,9 @@ class ExternalAuthorityRegistry:
 
         with self._lock:
             data = self.load()
-            if authority_id not in data["authorities"]:
+            if authority_id not in data["source_theorems"]:
                 raise ProjectError(f"Unknown external authority: {authority_id}")
-            record = data["source_theorems"].get(authority_id) or data["authorities"][authority_id]
+            record = data["source_theorems"][authority_id]
             errors = []
             if record.get("reader_verdict") != "THEOREM_EXTRACTED":
                 errors.append("reader did not extract theorem text from sufficient source content")
@@ -250,9 +239,7 @@ class ExternalAuthorityRegistry:
                 errors.append("exact theorem statement is missing")
             if not record.get("theorem_number") or not record.get("page_or_section"):
                 errors.append("theorem location is incomplete")
-            if verification.get("verdict") not in {
-                "VERIFIED_SOURCE_THEOREM", "VERIFIED_EXTERNAL_AUTHORITY",
-            }:
+            if verification.get("verdict") != "VERIFIED_SOURCE_THEOREM":
                 errors.append("source verifier did not return VERIFIED_SOURCE_THEOREM")
             if verification.get("source_identity_match") is not True:
                 errors.append("retrieved content is not bound to the bibliographic identity")
@@ -263,7 +250,7 @@ class ExternalAuthorityRegistry:
                 errors.append("secondary source may not masquerade as primary")
             status = (
                 "VERIFIED_SOURCE_THEOREM" if not errors
-                else "REJECTED_EXTERNAL_AUTHORITY"
+                else "AUTHORITY_VERIFICATION_FAILED"
             )
             record["status"] = status
             record["authority_verifier_verdict"] = verification.get("verdict")
@@ -276,7 +263,6 @@ class ExternalAuthorityRegistry:
                 "at": utc_now(),
             })
             data["source_theorems"][authority_id] = record
-            data["authorities"][authority_id] = copy.deepcopy(record)
             data["last_updated"] = utc_now()
             _write_json(self.path, data)
             return copy.deepcopy(record)
@@ -390,29 +376,21 @@ class ExternalAuthorityRegistry:
         with self._lock:
             data = self.load()
             record = data["source_theorems"].get(authority_id)
-            if not record or record.get("status") not in {
-                "VERIFIED_SOURCE_THEOREM", "VERIFIED_EXTERNAL_AUTHORITY",
-            }:
+            if not record or record.get("status") != "VERIFIED_SOURCE_THEOREM":
                 raise ProjectError(
                     f"External source theorem is not VERIFIED_SOURCE_THEOREM: {authority_id}"
                 )
             if obligation_id and obligation_id not in record["used_by_obligations"]:
                 record["used_by_obligations"].append(obligation_id)
-                data["authorities"][authority_id] = copy.deepcopy(record)
                 data["last_updated"] = utc_now()
                 _write_json(self.path, data)
             return copy.deepcopy(record)
-
-    def require_verified(self, authority_id: str, *, obligation_id: str | None = None) -> dict:
-        """Compatibility alias for source authenticity only."""
-
-        return self.require_verified_source(authority_id, obligation_id=obligation_id)
 
     def verified(self) -> list[dict]:
         return [
             copy.deepcopy(record)
             for record in self.load()["source_theorems"].values()
-            if record.get("status") in {"VERIFIED_SOURCE_THEOREM", "VERIFIED_EXTERNAL_AUTHORITY"}
+            if record.get("status") == "VERIFIED_SOURCE_THEOREM"
         ]
 
     def register_applicability_reconstruction(self, reconstruction: dict) -> dict:
@@ -571,7 +549,7 @@ class LiteratureMemory:
         return value
 
     def add_verified_authority(self, authority: dict, *, concepts: list[str], keywords: list[str]) -> dict:
-        if authority.get("status") not in {"VERIFIED_SOURCE_THEOREM", "VERIFIED_EXTERNAL_AUTHORITY"}:
+        if authority.get("status") != "VERIFIED_SOURCE_THEOREM":
             raise ProjectError("Only verified source theorems enter literature memory")
         entry = {
             "authority_id": authority["authority_id"],
@@ -776,7 +754,7 @@ def literature_provider_status(config: dict) -> dict:
     search_routes = [
         route for route in candidates
         if route.get("enabled", True)
-        and route.get("provider") in {"codex_cli", "openai"}
+        and route.get("provider") in {"gemini", "vertex_gemini"}
         and route.get("allow_web_search", False)
     ]
     transmission_approved = bool(
@@ -902,7 +880,7 @@ class LiteratureTaskExecutor:
                         source.get("DOI_or_stable_identifier") for source in sources
                     ],
                 }
-            prompt_body = {"public_query": public_query, "search_strategy": payload.get("search_strategy")}
+            prompt_body = {"public_query": public_query, "strategy": payload.get("strategy")}
         elif role in {"literature_reader", "literature_deep_reader"} and self.document_retriever is not None:
             return self._retrieve_and_extract(task)
         elif role == "literature_synthesizer" and self.document_retriever is not None:
@@ -950,8 +928,16 @@ class LiteratureTaskExecutor:
                 label=f"{role}_{task['task_id']}",
                 archive_path=self.archive_dir / f"{task['task_id']}_call.md",
                 web_search=role == "literature_searcher",
+                response_schema=LiteratureResultSchema,
             )
-            result = self._extract_json(response.get("result", ""))
+            try:
+                result = parse_structured_response(
+                    response, LiteratureResultSchema
+                ).model_dump(mode="python")
+            except SchemaError as exc:
+                raise ProjectError(
+                    f"{role} returned invalid structured output: {exc}"
+                ) from exc
             if role == "literature_authority_auditor":
                 result = self._deterministic_authority_gate(result, task)
             verdict = result.get("literature_verdict")
@@ -1225,7 +1211,7 @@ class LiteratureTaskExecutor:
     def _deterministic_authority_gate(self, result: dict, task: dict) -> dict:
         """Turn an LLM verdict into a candidate; only the registry promotes it."""
         claimed = result.get("authority_status") or result.get("verdict")
-        if claimed not in {"VERIFIED_SOURCE_THEOREM", "VERIFIED_EXTERNAL_AUTHORITY"}:
+        if claimed != "VERIFIED_SOURCE_THEOREM":
             return result
         record = result.get("authority_record") or result.get("authority")
         verification = result.get("verification")
@@ -1247,21 +1233,3 @@ class LiteratureTaskExecutor:
             "page, or quotation. Abstract/metadata is discovery evidence only. If exact "
             "source text is unavailable, return UNVERIFIED_REFERENCE."
         )
-
-    @staticmethod
-    def _extract_json(text: str) -> dict:
-        stripped = str(text).strip()
-        if stripped.startswith("```"):
-            stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
-            stripped = re.sub(r"\s*```$", "", stripped)
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start < 0 or end < start:
-            raise ProjectError("Literature task did not return a JSON object")
-        try:
-            value = json.loads(stripped[start:end + 1])
-        except json.JSONDecodeError as exc:
-            raise ProjectError(f"Invalid literature task JSON: {exc}") from exc
-        if not isinstance(value, dict):
-            raise ProjectError("Literature task JSON must be an object")
-        return value

@@ -1,81 +1,9 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 
-from openprover.math_research.orchestrator import ResearchOrchestrator
 from openprover.math_research.pipelines import AsyncDAGScheduler, AtomicResourceBudget
-from openprover.math_research.project import ProjectStore
-
-
-def _config(path):
-    path.write_text(json.dumps({
-        "schema_version": 2,
-        "budget": {"mode": "time", "limit": 2},
-        "roles": {
-            "planner": {"provider": "mock", "model": "mock-planner"},
-            "worker": {"provider": "mock", "model": "mock-worker"},
-            "theorem_verifier": {"provider": "mock", "model": "mock-verifier"},
-            "literature_lead": {"provider": "mock", "model": "mock-lead"},
-            "literature_searcher": {"provider": "mock", "model": "mock-searcher"},
-            "literature_authority_auditor": {"provider": "mock", "model": "mock-auditor"},
-            "final_auditor": {"provider": "mock", "model": "mock-final"},
-            "cheap_auditor": {"provider": "mock", "model": "mock-auditor"},
-        },
-        "routing": {"allow_dual_track": True, "allow_proof_fallback_when_literature_unavailable": True},
-        "literature": {"external_transmission_approved": False},
-    }), encoding="utf-8")
-    return path
-
-
-def _orchestrator(tmp_path, handlers):
-    project = ProjectStore.initialize(tmp_path / "project", "integration", demo=True)
-    project.add_theorem("target", "Target", "For all n, n = n.", status="OPEN", claim_type="equality")
-    return ResearchOrchestrator(
-        project,
-        "target",
-        config_path=_config(tmp_path / "config.json"),
-        run_id="target-integration",
-        pipeline_handlers=handlers,
-    )
-
-
-def test_actual_orchestrator_runtime_runs_three_queues_without_barrier(tmp_path):
-    release = threading.Event()
-    started = {name: threading.Event() for name in ("proof", "literature", "verification")}
-
-    def make(name):
-        def handler(task, context):
-            started[name].set()
-            assert release.wait(2)
-            return {"success": False} if name == "proof" else (
-                {"literature_verdict": "NO_SUFFICIENT_RESULT_FOUND"}
-                if name == "literature" else {"verdict": "UNCERTAIN"}
-            )
-        return handler
-
-    orchestrator = _orchestrator(tmp_path, {name: make(name) for name in started})
-    try:
-        scheduler = orchestrator.pipeline_scheduler
-        scheduler.add_obligation("A", target_statement="proof A")
-        scheduler.add_obligation("L", target_statement="lit L", literature_first=True)
-        scheduler.add_obligation("V", target_statement="verify V")
-        scheduler.create_task("verification", "V", role="theorem_verifier")
-        window = orchestrator.pipeline_runtime.start_window({"proof": 1, "literature": 1, "verification": 1})
-        assert all(len(window[name]) == 1 for name in started)
-        assert all(event.wait(2) for event in started.values())
-        active = scheduler.snapshot()["active"]
-        assert all(len(active[name]) == 1 for name in started)
-        release.set()
-        deadline = time.time() + 3
-        while orchestrator.pipeline_runtime.pending() and time.time() < deadline:
-            orchestrator.pipeline_runtime.poll()
-            time.sleep(0.01)
-        assert not orchestrator.pipeline_runtime.pending()
-    finally:
-        release.set()
-        orchestrator.close()
 
 
 def test_blocking_and_nonblocking_requests_only_freeze_dependent_path(tmp_path):
@@ -119,7 +47,7 @@ def test_dual_track_cancellation_interrupts_running_task(tmp_path):
     try:
         runtime.start_window({"proof": 1, "literature": 0, "verification": 0})
         assert started.wait(2)
-        scheduler.apply_literature_result("L", verdict="EXACT_RESULT_FOUND", authority_status="VERIFIED_EXTERNAL_AUTHORITY")
+        scheduler.apply_literature_result("L", verdict="EXACT_RESULT_FOUND", authority_status="VERIFIED_SOURCE_THEOREM")
         assert not interrupted.is_set()
         reconstruction = next(
             task for task in scheduler.snapshot()["tasks"].values()

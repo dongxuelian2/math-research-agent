@@ -605,24 +605,7 @@ class CampaignStore:
             "max_workers": max_workers,
             "secondary_verification": bool(secondary_verification),
             "routing_override": copy.deepcopy(routing_override or {}),
-            "pipeline_state": {
-                "schema_version": 2,
-                "queues": {
-                    "PROOF_QUEUE": [],
-                    "LITERATURE_QUEUE": [],
-                    "VERIFICATION_QUEUE": [],
-                    "BLOCKED_QUEUE": [],
-                },
-                "tasks": {},
-                "active": {"proof": [], "literature": [], "verification": []},
-                "proof_queue": [],
-                "literature_queue": [],
-                "verification_queue": [],
-                "blocked_queue": [],
-                "obligations": {},
-                "dual_tracks": {},
-                "external_authorities": {},
-            },
+            "pipeline_state": {"schema_version": 3},
             "created_at": now,
             "last_updated": now,
         }
@@ -634,56 +617,15 @@ class CampaignStore:
         if not path.exists():
             raise ProjectError(f"Unknown campaign: {campaign_id}")
         data = json.loads(path.read_text(encoding="utf-8"))
-        version = int(data.get("schema_version", 1))
-        if version > CAMPAIGN_SCHEMA_VERSION:
+        if data.get("schema_version") != CAMPAIGN_SCHEMA_VERSION:
             raise ProjectError("Unsupported campaign schema")
-        if version < CAMPAIGN_SCHEMA_VERSION:
-            data = self._migrate(data, from_version=version)
-            self._save(data)
-        elif "routing_override" not in data or "pipeline_state" not in data:
-            # Early schema-v2 checkpoints predate heterogeneous routing.
-            data.setdefault("routing_override", {})
-            data.setdefault("pipeline_state", {
-                "proof_queue": [],
-                "literature_queue": [],
-                "verification_queue": [],
-                "blocked_queue": [],
-                "obligations": {},
-                "dual_tracks": {},
-                "external_authorities": {},
-            })
-            data.setdefault("checkpoint_migrations", []).append({
-                "from": version,
-                "to": version,
-                "migration": "add missing heterogeneous routing and pipeline fields",
-                "at": utc_now(),
-            })
-            self._save(data)
+        if not isinstance(data.get("routing_override"), dict):
+            raise ProjectError("Campaign routing_override is missing or malformed")
+        if not isinstance(data.get("pipeline_state"), dict):
+            raise ProjectError("Campaign pipeline_state is missing or malformed")
+        if data["pipeline_state"].get("schema_version") != 3:
+            raise ProjectError("Campaign pipeline_state must use schema_version 3")
         return data
-
-    @staticmethod
-    def _migrate(record: dict, *, from_version: int) -> dict:
-        """Deterministically extend old campaign checkpoints in place."""
-
-        value = copy.deepcopy(record)
-        value.setdefault("routing_override", {})
-        value.setdefault("pipeline_state", {
-            "proof_queue": [],
-            "literature_queue": [],
-            "verification_queue": [],
-            "blocked_queue": [],
-            "obligations": {},
-            "dual_tracks": {},
-            "external_authorities": {},
-        })
-        value.setdefault("checkpoint_migrations", []).append({
-            "from": from_version,
-            "to": CAMPAIGN_SCHEMA_VERSION,
-            "migration": "add heterogeneous routing and asynchronous pipeline state",
-            "at": utc_now(),
-        })
-        value["schema_version"] = CAMPAIGN_SCHEMA_VERSION
-        return value
 
     def _save(self, record: dict) -> dict:
         record["last_updated"] = utc_now()
@@ -734,7 +676,7 @@ class CampaignStore:
         # child process opens them; Future/thread/process objects never cross
         # this boundary.
         record["pipeline_state"] = copy.deepcopy(record.get("pipeline_state") or {})
-        record.setdefault("successor_migrations", []).append({
+        record.setdefault("successor_inheritance", []).append({
             "from_run_id": parent_run_id,
             "to_run_id": run_id,
             "preserved": [
