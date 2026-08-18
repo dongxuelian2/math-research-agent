@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "registry_type": "SEMANTIC",
+  "registry_id": "ga1-certification-semantics",
+  "version": "1.0.0",
+  "description": "Project-scoped semantic authority bundle for the GA1-1 replay certification benchmark; not a global registry.",
+  "items": [
+    {
+      "id": "SEM-G-PRIM-01",
+      "statement": "Within GP3's G positive-remainder content decomposition, the primitive unit/core is exactly the h=1 content layer; equivalently the preferred primitive condition tau=b1*u/v holds if and only if h=1.",
+      "authority_kind": "iff",
+      "notation_scope": "G-positive-remainder-content-decomposition/GP3-v1",
+      "notation_version": "GP3-v1",
+      "provenance": {
+        "source_file": "inbox/deduplicated/03_G_template/critical_G_primitive_remainder_campaign.md",
+        "source_hash": "7918fd0a766658b1f428637ed2e57a470a3b332aba97086174caecf2eddcd732",
+        "source_section": "lines 345-346 and GP-II.1, lines 448-465",
+        "authority_source": "historical_source_body"
+      },
+      "version": "1.0.0",
+      "content_hash": "sha256:5e5c23c3e0b162bfff436ededf151eb20b2470df09ed79163dd14b5b68302ea8"
+    }
+  ],
+  "registry_hash": "sha256:90c8c3e126fec0d0daa32faa5e584a586a286064fe902c36589993d89ea89968"
+}

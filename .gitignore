@@ -1,0 +1,60 @@
+# Virtual environments & package manager caches
+.venv/
+venv/
+env/
+ENV/
+.uv-cache/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+
+# Test, coverage, and lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets, credentials, local overrides
+.env
+.env.*
+!.env.example
+configs/*.local.json
+configs/*.local.toml
+openprover/configs/*.local.json
+openprover/configs/*.local.toml
+*.pem
+*.key
+service-account*.json
+
+# Logs & temporary run files
+logs/
+backups/
+*.bak
+*.zip
+
+# Generated runtime workspaces & test evidence dumps
+campaign_workspaces/
+replay_workspaces/
+validation-evidence/
+external_theorem_applicability_trust_repair_final*/
+research_harness_v2_pilot_readiness_final*/
+research_harness_v2_validation*/
+
+# Projects: Keep demo project structure, exclude private research & runtime runs
+projects/main/
+projects/*/runs/
+projects/*/logs/
+
+# Openprover runtime outputs & upstream git backup
+openprover/runs/
+openprover/logs/
+openprover/.pytest_cache/
+openprover/.git_upstream_backup/

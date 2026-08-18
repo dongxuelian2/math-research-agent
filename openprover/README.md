@@ -1,0 +1,340 @@
+# OpenProver
+
+The math-research custom layer now includes configurable heterogeneous model
+routing and persistent asynchronous proof/literature/verification pipelines.
+See [docs/HETEROGENEOUS_ROUTING_AND_LITERATURE.md](docs/HETEROGENEOUS_ROUTING_AND_LITERATURE.md)
+for the architecture, trust boundary, compatibility rules, and current
+provider readiness.
+
+![system_plot](assets/openprover_system.png)
+
+Theorem prover powered by language models.
+
+A **planner** coordinates proof search by maintaining a whiteboard and repository, delegating focused tasks to parallel **workers**. Supports multiple LLM backends: Claude CLI, Mistral (Leanstral), GLM, OpenRouter-hosted models, and local models via vLLM.
+
+## How it works
+
+You give it a theorem statement (a `.md` file). A planner LLM maintains a **whiteboard** (terse mathematical scratchpad) and a **repository** of items (lemmas, observations, literature findings). Each step, the planner decides what to do: spawn workers to explore proof avenues, search literature, read/write repository items, or submit the proof.
+
+Workers run in parallel (up to `-P` at a time), each focused on a single task. They can reference repository items via `[[wikilinks]]`. Results flow back to the planner, which updates the whiteboard and decides the next step.
+
+With `--lean-project`, workers get access to **lean_verify** (compile Lean 4 code), **lean_store** (persist verified snippets across calls), and **lean_search** (search Mathlib/Lean declarations), enabling interactive formal proof development.
+
+Modes:
+- **Interactive** (default): see each step's plan, accept or give feedback
+- **Autonomous** (`--autonomous`): runs hands-off until proof found or budget exhausted
+- **Isolation** (default) / **No-isolation** (`--no-isolation`): by default, workers have no web access. With `--no-isolation`, the planner can use `literature_search` to find relevant papers and results online
+- **Formal verification** (`--lean-project`): proof attempts are verified via `lake env lean`, workers can verify code and search Lean libraries
+
+## Requirements
+
+- Python 3.10+
+- **Claude** (default): [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude` command on PATH)
+- **Leanstral** (alternative): Mistral's Lean-specialized model; requires `MISTRAL_API_KEY` (get one at https://console.mistral.ai/)
+- **GLM** (alternative): requires `GLM_API_KEY`
+- **OpenRouter** (alternative): Kimi K2.5, MiniMax M2.5/M2.7; requires `OPENROUTER_API_KEY`
+- **Local models** (alternative): any OpenAI-compatible server such as [vLLM](https://github.com/vllm-project/vllm); pass `--provider-url` to point at it
+
+## Install
+
+```bash
+pip install openprover
+```
+
+Or from source:
+```bash
+git clone https://github.com/open-prover/openprover.git
+cd openprover
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+
+For Lean search support (optional):
+```bash
+openprover fetch-lean-data
+```
+
+## Usage
+
+```bash
+# Interactive mode (file argument = theorem)
+openprover examples/sqrt2_irrational.md
+
+# Autonomous with Opus, 2h time budget, 3 parallel workers
+openprover --theorem examples/erdos_838.md --model opus --max-time 2h --autonomous -P 3
+
+# Token budget instead of time
+openprover --theorem examples/cauchy_schwarz.md --max-tokens 500000
+
+# Resume an interrupted run (directory argument = run dir)
+openprover runs/sqrt2-irrational-20260217-143012
+
+# Use different models for planner and worker
+openprover --theorem examples/cauchy_schwarz.md --planner-model opus --worker-model sonnet
+
+# Enable web searches (disabled by default)
+openprover --theorem examples/cauchy_schwarz.md --no-isolation
+
+# Use Leanstral (Mistral's Lean-specialized model)
+openprover --theorem examples/cauchy_schwarz.md --model leanstral
+
+# Use GLM-5
+openprover --theorem examples/cauchy_schwarz.md --model glm-5
+
+# Use Kimi K2.5 via OpenRouter
+openprover --theorem examples/cauchy_schwarz.md --model kimi-k2.5
+
+# Use a local model (via vLLM)
+openprover --theorem examples/infinite_primes.md --model minimax-m2.5 --provider-url http://localhost:8000
+
+# Prove and formalize in Lean 4
+openprover --theorem examples/addition.md \
+  --lean-project ~/mathlib4 \
+  --lean-theorem examples/addition.lean
+
+# Formalize an existing proof
+openprover --theorem examples/addition.md \
+  --lean-project ~/mathlib4 \
+  --lean-theorem examples/addition.lean \
+  --proof runs/addition-20260223/PROOF.md
+```
+
+### Research Harness v2 (opt-in)
+
+The project research layer adds a strict three-level authority system
+(Foundations, notation-scoped Semantics, and the Project Theorem DAG), durable
+campaign successors, code-level submission blockers, and bounded secondary
+verification. Existing `run`, `status`, `context`, resume, steering, and audit
+behavior remains the normal/default path.
+
+Use `python -m openprover.math_research` for campaign commands:
+
+```powershell
+# Existing conservative 4-hour run
+python -m openprover.math_research run --project <project> --target <theorem> --config <models.json> --workers 3
+
+# Explicit 12-hour profile: starts at 4 roles and may expand to at most 6
+python -m openprover.math_research campaign-run --project <project> --target <theorem> --config <models.json> --profile overnight
+
+python -m openprover.math_research campaign-status --project <project> --campaign <campaign-id>
+python -m openprover.math_research campaign-stop --project <project> --campaign <campaign-id> --reason "operator maintenance"
+python -m openprover.math_research campaign-resume --project <project> --campaign <campaign-id> --config <models.json>
+```
+
+The overnight profile is not started implicitly. It uses a 12-hour campaign
+budget, four initial Worker roles, a six-Worker ceiling only for sufficient
+independent obligations, four repair cycles, three infrastructure retries,
+the hard pre-submit gate, and secondary verification. See
+[`docs/TRUST_KERNEL.md`](docs/TRUST_KERNEL.md),
+[`docs/AUDIT_PROTOCOL.md`](docs/AUDIT_PROTOCOL.md), and
+[`docs/LONG_HORIZON_CAMPAIGNS.md`](docs/LONG_HORIZON_CAMPAIGNS.md).
+
+The GA1-1 replay certification is a separate, planner-free benchmark. It reads
+the fixed candidate and historical sources, validates all hashes and authority
+IDs, and writes results only to a caller-selected output directory:
+
+```powershell
+python -m openprover.math_research.certification `
+  --spec benchmarks/ga1-1-certification-v1.json `
+  --repair-root <read-only-ga1-repair-root> `
+  --source-root <read-only-main-project-root> `
+  --config <models.json> `
+  --output <new-certification-output> `
+  --semantic-registry openprover/math_research/registries/ga1_certification_semantics.v1.json
+```
+
+Use `--prepare-only` to run only deterministic dependency, semantic,
+foundation, source-hash, and replay-leak validation without calling a model.
+The command never writes to either declared source root and makes exactly zero
+Planner calls.
+
+### Subcommands
+
+| Command | Description |
+|---------|-------------|
+| `openprover <theorem.md>` | Run the prover (main command) |
+| `openprover inspect [run_dir]` | Browse prompts and outputs from a run |
+| `openprover fetch-lean-data` | Download Lean Explore search data and models |
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--model` | `sonnet` | Model for both planner and worker |
+| `--planner-model` | | Override model for planner |
+| `--worker-model` | | Override model for worker |
+| `--max-time` | `4h` | Wall-clock time budget (e.g. `30m`, `2h`) |
+| `--max-tokens` | | Output token budget (mutually exclusive with `--max-time`) |
+| `--conclude-after` | `0.99` | Fraction of budget that triggers conclusion phase (0.9-1.0) |
+| `--autonomous` | off | Run without human confirmation |
+| `-P, --max-workers` | `1` | Max parallel workers per step |
+| `--verifier` / `--no-verifier` | on | Run LLM verifier after each worker |
+| `--effort` | auto | Claude reasoning effort: `low`, `medium`, `high`, `max` (max for opus, high for others) |
+| `--isolation` / `--no-isolation` | on | Isolation disables web access; use `--no-isolation` to enable `literature_search` |
+| `--history-budget` | auto | Char budget for planner history context |
+| `--on-budget-out` | `exit` | Action when spending/rate limit hit: `backoff` or `exit` (Claude only) |
+| `--on-rate-limited` | `backoff` | Action on HTTP 429: `backoff` or `exit` |
+| `--lean-project` | | Path to Lean project with lakefile |
+| `--lean-theorem` | | Path to THEOREM.lean (requires `--lean-project`) |
+| `--proof` | | Path to existing PROOF.md (formalize-only mode) |
+| `--lean-items` | auto | Allow saving .lean items to the repo (auto-enabled with `--lean-project`) |
+| `--lean-worker-tools` | auto | Worker tool calls (lean_verify, lean_store, lean_search) via MCP/vLLM (auto-enabled with `--lean-project` + capable worker) |
+| `--headless` | off | Non-interactive mode (logs to stdout, implies `--autonomous`) |
+| `--verbose` | off | Show full LLM responses |
+| `--read-only` | off | Inspect run without resuming |
+| `--provider-url` | `http://localhost:8000` | Server URL for local models |
+| `--answer-reserve` | `4096` | Tokens reserved for answer after thinking (local models) |
+
+Available models: `sonnet`, `opus` (Claude); `leanstral` (Mistral, requires `MISTRAL_API_KEY`); `glm-5` (requires `GLM_API_KEY`); `kimi-k2.5`, `minimax-m2.5`, `minimax-m2.7` (OpenRouter, requires `OPENROUTER_API_KEY`). For local models, pass any model name supported by your server together with `--provider-url`.
+
+### TUI controls
+
+| Key | Action |
+|-----|--------|
+| `r` | Toggle reasoning trace |
+| `i` | Show worker input (on worker tabs) |
+| `w` | Toggle whiteboard view |
+| `a` | Toggle autonomous mode |
+| `Left/Right` | Switch between planner/worker tabs |
+| `Up/Down` | Browse step history / navigate worker actions |
+| `PgUp/PgDn` | Scroll content |
+| `?` | Help overlay |
+
+When confirming a step: Tab switches between accept/feedback, Enter confirms or opens detail view, Esc dismisses, `a` accepts and enters autonomous mode.
+
+## Lean setup (for formal verification)
+
+To use formal verification (`--lean-project`), you need [elan](https://github.com/leanprover/elan) (Lean version manager) installed. elan automatically fetches the right Lean toolchain.
+
+Benchmarks like MiniF2F, PutnamBench, and ProofNet ship their own Lean projects with Mathlib dependencies. Build them once before running:
+
+```bash
+# MiniF2F
+git clone https://github.com/google-deepmind/miniF2F.git
+cd miniF2F
+lake exe cache get   # download precompiled Mathlib oleans
+lake build           # compile MiniF2F itself
+
+# PutnamBench
+git clone https://github.com/trishullab/PutnamBench.git
+cd PutnamBench/lean4
+lake exe cache get
+lake build
+
+# ProofNet (Lean 4.27.0 / Mathlib v4.27.0)
+git clone https://github.com/kripner/proofnet.git
+cd proofnet/ProofNet
+lake exe cache get
+lake build
+```
+
+Then point OpenProver at the project:
+
+```bash
+openprover --theorem thm.md --lean-project ./miniF2F --lean-theorem thm.lean
+```
+
+## Benchmarks
+
+Scripts in `scripts/` run OpenProver against standard benchmarks:
+
+```bash
+# MiniF2F (fetches theorems from GitHub, uses local Lean project for verification)
+python scripts/run_minif2f.py valid --model leanstral --repo-path ./miniF2F --max-time 10m --problem-parallelism 10
+python scripts/run_minif2f.py test  --model leanstral --repo-path ./miniF2F --max-time 10m
+
+# PutnamBench
+python scripts/run_putnam.py --repo-path ./PutnamBench --model opus --max-time 2h --problem-parallelism 4
+
+# ProofNet (loads problems from data/proofnet.jsonl, verifies against ProofNet/ lake project)
+python scripts/run_proofnet.py valid --model leanstral --repo-path ./proofnet --max-time 10m --parallelism 10
+python scripts/run_proofnet.py test  --model leanstral --repo-path ./proofnet --max-time 10m
+
+# ProofBench
+python scripts/run_proofbench.py --model leanstral --repo-path ./miniF2F --max-time 10m
+
+# Run a single problem
+python scripts/run_minif2f.py valid --problem mathd_algebra_182 --model leanstral --repo-path ./miniF2F
+```
+
+Use `--informal` to skip Lean verification (faster but scores are not meaningful).
+
+## Planner actions
+
+Each step, the planner chooses one action:
+
+| Action | Description |
+|--------|-------------|
+| `spawn` | Delegate tasks to parallel workers |
+| `literature_search` | Web-enabled search for relevant papers/results |
+| `read_items` | Retrieve full content of repository items |
+| `write_items` | Create, update, or delete repository items (lean items auto-verified) |
+| `write_whiteboard` | Update the whiteboard without spawning workers |
+| `read_theorem` | Re-read theorem statement(s) and any provided proof |
+| `submit_proof` | Submit informal proof (terminates the session) |
+| `submit_lean_proof` | Submit formal Lean proof (auto-verified with Lean) |
+
+## Worker tools
+
+When `--lean-project` is set with a tool-capable worker model, workers get access to:
+
+| Tool | Description |
+|------|-------------|
+| `lean_verify(code)` | Compile Lean 4 code via `lake env lean`, returns OK or compiler errors |
+| `lean_store(code)` | Persist a verified snippet; auto-prepended to subsequent `lean_verify` calls |
+| `lean_search(query)` | Search Mathlib/Lean declarations by name or natural language query |
+
+Tools are provided via MCP (Claude workers) or native tool calling (vLLM/OpenRouter/GLM workers). Actions are shown in the worker tab and can be browsed with arrow keys.
+
+## Output
+
+Each run creates a directory under `runs/`:
+
+```
+runs/<slug>-<timestamp>/
+  THEOREM.md           - original theorem statement
+  THEOREM.lean         - formal Lean statement (if provided)
+  WHITEBOARD.md        - current whiteboard state
+  PROOF.md             - final proof (if found)
+  PROOF.lean           - formal Lean proof (if lean mode)
+  DISCUSSION.md        - post-session analysis
+  run_config.toml      - saved configuration (for resume)
+  repo/                - repository items (lemmas, observations, etc.)
+  steps/step_NNN/      - per-step planner decisions and worker results
+  archive/calls/       - raw LLM call logs with cost/timing
+```
+
+All state lives on disk, so runs can be interrupted and resumed.
+
+## Example theorems
+
+The `examples/` directory has theorem statements at various difficulty levels:
+
+| File | Difficulty |
+|------|-----------|
+| `sqrt2_irrational.md` | Easy |
+| `infinite_primes.md` | Easy |
+| `e_irrational.md` | Medium |
+| `cauchy_schwarz.md` | Medium |
+| `erdos_205.md` | Medium |
+| `erdos_838.md` | Hard (open) |
+| `collatz.md` | Harder (open) |
+
+# Ideas
+
+- Add modes where OpenProver also tries to 1) simplify a proof or make it nicer and 2) generalize a proof.
+- In the `lean_verify` action, provide proof states to the planner.
+
+# Cite
+
+If you find OpenProver helpful in your research cite as:
+
+```
+@inproceedings{openprover,
+  title     = {{OpenProver}: Agentic and Interactive Theorem Proving with {Lean 4}},
+  author    = {Matěj Kripner and Milan Straka},
+  booktitle = {19th Conference on Intelligent Computer Mathematics (CICM 2026)},
+  year      = {2026},
+  url       = {https://arxiv.org/abs/2607.09217}
+}
+```

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "description": "No-cost deterministic backend for demo and tests only.",
+  "isolation": true,
+  "history_budget": 0,
+  "budget": {
+    "mode": "time",
+    "limit": 120,
+    "conclude_after": 0.99
+  },
+  "roles": {
+    "planner": {
+      "provider": "mock",
+      "model": "mock-planner"
+    },
+    "worker": {
+      "provider": "mock",
+      "model": "mock-worker"
+    },
+    "cheap_auditor": {
+      "provider": "mock",
+      "model": "mock-auditor"
+    },
+    "final_auditor": {
+      "provider": "mock",
+      "model": "mock-final-auditor"
+    }
+  }
+}
+

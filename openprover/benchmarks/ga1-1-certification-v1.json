@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "GA1-1-trust-kernel-certification-v1",
+  "target_id": "GA1-1",
+  "candidate_file": "GA1-1-candidate-v2.md",
+  "candidate_sha256": "50ee421c8dfaf0b9c3a641e56e6af5792bfcd780ca72b7a8f8bd8513f3a14169",
+  "replay_manifest": "replay_controls/A1_REPLAY_MANIFEST.runtime.json",
+  "notation_scope": "G-positive-remainder-content-decomposition/GP3-v1",
+  "forbidden_authority_phrases": [
+    "authoritative package metadata"
+  ],
+  "authority_only_replacements": [
+    {
+      "old": "The authoritative package metadata fixes \\(G_{\\mathrm{prim}}\\) as the primitive member of CD6’s \\(P/C2/C5\\) partition. CD6 names that member \\(P\\), the “本原层,” and assigns\n\\[\nh=1\n\\]\nto \\(P\\), whereas the nonprimitive alternatives \\(C2\\) and \\(C5\\) have \\(h>1\\). Therefore the required source map is\n\\[\nG_{\\mathrm{prim}}\\Longrightarrow P\\Longrightarrow h=1.\n\\]\nThis inference uses the authoritative meaning of the label \\(G_{\\mathrm{prim}}\\), not merely a coprimality condition such as \\(\\gcd(N,h)=1\\).",
+      "new": "The versioned semantic authority `SEM-G-PRIM-01`, verified against the GP3 source body and restricted to notation scope `G-positive-remainder-content-decomposition/GP3-v1`, states that the primitive unit/core is exactly the \\(h=1\\) content layer. The assumed label \\(G_{\\mathrm{prim}}\\) is this primitive unit/core in that scope. Therefore\n\\[\nG_{\\mathrm{prim}}\\Longrightarrow h=1.\n\\]\nCD6 is used only for the resulting \\(P/C2/C5\\) content classification: \\(P\\) is the \\(h=1\\) layer, while \\(C2\\) and \\(C5\\) have \\(h>1\\). This inference uses the hash-pinned semantic definition, not package metadata or merely a coprimality condition such as \\(\\gcd(N,h)=1\\)."
+    },
+    {
+      "old": "Applying GA1-3 here is noncircular: the dependency direction is authoritative package metadata \\(\\to\\) CD6 \\(\\to\\) GA1-3, and GA1-3 is an already proved source theorem whose proof does not invoke the present GA1-1 nonexistence conclusion.",
+      "new": "Applying GA1-3 here is noncircular: the dependency direction is `SEM-G-PRIM-01` \\(\\to\\) CD6 \\(\\to\\) GA1-3, and GA1-3 is an already proved project theorem whose proof does not invoke the present GA1-1 nonexistence conclusion."
+    },
+    {
+      "old": "- Authoritative package metadata identifying \\(G_{\\mathrm{prim}}\\) with CD6’s primitive member \\(P\\).",
+      "new": "- Semantic authority `SEM-G-PRIM-01` for \\(G_{\\mathrm{prim}}\\Longleftrightarrow\\) primitive core \\(\\Longleftrightarrow h=1\\) in GP3-v1 notation."
+    },
+    {
+      "old": "- Classical elementary results: unique prime factorization, Euler’s criterion, multiplicativity of Legendre and Jacobi symbols, Gauss’s lemma and the supplementary law for \\(2\\), and quadratic reciprocity.",
+      "new": "- Foundation authorities `FOUND-NT-JAC-01`, `FOUND-NT-JAC-02`, `FOUND-NT-JAC-03`, `FOUND-NT-QR-01`, and `FOUND-NT-QR-02`, with their positive-odd, coprimality, and primality conditions checked in the high-layer argument."
+    }
+  ],
+  "authority_uses": [
+    {
+      "claim": "G_prim denotes the primitive unit/core and therefore has h=1 in GP3-v1 notation",
+      "claim_class": "SEMANTIC_DEFINITION",
+      "authority_id": "SEM-G-PRIM-01",
+      "authority_type": "semantic",
+      "proof_location": "opening scope bridge"
+    },
+    {
+      "claim": "P/C2/C5 content classification after h=1 is established",
+      "claim_class": "PROJECT_THEOREM",
+      "authority_id": "CD6",
+      "authority_type": "project_theorem",
+      "proof_location": "opening scope bridge"
+    },
+    {
+      "claim": "GA1-3 supplies the exhaustive low/high terminal reduction",
+      "claim_class": "PROJECT_THEOREM",
+      "authority_id": "GA1-3",
+      "authority_type": "project_theorem",
+      "proof_location": "terminal reduction"
+    },
+    {
+      "claim": "Jacobi symbol is multiplicative in the numerator",
+      "claim_class": "FOUNDATIONAL_THEOREM",
+      "authority_id": "FOUND-NT-JAC-01",
+      "authority_type": "foundation",
+      "proof_location": "high-layer Jacobi step"
+    },
+    {
+      "claim": "Jacobi supplementary law for -1",
+      "claim_class": "FOUNDATIONAL_THEOREM",
+      "authority_id": "FOUND-NT-JAC-02",
+      "authority_type": "foundation",
+      "proof_location": "equations (7) and (10)"
+    },
+    {
+      "claim": "Jacobi supplementary law for 2",
+      "claim_class": "FOUNDATIONAL_THEOREM",
+      "authority_id": "FOUND-NT-JAC-03",
+      "authority_type": "foundation",
+      "proof_location": "equations (8) and (10)"
+    },
+    {
+      "claim": "Quadratic reciprocity for odd primes",
+      "claim_class": "FOUNDATIONAL_THEOREM",
+      "authority_id": "FOUND-NT-QR-01",
+      "authority_type": "foundation",
+      "proof_location": "derivation of equation (9)"
+    },
+    {
+      "claim": "For positive odd r coprime to 5, (5/r)=(r/5)",
+      "claim_class": "FOUNDATIONAL_THEOREM",
+      "authority_id": "FOUND-NT-QR-02",
+      "authority_type": "foundation",
+      "proof_location": "equations (9) and (11)"
+    },
+    {
+      "claim": "The low-layer recovery-window inequalities are contradictory",
+      "claim_class": "LOCAL_PROOF",
+      "authority_id": "",
+      "authority_type": "local_proof",
+      "proof_location": "Case 1, equations (1)-(5)"
+    },
+    {
+      "claim": "The high-layer divisibility and Jacobi identities imply -1=1",
+      "claim_class": "LOCAL_PROOF",
+      "authority_id": "",
+      "authority_type": "local_proof",
+      "proof_location": "Case 2, equations (6)-(12)"
+    }
+  ],
+  "manifest_source_paths": [
+    "inbox/replay_material/GA1-1_hidden_target_statement.md",
+    "inbox/deduplicated/03_G_template/critical_G_A1_unit_determinant_campaign.md"
+  ],
+  "explicit_extension_paths": [
+    "inbox/deduplicated/03_G_template/critical_G_primitive_remainder_campaign.md"
+  ],
+  "source_material": [
+    {
+      "root": "repair",
+      "path": "inbox/deduplicated/03_G_template/critical_G_A1_unit_determinant_campaign.md",
+      "sha256": "1af7b5c8d02a72fa0625d4e82f0225bc3f86f7637a7f6d0d595af1f7cdaa2262",
+      "purpose": "GA1-3 safe §§1-11 source"
+    },
+    {
+      "root": "source",
+      "path": "inbox/deduplicated/03_G_template/critical_G_primitive_remainder_campaign.md",
+      "sha256": "7918fd0a766658b1f428637ed2e57a470a3b332aba97086174caecf2eddcd732",
+      "line_start": 330,
+      "line_end": 470,
+      "purpose": "GP3 primitive-core semantic definition"
+    }
+  ],
+  "prior_repair_audits": [
+    "runs/GA1-1-20260809-100641/audits/gate.json",
+    "runs/GA1-1-20260809-110801/audits/gate.json"
+  ]
+}

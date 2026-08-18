@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "description": "Example for a local OpenAI-compatible/vLLM server. No model name is hardcoded in Python.",
+  "isolation": true,
+  "budget": {
+    "mode": "time",
+    "limit": 14400,
+    "conclude_after": 0.99
+  },
+  "roles": {
+    "planner": {
+      "provider": "local_openai_compatible",
+      "model": "replace-with-local-model",
+      "base_url": "http://localhost:8000",
+      "vllm": true
+    },
+    "worker": {
+      "provider": "local_openai_compatible",
+      "model": "replace-with-local-model",
+      "base_url": "http://localhost:8000",
+      "vllm": true
+    },
+    "cheap_auditor": {
+      "provider": "local_openai_compatible",
+      "model": "replace-with-local-model",
+      "base_url": "http://localhost:8000",
+      "vllm": true
+    },
+    "final_auditor": {
+      "provider": "local_openai_compatible",
+      "model": "replace-with-local-model",
+      "base_url": "http://localhost:8000",
+      "vllm": true
+    }
+  }
+}
+

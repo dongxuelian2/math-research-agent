@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "demo-next-square",
+  "title": "Next-square identity",
+  "status": "PROVED",
+  "source_file": "sources/demo_next_square.md",
+  "statement": "For every natural n, (n+1)^2 = n^2 + 2n + 1.",
+  "dependencies": [],
+  "downstream_dependents": [
+    "demo-odd-sum"
+  ],
+  "tags": [
+    "algebra",
+    "demo"
+  ],
+  "branch": "demo-foundations",
+  "proof_type": "NATURAL_LANGUAGE",
+  "claim_type": "equality",
+  "audit_status": "NOT_AUDITED",
+  "created_at": "2026-08-08T05:11:38+00:00",
+  "last_updated": "2026-08-08T05:11:38+00:00",
+  "status_history": [
+    {
+      "from": null,
+      "to": "PROVED",
+      "actor": "Human",
+      "reason": "Theorem record created",
+      "at": "2026-08-08T05:11:38+00:00"
+    }
+  ]
+}

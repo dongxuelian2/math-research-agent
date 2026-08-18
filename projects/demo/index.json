@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-08T05:11:54+00:00",
+  "theorems": [
+    {
+      "id": "demo-next-square",
+      "title": "Next-square identity",
+      "status": "PROVED",
+      "source_file": "sources/demo_next_square.md",
+      "dependencies": [],
+      "tags": [
+        "algebra",
+        "demo"
+      ],
+      "branch": "demo-foundations",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "NOT_AUDITED",
+      "last_updated": "2026-08-08T05:11:38+00:00"
+    },
+    {
+      "id": "demo-odd-sum",
+      "title": "Sum of the first odd numbers",
+      "status": "PROVED",
+      "source_file": "sources/demo_odd_sum.md",
+      "dependencies": [
+        "demo-next-square"
+      ],
+      "tags": [
+        "demo",
+        "induction"
+      ],
+      "branch": "demo-campaign",
+      "proof_type": "MOCKED_DEMO",
+      "audit_status": "PASS",
+      "last_updated": "2026-08-08T05:11:54+00:00"
+    }
+  ]
+}

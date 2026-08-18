@@ -1,0 +1,1 @@
+Is it true that all sufficiently large $n$ can be written as $2^k+m$ for some $k\geq 0$, where $\Omega(m)<\log\log m$? (Here $\Omega(m)$ is the number of prime divisors of $m$ counted with multiplicity.) What about $<\epsilon \log\log m$? Or some more slowly growing function?

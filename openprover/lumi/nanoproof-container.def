@@ -1,0 +1,25 @@
+Bootstrap: docker
+From: rocm/pytorch:latest
+
+%post
+    # Update package lists and install dependencies
+    apt-get update && apt-get install -y \
+        curl \
+        fish \
+        wget \
+        build-essential \
+        git \
+        vim \
+        tmux \
+        && apt-get clean
+
+    # Install pip
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3
+
+    # Install Python packages
+    pip3 install --upgrade pip wheel setuptools
+    pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
+    pip3 install datasets fastapi huggingface_hub psutil regex setuptools tiktoken tqdm tokenizers torch wandb leantree termplotlib PrettyPrintTree numpy matplotlib scikit-learn pandas tensordict tensorboard wandb neptune pydantic numba lovely-tensors notebook streamlit ipykernel graphviz torchview
+
+%runscript
+    exec /bin/bash "$@"

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openprover"
+version = "1.0.1"
+description = "Automated theorem proving using agentic system with frontier LLMs."
+readme = "README.md"
+authors = [{name = "Matěj Kripner", email = "kripner@ufal.mff.cuni.cz"}]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0",
+    "openai>=2.53.0,<3",
+]
+
+[project.scripts]
+openprover = "openprover.cli:main"
+math-research = "openprover.math_research.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["openprover*"]

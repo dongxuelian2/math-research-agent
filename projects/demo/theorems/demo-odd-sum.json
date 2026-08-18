@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "id": "demo-odd-sum",
+  "title": "Sum of the first odd numbers",
+  "status": "PROVED",
+  "source_file": "sources/demo_odd_sum.md",
+  "statement": "For every natural n, sum_{k=1}^n (2k-1) = n^2.",
+  "dependencies": [
+    "demo-next-square"
+  ],
+  "downstream_dependents": [],
+  "tags": [
+    "demo",
+    "induction"
+  ],
+  "branch": "demo-campaign",
+  "proof_type": "MOCKED_DEMO",
+  "claim_type": "equality",
+  "audit_status": "PASS",
+  "created_at": "2026-08-08T05:11:38+00:00",
+  "last_updated": "2026-08-08T05:11:54+00:00",
+  "status_history": [
+    {
+      "from": null,
+      "to": "OPEN",
+      "actor": "Human",
+      "reason": "Theorem record created",
+      "at": "2026-08-08T05:11:38+00:00"
+    },
+    {
+      "from": "OPEN",
+      "to": "IN_RESEARCH",
+      "actor": "MasterPlanner",
+      "reason": "Research run demo-odd-sum-20260808-131154 started",
+      "at": "2026-08-08T05:11:54+00:00"
+    },
+    {
+      "from": "IN_RESEARCH",
+      "to": "CANDIDATE_PROOF",
+      "actor": "MasterPlanner",
+      "reason": "OpenProver candidate produced in demo-odd-sum-20260808-131154; not yet audited",
+      "at": "2026-08-08T05:11:54+00:00"
+    },
+    {
+      "from": "CANDIDATE_PROOF",
+      "to": "AUDITING",
+      "actor": "AuditCoordinator",
+      "reason": "Independent audit suite started for demo-odd-sum-20260808-131154",
+      "at": "2026-08-08T05:11:54+00:00"
+    },
+    {
+      "from": "AUDITING",
+      "to": "PROVED",
+      "actor": "Archivist",
+      "reason": "All audit gates passed in demo-odd-sum-20260808-131154",
+      "at": "2026-08-08T05:11:54+00:00"
+    }
+  ],
+  "proof_file": "reports/demo-odd-sum-resolution-20260808-131154.md"
+}
