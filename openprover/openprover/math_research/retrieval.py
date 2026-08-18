@@ -183,7 +183,7 @@ class ContextBuilder:
         registry = data["trust_kernel"].get("semantic_registry")
         if not registry or not registry.get("items"):
             # Avoid blocker-like wording in this empty-registry message.  The
-            # upstream prover still has a narrow legacy whiteboard text guard,
+            # upstream prover still has a narrow whiteboard text guard,
             # and this text must not be mistaken for an unresolved blocker.
             return "- (none configured)"
         return "\n".join(

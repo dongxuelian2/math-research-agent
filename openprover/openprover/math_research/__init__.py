@@ -1,6 +1,18 @@
 """Long-horizon natural-language mathematics project layer for OpenProver."""
 
 from .audit_protocol import AuditResult
+from .gemini_provider import GeminiClient, GeminiProviderError
+from .formalization import run_formalization
+from .observatory import build_snapshot, run_server
+from .schemas import (
+    AuditCriteriaSchema,
+    AuditResultSchema,
+    FormalizationResultSchema,
+    LiteratureResultSchema,
+    PipelineResultSchema,
+    WorkerEventSchema,
+)
+from .showcase_demo import run_showcase
 from .campaign import (
     CampaignEngine,
     CampaignStore,
@@ -46,7 +58,9 @@ from .trust_kernel import FoundationRegistry, SemanticRegistry, TrustKernel
 
 __all__ = [
     "AuditGate",
+    "AuditCriteriaSchema",
     "AuditResult",
+    "AuditResultSchema",
     "AsyncDAGScheduler",
     "AsynchronousPipelineRuntime",
     "AtomicResourceBudget",
@@ -54,10 +68,14 @@ __all__ = [
     "CampaignStore",
     "ContextBuilder",
     "FoundationRegistry",
+    "GeminiClient",
+    "GeminiProviderError",
     "FailureMap",
+    "FormalizationResultSchema",
     "ExternalAuthorityRegistry",
     "InvalidTransition",
     "LiteratureMemory",
+    "LiteratureResultSchema",
     "LiteratureSynthesis",
     "LiteratureTaskExecutor",
     "ModelRouter",
@@ -70,6 +88,7 @@ __all__ = [
     "ScholarlyRecord",
     "ScholarlySearchAdapter",
     "ProjectStore",
+    "PipelineResultSchema",
     "PreSubmitGate",
     "ReplayPolicy",
     "ResearchProfile",
@@ -81,5 +100,10 @@ __all__ = [
     "StrategyFingerprintStore",
     "TaskExecutionContext",
     "TrustKernel",
+    "WorkerEventSchema",
+    "run_formalization",
+    "build_snapshot",
     "resolve_profile",
+    "run_server",
+    "run_showcase",
 ]

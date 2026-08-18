@@ -1,6 +1,6 @@
-"""MCP server exposing lean_verify and lean_search tools for Claude CLI.
+"""MCP server exposing Lean verification and search tools.
 
-Runs as a subprocess spawned by Claude CLI via --mcp-config.
+Runs as a subprocess when a client opts into the MCP tool contract.
 Communicates over stdio using JSON-RPC (MCP protocol).
 
 Environment variables:

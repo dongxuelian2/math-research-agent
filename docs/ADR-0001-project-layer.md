@@ -1,20 +1,25 @@
-# ADR-0001: Compose a strict project layer around OpenProver
+# ADR-0001: Make the Gemini research layer the product boundary
 
 Status: accepted
 
 ## Context
 
-OpenProver already supplies a mature Planner–Worker–Verifier loop, parallel workers, Whiteboard, Repository, on-disk state, recovery and provider archives. It is optimized around one theorem run, while the requested workflow needs a durable multi-document theorem graph and a stricter proof lifecycle.
+The proving engine supplies candidate search, parallel workers, repository
+artifacts, recovery, and optional Lean execution. The product needs a durable
+theorem graph, strict typed control messages, independent audits, and a visible
+repair lifecycle.
 
 ## Decision
 
-Keep upstream core intact and add a separately namespaced `openprover.math_research` package. It builds a local dependency context, calls the original `Prover` for candidate discovery, then applies project-level auditors and Archivist-only state changes. Store durable project metadata as UTF-8 JSON plus Markdown reports; do not introduce a database in phase one.
+Use `openprover.math_research` as the sole product boundary. It builds the
+dependency context, routes every model call through Gemini, calls the proving
+engine through the public `research_policy` hook, validates provider responses
+with Pydantic, and applies project-level audit/state transitions. Durable
+metadata remains UTF-8 JSON plus Markdown reports.
 
 ## Consequences
 
-- Upstream updates remain reviewable because most new code is isolated.
-- Existing OpenProver recovery/logging and worker mechanics remain in use.
-- A candidate proof cannot bypass project audit state.
-- Windows uses headless mode rather than a broad TUI rewrite.
-- Cross-project theorem extraction remains a conservative human-reviewed migration process.
-
+- Candidate search and audit coordination are separate components.
+- A candidate proof cannot bypass the typed audit gate.
+- Failed routes always produce a repair successor and immutable evidence.
+- The supported developer workflow is Bash plus `uv`.

@@ -112,10 +112,10 @@ def test_fabricated_and_abstract_only_citations_cannot_promote(tmp_path):
         content_scope="ABSTRACT",
     ))
     rejected = registry.verify(abstract["authority_id"], verification())
-    assert rejected["status"] == "REJECTED_EXTERNAL_AUTHORITY"
+    assert rejected["status"] == "AUTHORITY_VERIFICATION_FAILED"
     assert any("abstract" in error for error in rejected["authority_verification_errors"])
     with pytest.raises(ProjectError, match="not VERIFIED_SOURCE_THEOREM"):
-        registry.require_verified(abstract["authority_id"])
+        registry.require_verified_source(abstract["authority_id"])
 
 
 def test_source_verification_ignores_applicability_flags_but_rejects_source_masquerade(tmp_path):
@@ -142,7 +142,7 @@ def test_source_verification_ignores_applicability_flags_but_rejects_source_masq
     rejected = registry2.verify(record2["authority_id"], verification(
         claimed_source_type="later_explicit_restatement"
     ))
-    assert rejected["status"] == "REJECTED_EXTERNAL_AUTHORITY"
+    assert rejected["status"] == "AUTHORITY_VERIFICATION_FAILED"
     assert any("masquerade" in error for error in rejected["authority_verification_errors"])
 
 
@@ -151,7 +151,7 @@ def test_verified_authority_enters_separate_memory_but_not_project_registry(tmp_
     record = registry.register(authority_record(root=tmp_path))
     verified = registry.verify(record["authority_id"], verification())
     assert verified["status"] == "VERIFIED_SOURCE_THEOREM"
-    used = registry.require_verified(record["authority_id"], obligation_id="O1")
+    used = registry.require_verified_source(record["authority_id"], obligation_id="O1")
     assert used["used_by_obligations"] == ["O1"]
 
     memory = LiteratureMemory(tmp_path)
@@ -170,7 +170,7 @@ def test_retrieved_artifact_hash_mismatch_blocks_authority(tmp_path):
         retrieved_content_sha256="sha256:" + "f" * 64,
     ))
     rejected = registry.verify(record["authority_id"], verification())
-    assert rejected["status"] == "REJECTED_EXTERNAL_AUTHORITY"
+    assert rejected["status"] == "AUTHORITY_VERIFICATION_FAILED"
     assert "artifact hash mismatch" in " ".join(
         rejected["authority_verification_errors"]
     )

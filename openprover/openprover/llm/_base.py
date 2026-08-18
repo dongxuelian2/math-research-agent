@@ -15,11 +15,7 @@ class StreamingUnavailable(RuntimeError):
 
 
 def is_rate_limited_error(exc: Exception) -> bool:
-    """Detect rate-limit / spending-limit errors from LLM CLI calls.
-
-    Covers HTTP 429s as well as Claude-CLI messages about spending caps,
-    billing, quota, or generic "rate limit" wording.
-    """
+    """Detect rate-limit and spending-limit errors from a provider call."""
     msg = str(exc).lower()
     if "429" in msg:
         return True
@@ -29,13 +25,7 @@ def is_rate_limited_error(exc: Exception) -> bool:
 
 
 def is_transient_error(exc: Exception) -> bool:
-    """Detect transient errors worth retrying (timeouts, gateway hiccups).
-
-    Covers request timeouts from upstream gateways (notably Z.ai's Anthropic
-    bridge for GLM, which sporadically returns exit-1 with
-    `result: "Request timed out"`), common 5xx gateway errors, and HTTP
-    chunked-transfer failures (IncompleteRead, RemoteDisconnected).
-    """
+    """Detect transient transport errors worth retrying."""
     # A provider may already have exhausted its own bounded retry policy.
     # Do not let the outer Prover loop turn that terminal error into an
     # unbounded second retry loop.
@@ -127,12 +117,7 @@ def archive(model, archive_dir, call_num, label, prompt, system_prompt,
     elif response is None:
         parts.append(f"\n\n======== RESPONSE ========\n\n(waiting for LLM response)")
 
-    # The replay/auditor prompts routinely contain Unicode mathematical
-    # symbols (for example U+2212 and Chinese section labels).  On Windows
-    # the process locale may be GBK, so relying on Path.write_text's default
-    # codec makes archiving fail after the provider call has already run.
-    # Archives are an interchange/debug artifact and must be deterministic
-    # UTF-8 regardless of the host locale.
+    # Archives are interchange artifacts and must be deterministic UTF-8.
     path.write_text("".join(parts) + "\n", encoding="utf-8")
 
     # Write raw API response as JSON sidecar for debugging
