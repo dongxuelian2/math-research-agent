@@ -66,9 +66,7 @@ def test_invalid_foundation_id_is_rejected(tmp_path):
     source = FoundationRegistry.builtin_path()
     data = json.loads(source.read_text(encoding="utf-8"))
     data["items"][0]["id"] = "BAD-ID"
-    data["items"][0]["content_hash"] = content_hash(
-        data["items"][0], excluded={"content_hash"}
-    )
+    data["items"][0]["content_hash"] = content_hash(data["items"][0], excluded={"content_hash"})
     path = write_registry(tmp_path / "bad-foundation.json", data)
     with pytest.raises(RegistryError, match="Invalid foundation ID"):
         FoundationRegistry.load(path)
@@ -93,12 +91,16 @@ def test_package_metadata_cannot_prove_a_theorem_claim():
         semantics=None,
         project=None,
     )
-    report = resolver.resolve([{
-        "claim": "G_prim implies h=1",
-        "claim_class": "PROJECT_THEOREM",
-        "authority_id": "authoritative-package-metadata",
-        "authority_type": "package_metadata",
-    }])
+    report = resolver.resolve(
+        [
+            {
+                "claim": "G_prim implies h=1",
+                "claim_class": "PROJECT_THEOREM",
+                "authority_id": "authoritative-package-metadata",
+                "authority_type": "package_metadata",
+            }
+        ]
+    )
     assert not report.admissible
     assert "metadata is not proof authority" in report.errors[0]
 
@@ -109,13 +111,17 @@ def test_local_proof_does_not_require_registry_authority():
         semantics=None,
         project=None,
     )
-    report = resolver.resolve([{
-        "claim": "Auxiliary parity lemma",
-        "claim_class": "LOCAL_PROOF",
-        "authority_id": "",
-        "authority_type": "local",
-        "proof_location": "Candidate §3, Lemma 2",
-    }])
+    report = resolver.resolve(
+        [
+            {
+                "claim": "Auxiliary parity lemma",
+                "claim_class": "LOCAL_PROOF",
+                "authority_id": "",
+                "authority_type": "local",
+                "proof_location": "Candidate §3, Lemma 2",
+            }
+        ]
+    )
     assert report.admissible
     assert report.local_proofs
 
@@ -130,26 +136,28 @@ def test_project_foundation_and_semantic_dependencies_resolve(tmp_path):
         project=store,
         notation_scope="scope-v1",
     )
-    report = resolver.resolve([
-        {
-            "claim": "Jacobi reciprocity for 5",
-            "claim_class": "FOUNDATIONAL_THEOREM",
-            "authority_id": "FOUND-NT-QR-02",
-            "authority_type": "foundation",
-        },
-        {
-            "claim": "primitive core iff h=1",
-            "claim_class": "SEMANTIC_DEFINITION",
-            "authority_id": "SEM-TEST-01",
-            "authority_type": "semantic",
-        },
-        {
-            "claim": "A implies B",
-            "claim_class": "PROJECT_THEOREM",
-            "authority_id": "UPSTREAM",
-            "authority_type": "project_theorem",
-        },
-    ])
+    report = resolver.resolve(
+        [
+            {
+                "claim": "Jacobi reciprocity for 5",
+                "claim_class": "FOUNDATIONAL_THEOREM",
+                "authority_id": "FOUND-NT-QR-02",
+                "authority_type": "foundation",
+            },
+            {
+                "claim": "primitive core iff h=1",
+                "claim_class": "SEMANTIC_DEFINITION",
+                "authority_id": "SEM-TEST-01",
+                "authority_type": "semantic",
+            },
+            {
+                "claim": "A implies B",
+                "claim_class": "PROJECT_THEOREM",
+                "authority_id": "UPSTREAM",
+                "authority_type": "project_theorem",
+            },
+        ]
+    )
     assert report.admissible
     assert report.foundation_ids_used == ["FOUND-NT-QR-02"]
     assert report.semantics == ["SEM-TEST-01"]
@@ -187,7 +195,10 @@ def test_context_separates_all_three_authority_layers(tmp_path):
     write_registry(store.root / "semantics" / "registry.json", registry)
     store.add_theorem("UP", "Upstream", "A.", status="PROVED")
     store.add_theorem(
-        "TARGET", "Target", "B.", dependencies=["UP"],
+        "TARGET",
+        "Target",
+        "B.",
+        dependencies=["UP"],
         notation_scope="scope-v1",
     )
     package = ContextBuilder(store).build("TARGET")

@@ -32,8 +32,12 @@ TOOL_STYLE = {
 }
 
 COLOR_MAP = {
-    "red": RED, "green": GREEN, "blue": BLUE,
-    "yellow": YELLOW, "magenta": MAGENTA, "cyan": CYAN,
+    "red": RED,
+    "green": GREEN,
+    "blue": BLUE,
+    "yellow": YELLOW,
+    "magenta": MAGENTA,
+    "cyan": CYAN,
 }
 
 HEADER_ROWS = 4

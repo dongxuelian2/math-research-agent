@@ -16,6 +16,7 @@ from .schemas import AuditResultSchema
 from .state_machine import AuditGate
 from .trust_kernel import DependencyAuthorityResolver, TrustKernel
 
+
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -107,12 +108,8 @@ class AuditCoordinator(_OwnerComponent):
         }
         secondary_dir = self.run_dir / "secondary_verification"
         secondary_dir.mkdir(parents=True, exist_ok=True)
-        context = (self.run_dir / "context" / "CONTEXT.md").read_text(
-            encoding="utf-8"
-        )
-        candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(
-            encoding="utf-8"
-        )
+        context = (self.run_dir / "context" / "CONTEXT.md").read_text(encoding="utf-8")
+        candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(encoding="utf-8")
         clients: dict[str, object] = {}
 
         def execute(name: str, directive: str) -> tuple[str, dict, object]:
@@ -157,10 +154,7 @@ class AuditCoordinator(_OwnerComponent):
 
         results = {}
         with ThreadPoolExecutor(max_workers=len(checks)) as pool:
-            futures = [
-                pool.submit(execute, name, directive)
-                for name, directive in checks.items()
-            ]
+            futures = [pool.submit(execute, name, directive) for name, directive in checks.items()]
             for future in as_completed(futures):
                 name, result, client = future.result()
                 results[name] = result
@@ -171,18 +165,16 @@ class AuditCoordinator(_OwnerComponent):
         deterministic_failures = []
         dependency_path = self.run_dir / "audits" / "dependency_report.json"
         if not dependency_path.exists():
-            deterministic_failures.append("secondary dependency coverage: dependency report is missing")
-        else:
-            dependency_report = json.loads(
-                dependency_path.read_text(encoding="utf-8")
+            deterministic_failures.append(
+                "secondary dependency coverage: dependency report is missing"
             )
+        else:
+            dependency_report = json.loads(dependency_path.read_text(encoding="utf-8"))
             if not dependency_report.get("admissible", False):
                 deterministic_failures.append(
                     "secondary dependency coverage: deterministic authority report is not admissible"
                 )
-            certificate_ids = dependency_report.get(
-                "computational_certificates", []
-            )
+            certificate_ids = dependency_report.get("computational_certificates", [])
             for certificate_id in certificate_ids:
                 candidates = [
                     self.project.root / "certificates" / f"{certificate_id}{suffix}"
@@ -289,10 +281,7 @@ class AuditCoordinator(_OwnerComponent):
             notation_scope=context_data.get("notation_scope", ""),
         )
         dependency_report = resolver.resolve(dependency_audit.authority_uses)
-        if (
-            dependency_audit.execution_status == "OK"
-            and not dependency_report.admissible
-        ):
+        if dependency_audit.execution_status == "OK" and not dependency_report.admissible:
             dependency_audit.domain_verdict = "FAIL"
             dependency_audit.failure_reasons.extend(dependency_report.errors)
         audits["dependency_auditor"] = dependency_audit.to_dict()
@@ -320,18 +309,13 @@ class AuditCoordinator(_OwnerComponent):
             )
             final = parse_audit_response("final_proof_auditor", response).to_dict()
         except Exception as exc:
-            final = AuditResult.from_exception(
-                "final_proof_auditor", exc
-            ).to_dict()
+            final = AuditResult.from_exception("final_proof_auditor", exc).to_dict()
         audits["final_proof_auditor"] = final
         _write_json(audits_dir / "final_proof_auditor.json", final)
 
         for client in list(clients.values()) + [final_client]:
             client.cleanup()
-        normalized = {
-            role: normalize_audit_result(role, data)
-            for role, data in audits.items()
-        }
+        normalized = {role: normalize_audit_result(role, data) for role, data in audits.items()}
         specialist_pass = all(normalized[role].passed for role in AUDITOR_ROLES)
         criteria = final.get("criteria", {})
         failure_reasons = []
@@ -389,13 +373,14 @@ class AuditCoordinator(_OwnerComponent):
             "provider_retry_count": sum(
                 getattr(client, "total_retries", 0) for client in clients.values()
             ),
-            "api_request_count": sum(
-                _api_request_count(client) for client in clients.values()
+            "api_request_count": sum(_api_request_count(client) for client in clients.values()),
+            "billing_modes": sorted(
+                {
+                    mode
+                    for client in clients.values()
+                    if (mode := getattr(client, "billing_mode", None))
+                }
             ),
-            "billing_modes": sorted({
-                mode for client in clients.values()
-                if (mode := getattr(client, "billing_mode", None))
-            }),
             "usage": _sum_usage(list(clients.values())),
         }
         self.metrics["final_auditor"] = {

@@ -4,7 +4,6 @@ from ._types import _Tab
 
 
 class NavMixin:
-
     def _switch_tab(self, delta: int):
         if len(self.tabs) <= 1:
             return
@@ -99,9 +98,11 @@ class NavMixin:
         nav = self._nav_step if tab.id == "planner" else tab.nav_idx
         if nav >= 0:
             for idx, entry in enumerate(tab.log_lines):
-                if (tab.id == "planner"
-                        and (entry.is_trace or entry.is_output)
-                        and idx < planner_live_start):
+                if (
+                    tab.id == "planner"
+                    and (entry.is_trace or entry.is_output)
+                    and idx < planner_live_start
+                ):
                     continue
                 rendered = self._entry_render_lines(tab, entry, max_w)
                 if rendered <= 0:
@@ -114,9 +115,11 @@ class NavMixin:
             return None
         start = None
         for idx, entry in enumerate(tab.log_lines):
-            if (tab.id == "planner"
-                    and (entry.is_trace or entry.is_output)
-                    and idx < planner_live_start):
+            if (
+                tab.id == "planner"
+                and (entry.is_trace or entry.is_output)
+                and idx < planner_live_start
+            ):
                 continue
             rendered = self._entry_render_lines(tab, entry, max_w)
             if rendered <= 0:

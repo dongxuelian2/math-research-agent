@@ -29,15 +29,16 @@ def _read_manifest(path: Path) -> list[dict[str, Any]]:
         required = {"id", "title", "statement", "claim_type", "difficulty"}
         missing = required - set(case)
         if missing:
-            raise ProjectError(
-                "Benchmark case missing fields: " + ", ".join(sorted(missing))
-            )
+            raise ProjectError("Benchmark case missing fields: " + ", ".join(sorted(missing)))
         case_id = str(case["id"])
         if case_id in seen:
             raise ProjectError(f"Duplicate benchmark case: {case_id}")
         seen.add(case_id)
         if case["claim_type"] not in {
-            "implication", "iff", "classification", "equality",
+            "implication",
+            "iff",
+            "classification",
+            "equality",
         }:
             raise ProjectError(f"Unsupported claim type in benchmark case {case_id}")
     return cases
@@ -62,9 +63,7 @@ def run_benchmark(
         cases = cases[:max_cases]
     output = Path(output_path).resolve()
     if (output / "summary.json").exists():
-        raise ProjectError(
-            f"Benchmark output already exists: {output}; choose a new directory"
-        )
+        raise ProjectError(f"Benchmark output already exists: {output}; choose a new directory")
     projects = output / "projects"
     projects.mkdir(parents=True, exist_ok=False)
     results_path = output / "results.jsonl"
@@ -111,20 +110,24 @@ def run_benchmark(
                     state = orchestrator.run()
                 finally:
                     orchestrator.close()
-                record.update({
-                    "status": state.get("status"),
-                    "phase": state.get("phase"),
-                    "theorem_status": project.load_theorem(case_id).get("status"),
-                    "run_id": state.get("run_id"),
-                    "run_dir": str(orchestrator.run_dir),
-                    "metrics": state.get("metrics", {}),
-                })
+                record.update(
+                    {
+                        "status": state.get("status"),
+                        "phase": state.get("phase"),
+                        "theorem_status": project.load_theorem(case_id).get("status"),
+                        "run_id": state.get("run_id"),
+                        "run_dir": str(orchestrator.run_dir),
+                        "metrics": state.get("metrics", {}),
+                    }
+                )
             except Exception as exc:
-                record.update({
-                    "status": "ERROR",
-                    "phase": "ERROR",
-                    "error": f"{type(exc).__name__}: {exc}",
-                })
+                record.update(
+                    {
+                        "status": "ERROR",
+                        "phase": "ERROR",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
             record["elapsed_seconds"] = round(time.perf_counter() - started, 3)
             records.append(record)
             stream.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -164,12 +167,18 @@ def main(argv: list[str] | None = None) -> None:
         default=True,
     )
     args = parser.parse_args(argv)
-    print(json.dumps(run_benchmark(
-        manifest_path=args.manifest,
-        config_path=args.config,
-        output_path=args.output,
-        worker_count=args.workers,
-        budget_limit_seconds=args.budget_seconds,
-        max_cases=args.max_cases,
-        secondary_verification=args.secondary_verification,
-    ), ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            run_benchmark(
+                manifest_path=args.manifest,
+                config_path=args.config,
+                output_path=args.output,
+                worker_count=args.workers,
+                budget_limit_seconds=args.budget_seconds,
+                max_cases=args.max_cases,
+                secondary_verification=args.secondary_verification,
+            ),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )

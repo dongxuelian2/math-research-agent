@@ -57,12 +57,16 @@ class LeanTheorem:
 
     def _parse(self):
         # Find preamble end: import/open/set_option lines + blanks/comments at top
-        lines = self.raw_text.split('\n')
+        lines = self.raw_text.split("\n")
         preamble_end_line = 0
         for i, line in enumerate(lines):
             stripped = line.strip()
-            if (stripped.startswith('import ') or stripped.startswith('open ')
-                    or stripped == '' or stripped.startswith('--')):
+            if (
+                stripped.startswith("import ")
+                or stripped.startswith("open ")
+                or stripped == ""
+                or stripped.startswith("--")
+            ):
                 preamble_end_line = i + 1
             else:
                 break
@@ -71,8 +75,7 @@ class LeanTheorem:
 
         # Find all sorry positions (word boundary match)
         self.sorry_positions = [
-            (m.start(), m.end())
-            for m in re.finditer(r'\bsorry\b', self.raw_text)
+            (m.start(), m.end()) for m in re.finditer(r"\bsorry\b", self.raw_text)
         ]
         self.num_sorries = len(self.sorry_positions)
 
@@ -90,44 +93,34 @@ class LeanTheorem:
             ValueError: wrong number of replacements, or import in injected code.
         """
         if len(replacements) != self.num_sorries:
-            raise ValueError(
-                f"Expected {self.num_sorries} replacement(s), got {len(replacements)}"
-            )
+            raise ValueError(f"Expected {self.num_sorries} replacement(s), got {len(replacements)}")
 
         # Validate injected code for banned constructs
         _BANNED = [
-            (r'^\s*import\b', "import statement"),
-            (r'\bsorry\b', "sorry"),
-            (r'^\s*axiom\b', "axiom declaration"),
-            (r'^\s*unsafe\b', "unsafe declaration"),
-            (r'^\s*set_option\b', "set_option"),
-            (r'\bnative_decide\b', "native_decide"),
+            (r"^\s*import\b", "import statement"),
+            (r"\bsorry\b", "sorry"),
+            (r"^\s*axiom\b", "axiom declaration"),
+            (r"^\s*unsafe\b", "unsafe declaration"),
+            (r"^\s*set_option\b", "set_option"),
+            (r"\bnative_decide\b", "native_decide"),
         ]
         for i, block in enumerate(replacements):
             for pattern, label in _BANNED:
                 if re.search(pattern, block, re.MULTILINE):
-                    raise ValueError(
-                        f"Replacement block {i} contains banned construct: {label}"
-                    )
+                    raise ValueError(f"Replacement block {i} contains banned construct: {label}")
         if context:
             for pattern, label in _BANNED:
                 if re.search(pattern, context, re.MULTILINE):
-                    raise ValueError(
-                        f"Context block contains banned construct: {label}"
-                    )
+                    raise ValueError(f"Context block contains banned construct: {label}")
 
         # Replace sorries in reverse order (preserves earlier offsets)
         result = self.raw_text
-        for (start, end), replacement in reversed(
-            list(zip(self.sorry_positions, replacements))
-        ):
+        for (start, end), replacement in reversed(list(zip(self.sorry_positions, replacements))):
             result = result[:start] + replacement + result[end:]
 
         # Inject context after preamble
         if context:
-            result = (result[:self.preamble_end]
-                      + context + '\n'
-                      + result[self.preamble_end:])
+            result = result[: self.preamble_end] + context + "\n" + result[self.preamble_end :]
 
         return result
 
@@ -142,16 +135,19 @@ def _lean_preexec(max_memory_mb: int):
     """
     import os as _os
     import resource as _resource
+
     max_bytes = max_memory_mb * 1024 * 1024
+
     def _setup():
         _os.setsid()
         _resource.setrlimit(_resource.RLIMIT_AS, (max_bytes, max_bytes))
+
     return _setup
 
 
-def run_lean_check(lean_file: Path, project_dir: Path,
-                   timeout: int = 300,
-                   max_memory_mb: int = 16384) -> tuple[bool, str, str]:
+def run_lean_check(
+    lean_file: Path, project_dir: Path, timeout: int = 300, max_memory_mb: int = 16384
+) -> tuple[bool, str, str]:
     """Run ``lake env lean <file>`` and return (success, feedback, cmd_info).
 
     Success means returncode 0 and empty stdout.
@@ -209,11 +205,11 @@ def run_lean_check(lean_file: Path, project_dir: Path,
         parts.append(stdout)
     if stderr:
         parts.append(stderr)
-    feedback = '\n'.join(parts)
+    feedback = "\n".join(parts)
     # Strip the full file path prefix from each diagnostic line
     file_prefix = str(lean_file.resolve()) + ":"
-    feedback = '\n'.join(
-        line[len(file_prefix):] if line.startswith(file_prefix) else line
+    feedback = "\n".join(
+        line[len(file_prefix) :] if line.startswith(file_prefix) else line
         for line in feedback.splitlines()
     )
     logger.info("Lean check failed: %s", lean_file.name)
@@ -248,11 +244,11 @@ def merge_lean_imports(existing: str, new_snippet: str) -> str:
     # Ensure two blank lines before the new block
     if body_existing and body_new:
         # Strip trailing blank lines from existing, then add two
-        while body_existing and body_existing[-1].strip() == '':
+        while body_existing and body_existing[-1].strip() == "":
             body_existing.pop()
-        body_existing.append('')
-        body_existing.append('')
-    return '\n'.join(import_lines + body_existing + body_new)
+        body_existing.append("")
+        body_existing.append("")
+    return "\n".join(import_lines + body_existing + body_new)
 
 
 class LeanWorkDir:

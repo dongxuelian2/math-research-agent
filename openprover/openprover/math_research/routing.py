@@ -42,15 +42,17 @@ DEFAULT_ROLE_TIERS = {
     "secondary_verifier": "research",
 }
 
-FAILURE_KINDS = frozenset({
-    "NO_PROGRESS",
-    "VERIFIER_REJECTION",
-    "REPEATED_FAILED_ROUTE",
-    "MALFORMED_RESULT",
-    "AUTHORITY_FAILURE",
-    "MATHEMATICAL_OBSTRUCTION",
-    "PROVIDER_FAILURE",
-})
+FAILURE_KINDS = frozenset(
+    {
+        "NO_PROGRESS",
+        "VERIFIER_REJECTION",
+        "REPEATED_FAILED_ROUTE",
+        "MALFORMED_RESULT",
+        "AUTHORITY_FAILURE",
+        "MATHEMATICAL_OBSTRUCTION",
+        "PROVIDER_FAILURE",
+    }
+)
 
 TIER_POLICIES = {
     "routine": (
@@ -131,8 +133,7 @@ def compose_system_prompt(
         layers.append("Obligation context:\n" + obligation_context.strip())
     if failed_route_context:
         layers.append(
-            "Failed-route context (change the route materially):\n"
-            + failed_route_context.strip()
+            "Failed-route context (change the route materially):\n" + failed_route_context.strip()
         )
     if literature_context:
         layers.append("Verified literature context:\n" + literature_context.strip())
@@ -173,24 +174,30 @@ def initialize_routing_state(raw: dict | None) -> dict:
     value.setdefault("next_call_number", 1)
     value.setdefault("obligations", {})
     value.setdefault("calls", [])
-    value.setdefault("usage_by_tier", {
-        tier: {
-            "calls": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "reasoning_tokens": 0,
-            "cached_tokens": 0,
-        }
-        for tier in TIERS
-    })
+    value.setdefault(
+        "usage_by_tier",
+        {
+            tier: {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_tokens": 0,
+            }
+            for tier in TIERS
+        },
+    )
     for tier in TIERS:
-        value["usage_by_tier"].setdefault(tier, {
-            "calls": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "reasoning_tokens": 0,
-            "cached_tokens": 0,
-        })
+        value["usage_by_tier"].setdefault(
+            tier,
+            {
+                "calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_tokens": 0,
+            },
+        )
     value.setdefault("calls_by_model", {})
     value.setdefault("calls_by_role", {})
     value.setdefault("escalations", 0)
@@ -198,11 +205,14 @@ def initialize_routing_state(raw: dict | None) -> dict:
     value.setdefault("fallbacks", 0)
     value.setdefault("strategic_interventions", 0)
     value.setdefault("verifier_disagreements", 0)
-    value.setdefault("strategic_reservations", {
-        "total": 0,
-        "by_step": {},
-        "by_obligation": {},
-    })
+    value.setdefault(
+        "strategic_reservations",
+        {
+            "total": 0,
+            "by_step": {},
+            "by_obligation": {},
+        },
+    )
     return value
 
 
@@ -274,9 +284,13 @@ class ModelRouter:
             tier = higher_tier(tier, obligation.get("tier", requested))
             escalation_reason = escalation_reason or obligation.get("last_escalation_reason")
         exact = self._role_config(role)
-        route_config = exact if exact is not None and not self._has_tiers() else self._tier_config(tier)
+        route_config = (
+            exact if exact is not None and not self._has_tiers() else self._tier_config(tier)
+        )
         route_config = self._apply_role_override(role, route_config)
-        requested_provider = route_config.get("provider") if isinstance(route_config, dict) else None
+        requested_provider = (
+            route_config.get("provider") if isinstance(route_config, dict) else None
+        )
         requested_model = route_config.get("model") if isinstance(route_config, dict) else None
         fallback = False
         fallback_reason = None
@@ -297,7 +311,9 @@ class ModelRouter:
         ):
             fallback_config = self._tier_config("research") or exact
             if not fallback_config:
-                raise ProjectError("Strategic budget exhausted and no research fallback is configured")
+                raise ProjectError(
+                    "Strategic budget exhausted and no research fallback is configured"
+                )
             route_config = self._apply_role_override(role, fallback_config)
             tier = "research"
             fallback = True
@@ -412,9 +428,7 @@ class ModelRouter:
             usage = (response or {}).get("usage") or {}
             normalized_usage = {
                 key: int(usage.get(key, 0) or 0)
-                for key in (
-                    "input_tokens", "output_tokens", "reasoning_tokens", "cached_tokens"
-                )
+                for key in ("input_tokens", "output_tokens", "reasoning_tokens", "cached_tokens")
             }
             record["usage"] = normalized_usage
             tier_usage = self.state["usage_by_tier"][record["tier"]]
@@ -446,28 +460,34 @@ class ModelRouter:
         with self._lock:
             obligation = self._obligation(obligation_id)
             current = normalize_tier(obligation.get("tier"), default="routine")
-            target = normalize_tier(minimum_tier) if minimum_tier else TIERS[min(2, TIER_INDEX[current] + 1)]
+            target = (
+                normalize_tier(minimum_tier)
+                if minimum_tier
+                else TIERS[min(2, TIER_INDEX[current] + 1)]
+            )
             target = higher_tier(current, target)
             changed = target != current
             obligation["tier"] = target
             obligation["last_escalation_reason"] = reason
-            obligation.setdefault("escalation_history", []).append({
-                "from": current,
-                "to": target,
-                "reason": reason,
-                "previous_route": previous_route,
-                "why_it_failed": failure_detail,
-                "what_must_materially_change": material_change_required,
-                "at": utc_now(),
-            })
+            obligation.setdefault("escalation_history", []).append(
+                {
+                    "from": current,
+                    "to": target,
+                    "reason": reason,
+                    "previous_route": previous_route,
+                    "why_it_failed": failure_detail,
+                    "what_must_materially_change": material_change_required,
+                    "at": utc_now(),
+                }
+            )
             if changed:
                 self.state["escalations"] = int(self.state.get("escalations", 0)) + 1
                 reasons = self.state["escalations_by_reason"]
                 reasons[reason] = int(reasons.get(reason, 0)) + 1
                 if target == "strategic":
-                    self.state["strategic_interventions"] = int(
-                        self.state.get("strategic_interventions", 0)
-                    ) + 1
+                    self.state["strategic_interventions"] = (
+                        int(self.state.get("strategic_interventions", 0)) + 1
+                    )
             self._save()
             return copy.deepcopy(obligation)
 
@@ -479,12 +499,13 @@ class ModelRouter:
             obligation = self._obligation(obligation_id)
             counters = obligation.setdefault("failure_counters", {})
             counters[kind] = int(counters.get(kind, 0)) + 1
-            obligation.setdefault("failure_history", []).append({
-                "kind": kind, "detail": detail, "at": utc_now()
-            })
+            obligation.setdefault("failure_history", []).append(
+                {"kind": kind, "detail": detail, "at": utc_now()}
+            )
             current = normalize_tier(obligation.get("tier"), default="routine")
             threshold_key = (
-                "routine_failure_threshold" if current == "routine"
+                "routine_failure_threshold"
+                if current == "routine"
                 else "research_failure_threshold"
             )
             default_threshold = 2 if current == "routine" else 3
@@ -509,12 +530,12 @@ class ModelRouter:
     ) -> dict:
         with self._lock:
             obligation = self._obligation(obligation_id)
-            obligation["verifier_disagreements"] = int(
-                obligation.get("verifier_disagreements", 0)
-            ) + 1
-            self.state["verifier_disagreements"] = int(
-                self.state.get("verifier_disagreements", 0)
-            ) + 1
+            obligation["verifier_disagreements"] = (
+                int(obligation.get("verifier_disagreements", 0)) + 1
+            )
+            self.state["verifier_disagreements"] = (
+                int(self.state.get("verifier_disagreements", 0)) + 1
+            )
             self._save()
         return self.escalate(
             obligation_id,
@@ -524,15 +545,21 @@ class ModelRouter:
         )
 
     def record_frontier_cycle(self, frontier_id: str, *, progress: dict[str, bool]) -> dict:
-        meaningful = any(bool(progress.get(key)) for key in (
-            "branch_closure", "parameter_reduction", "stronger_invariant",
-            "verified_lemma", "dependency_simplification",
-        ))
+        meaningful = any(
+            bool(progress.get(key))
+            for key in (
+                "branch_closure",
+                "parameter_reduction",
+                "stronger_invariant",
+                "verified_lemma",
+                "dependency_simplification",
+            )
+        )
         with self._lock:
             obligation = self._obligation(frontier_id)
-            obligation["stalled_cycles"] = 0 if meaningful else int(
-                obligation.get("stalled_cycles", 0)
-            ) + 1
+            obligation["stalled_cycles"] = (
+                0 if meaningful else int(obligation.get("stalled_cycles", 0)) + 1
+            )
             stalled = obligation["stalled_cycles"]
             self._save()
         threshold = int(self._routing_value("stalled_frontier_cycles", 3))
@@ -594,11 +621,13 @@ class ModelRouter:
                 merged.update(copy.deepcopy(tiers[tier]))
                 found = True
             if not tiers and layer.get("provider"):
-                merged.update({
-                    key: copy.deepcopy(value)
-                    for key, value in layer.items()
-                    if key not in {"roles", "routing", "budget", "tiers"}
-                })
+                merged.update(
+                    {
+                        key: copy.deepcopy(value)
+                        for key, value in layer.items()
+                        if key not in {"roles", "routing", "budget", "tiers"}
+                    }
+                )
                 found = True
         return merged if found else None
 
@@ -625,11 +654,13 @@ class ModelRouter:
             if isinstance(roles, dict):
                 candidate = roles.get(role)
                 if isinstance(candidate, dict) and not candidate.get("provider"):
-                    merged.update({
-                        key: copy.deepcopy(value)
-                        for key, value in candidate.items()
-                        if key != "default_tier"
-                    })
+                    merged.update(
+                        {
+                            key: copy.deepcopy(value)
+                            for key, value in candidate.items()
+                            if key != "default_tier"
+                        }
+                    )
             tool_map = layer.get("tools")
             if isinstance(tool_map, dict) and role in tool_map:
                 merged["tools"] = copy.deepcopy(tool_map[role])
@@ -647,13 +678,13 @@ class ModelRouter:
         if effort is not None and not isinstance(effort, str):
             raise ProjectError(f"Route {role}/{tier} reasoning_effort must be a string")
 
-    def _strategic_budget_available(self, *, step_id: str | None, obligation_id: str | None) -> bool:
+    def _strategic_budget_available(
+        self, *, step_id: str | None, obligation_id: str | None
+    ) -> bool:
         reservations = self.state["strategic_reservations"]
         maximum = int(self._routing_value("max_strategic_calls", 1000000))
         per_step = int(self._routing_value("max_strategic_calls_per_step", maximum))
-        per_obligation = int(
-            self._routing_value("max_strategic_calls_per_obligation", maximum)
-        )
+        per_obligation = int(self._routing_value("max_strategic_calls_per_obligation", maximum))
         return (
             int(reservations.get("total", 0)) < maximum
             and int(reservations["by_step"].get(step_id or "<none>", 0)) < per_step
@@ -667,12 +698,10 @@ class ModelRouter:
             reservations["total"] = int(reservations.get("total", 0)) + 1
             step_key = step_id or "<none>"
             obligation_key = obligation_id or "<none>"
-            reservations["by_step"][step_key] = int(
-                reservations["by_step"].get(step_key, 0)
-            ) + 1
-            reservations["by_obligation"][obligation_key] = int(
-                reservations["by_obligation"].get(obligation_key, 0)
-            ) + 1
+            reservations["by_step"][step_key] = int(reservations["by_step"].get(step_key, 0)) + 1
+            reservations["by_obligation"][obligation_key] = (
+                int(reservations["by_obligation"].get(obligation_key, 0)) + 1
+            )
             self._save()
 
     def _save(self) -> None:
@@ -737,19 +766,14 @@ class RoutedLLMClient:
 
     @property
     def api_request_count(self) -> int:
-        return sum(
-            int(getattr(client, "request_count", 0))
-            for client in self._clients.values()
-        )
+        return sum(int(getattr(client, "request_count", 0)) for client in self._clients.values())
 
     def call(self, prompt: str, system_prompt: str, **kwargs) -> dict:
         label = str(kwargs.get("label", ""))
         response_contract = kwargs.pop("response_schema", None)
         if response_contract is not None:
             if kwargs.get("json_schema") is not None:
-                raise ProjectError(
-                    "Pass only one of json_schema or response_schema"
-                )
+                raise ProjectError("Pass only one of json_schema or response_schema")
             # Keep the typed provider contract intact. The Gemini adapter is
             # the single place that materializes its JSON Schema.
             kwargs["response_schema"] = response_contract
@@ -782,9 +806,7 @@ class RoutedLLMClient:
         response_contract = kwargs.pop("response_schema", None)
         if response_contract is not None:
             if kwargs.get("json_schema") is not None:
-                raise ProjectError(
-                    "Pass only one of json_schema or response_schema"
-                )
+                raise ProjectError("Pass only one of json_schema or response_schema")
             kwargs["response_schema"] = response_contract
         visible = "\n".join(str(item.get("content", "")) for item in messages)
         role, obligation_id, branch_id = self._detect_context(visible, label)
@@ -795,11 +817,16 @@ class RoutedLLMClient:
         )
         kwargs = self._with_route_tools(route, kwargs)
         layered = copy.deepcopy(messages)
-        policy_text = "\n\n".join(filter(None, (
-            f"Role: {role}",
-            ROLE_POLICIES.get(role),
-            TIER_POLICIES[route.tier],
-        )))
+        policy_text = "\n\n".join(
+            filter(
+                None,
+                (
+                    f"Role: {role}",
+                    ROLE_POLICIES.get(role),
+                    TIER_POLICIES[route.tier],
+                ),
+            )
+        )
         policy = {"role": "developer", "content": policy_text}
         insert_at = 1 if layered and layered[0].get("role") == "system" else 0
         layered.insert(insert_at, policy)
@@ -832,9 +859,7 @@ class RoutedLLMClient:
         raw_system_prompt: str | None = None,
         **payload,
     ) -> dict:
-        metadata = self.router.begin_call(
-            route, obligation_id=obligation_id, branch_id=branch_id
-        )
+        metadata = self.router.begin_call(route, obligation_id=obligation_id, branch_id=branch_id)
         try:
             client = self._client(route)
             response = getattr(client, method)(**payload, **kwargs)
@@ -857,13 +882,12 @@ class RoutedLLMClient:
                     if method == "call":
                         payload["system_prompt"] = compose_system_prompt(
                             raw_system_prompt or payload["system_prompt"],
-                            role=fallback.role, tier=fallback.tier
+                            role=fallback.role,
+                            tier=fallback.tier,
                         )
                     response = getattr(client, method)(**payload, **kwargs)
                 except Exception as fallback_exc:
-                    self.router.finish_call(
-                        fallback_meta["call_id"], error=str(fallback_exc)
-                    )
+                    self.router.finish_call(fallback_meta["call_id"], error=str(fallback_exc))
                     raise
                 metadata = fallback_meta
                 route = fallback
@@ -874,12 +898,10 @@ class RoutedLLMClient:
         with self._lock:
             self.call_count += 1
             self.request_count = sum(
-                int(getattr(client, "request_count", 0))
-                for client in self._clients.values()
+                int(getattr(client, "request_count", 0)) for client in self._clients.values()
             )
             self.total_retries = sum(
-                int(getattr(client, "total_retries", 0))
-                for client in self._clients.values()
+                int(getattr(client, "total_retries", 0)) for client in self._clients.values()
             )
         response = dict(response)
         response["routing"] = {**metadata, **route.to_dict()}
@@ -887,7 +909,10 @@ class RoutedLLMClient:
 
     def _client(self, route: ModelRoute):
         key = (
-            route.role, route.provider, route.model, route.reasoning_effort,
+            route.role,
+            route.provider,
+            route.model,
+            route.reasoning_effort,
             json.dumps(route.config, sort_keys=True, default=str),
         )
         with self._lock:
@@ -930,15 +955,23 @@ class RoutedLLMClient:
         details = getattr(exc, "details", {})
         error_type = details.get("error_type") if isinstance(details, dict) else None
         if error_type in {
-            "invalid_model", "unsupported_reasoning_effort", "gemini_unavailable",
-            "not_authenticated", "provider_unavailable",
+            "invalid_model",
+            "unsupported_reasoning_effort",
+            "gemini_unavailable",
+            "not_authenticated",
+            "provider_unavailable",
         }:
             return True
         message = str(exc).casefold()
-        return any(marker in message for marker in (
-            "model not found", "unsupported reasoning", "provider unavailable",
-            "command not found",
-        ))
+        return any(
+            marker in message
+            for marker in (
+                "model not found",
+                "unsupported reasoning",
+                "provider unavailable",
+                "command not found",
+            )
+        )
 
     def interrupt(self):
         for client in list(self._clients.values()):

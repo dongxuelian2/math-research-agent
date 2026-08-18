@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from openprover.math_research.audit_protocol import parse_audit_response
 from openprover.math_research.gemini_provider import GeminiClient
 from openprover.math_research.observatory import build_snapshot
 from openprover.math_research.schemas import (
@@ -39,9 +38,7 @@ def test_structured_parser_rejects_prose_and_accepts_complete_document():
     with pytest.raises(SchemaError):
         parse_structured_response(response, AuditResultSchema)
 
-    parsed = parse_structured_response(
-        {"structured": _audit()}, AuditResultSchema
-    )
+    parsed = parse_structured_response({"structured": _audit()}, AuditResultSchema)
     assert parsed.role == "counterexample_hunter"
 
 
@@ -65,13 +62,17 @@ def test_gemini_structured_call_sends_response_schema(tmp_path: Path):
             return False
 
         def read(self):
-            return json.dumps({
-                "candidates": [{
-                    "content": {"parts": [{"text": json.dumps(_audit())}]},
-                    "finishReason": "STOP",
-                }],
-                "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 7},
-            }).encode("utf-8")
+            return json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "content": {"parts": [{"text": json.dumps(_audit())}]},
+                            "finishReason": "STOP",
+                        }
+                    ],
+                    "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 7},
+                }
+            ).encode("utf-8")
 
     def fake_open(request, timeout):
         captured["request"] = request
@@ -103,31 +104,37 @@ def test_gemini_tool_loop_executes_local_function(tmp_path: Path):
     payloads = []
     responses = [
         {
-            "candidates": [{
-                "content": {
-                    "role": "model",
-                    "parts": [{
-                        "functionCall": {
-                            "name": "lean_verify",
-                            "args": {"code": "theorem demo : 1 = 1 := rfl"},
-                        }
-                    }],
-                },
-                "finishReason": "STOP",
-            }],
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [
+                            {
+                                "functionCall": {
+                                    "name": "lean_verify",
+                                    "args": {"code": "theorem demo : 1 = 1 := rfl"},
+                                }
+                            }
+                        ],
+                    },
+                    "finishReason": "STOP",
+                }
+            ],
             "usageMetadata": {
                 "promptTokenCount": 5,
                 "candidatesTokenCount": 3,
             },
         },
         {
-            "candidates": [{
-                "content": {
-                    "role": "model",
-                    "parts": [{"text": "verified"}],
-                },
-                "finishReason": "STOP",
-            }],
+            "candidates": [
+                {
+                    "content": {
+                        "role": "model",
+                        "parts": [{"text": "verified"}],
+                    },
+                    "finishReason": "STOP",
+                }
+            ],
             "usageMetadata": {
                 "promptTokenCount": 8,
                 "candidatesTokenCount": 2,
@@ -165,17 +172,21 @@ def test_gemini_tool_loop_executes_local_function(tmp_path: Path):
     response = client.call(
         "verify this",
         "Use the compiler tool.",
-        tools=[{
-            "functionDeclarations": [{
-                "name": "lean_verify",
-                "description": "verify",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"code": {"type": "string"}},
-                    "required": ["code"],
-                },
-            }]
-        }],
+        tools=[
+            {
+                "functionDeclarations": [
+                    {
+                        "name": "lean_verify",
+                        "description": "verify",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"code": {"type": "string"}},
+                            "required": ["code"],
+                        },
+                    }
+                ]
+            }
+        ],
         label="formalization_agent",
     )
 

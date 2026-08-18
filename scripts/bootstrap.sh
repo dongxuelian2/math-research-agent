@@ -25,7 +25,7 @@ export UV_CACHE_DIR
 export UV_LINK_MODE="${UV_LINK_MODE:-copy}"
 
 printf '%s\n' '→ syncing the uv environment'
-uv sync --extra test
+uv sync --extra dev
 
 printf '%s\n' '→ generating the hidden-defect repair showcase'
 uv run python -m openprover.math_research demo --project "$PROJECT_DIR"

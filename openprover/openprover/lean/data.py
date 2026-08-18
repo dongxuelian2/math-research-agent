@@ -16,6 +16,7 @@ _MIN_DECLARATIONS = 100_000
 def _has_lean_explore() -> bool:
     try:
         import lean_explore  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -25,6 +26,7 @@ def _has_torch() -> bool:
     try:
         import torch  # noqa: F401
         import sentence_transformers  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -33,6 +35,7 @@ def _has_torch() -> bool:
 def _validate_db(db_path: Path) -> bool:
     """Check the DB has enough declarations and includes Mathlib."""
     import sqlite3
+
     try:
         conn = sqlite3.connect(str(db_path))
         cur = conn.cursor()
@@ -41,18 +44,19 @@ def _validate_db(db_path: Path) -> bool:
         if total < _MIN_DECLARATIONS:
             logger.warning(
                 "lean_explore DB has only %d declarations (need >=%d): %s",
-                total, _MIN_DECLARATIONS, db_path,
+                total,
+                _MIN_DECLARATIONS,
+                db_path,
             )
             conn.close()
             return False
-        cur.execute(
-            "SELECT COUNT(*) FROM declarations WHERE module LIKE 'Mathlib.%'"
-        )
+        cur.execute("SELECT COUNT(*) FROM declarations WHERE module LIKE 'Mathlib.%'")
         mathlib_count = cur.fetchone()[0]
         conn.close()
         if mathlib_count == 0:
             logger.warning(
-                "lean_explore DB has 0 Mathlib declarations: %s", db_path,
+                "lean_explore DB has 0 Mathlib declarations: %s",
+                db_path,
             )
             return False
         return True
@@ -67,6 +71,7 @@ def is_lean_data_available() -> bool:
         return False
     try:
         from lean_explore.config import Config
+
         cfg = Config()
         cache = cfg.CACHE_DIRECTORY
         if not cache.exists():
@@ -93,7 +98,8 @@ def fetch_lean_data() -> bool:
         try:
             subprocess.run(
                 [pip_bin, "install", "lean-explore"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
         except subprocess.CalledProcessError as e:
             print(f"Error installing lean-explore: {e}")
@@ -104,13 +110,20 @@ def fetch_lean_data() -> bool:
         print("Installing torch (CPU) and sentence-transformers...")
         try:
             subprocess.run(
-                [pip_bin, "install", "torch",
-                 "--index-url", "https://download.pytorch.org/whl/cpu"],
-                check=True, capture_output=True,
+                [
+                    pip_bin,
+                    "install",
+                    "torch",
+                    "--index-url",
+                    "https://download.pytorch.org/whl/cpu",
+                ],
+                check=True,
+                capture_output=True,
             )
             subprocess.run(
                 [pip_bin, "install", "sentence-transformers"],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
         except subprocess.CalledProcessError as e:
             print(f"Error installing dependencies: {e}")
@@ -132,9 +145,11 @@ def fetch_lean_data() -> bool:
             check=True,
         )
         if not is_lean_data_available():
-            print("Warning: fetch completed but data validation failed "
-                  "(too few declarations or missing Mathlib). "
-                  "Check logs or try an older lean-explore data version.")
+            print(
+                "Warning: fetch completed but data validation failed "
+                "(too few declarations or missing Mathlib). "
+                "Check logs or try an older lean-explore data version."
+            )
             return False
     except subprocess.CalledProcessError as e:
         print(f"Error fetching Lean Explore data: {e}")
@@ -147,15 +162,18 @@ def fetch_lean_data() -> bool:
     print("Pre-downloading embedding model (Qwen3-Embedding-0.6B)...")
     try:
         from sentence_transformers import SentenceTransformer
+
         SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
     except Exception as e:
         print(f"Warning: failed to pre-download embedding model: {e}")
 
     try:
         import torch
+
         if torch.cuda.is_available():
             print("GPU detected - pre-downloading reranker model (Qwen3-Reranker-0.6B)...")
             from transformers import AutoModelForCausalLM, AutoTokenizer
+
             AutoTokenizer.from_pretrained("Qwen/Qwen3-Reranker-0.6B")
             AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-Reranker-0.6B")
     except Exception as e:

@@ -13,11 +13,17 @@ from pathlib import Path
 
 from . import prompts
 from .budget import Budget
-from .lean import LeanTheorem, LeanWorkDir, run_lean_check, lean_has_errors, WORKER_TOOLS, execute_worker_tool
+from .lean import (
+    LeanTheorem,
+    LeanWorkDir,
+    run_lean_check,
+    lean_has_errors,
+    WORKER_TOOLS,
+    execute_worker_tool,
+)
 from .llm import Interrupted, LLMClient
 from .llm._base import is_transient_error
 from .tui import TUI
-from .tui._colors import YELLOW, GREEN, RESET as _RESET
 
 logger = logging.getLogger("openprover")
 
@@ -41,7 +47,7 @@ def _format_tool_calls_toml(tc_log: list[dict]) -> str:
         lines.append("[[call]]")
         lines.append(f'tool = "{tc.get("tool", "")}"')
         lines.append(f'status = "{tc.get("status", "")}"')
-        lines.append(f'duration_ms = {tc.get("duration_ms", 0)}')
+        lines.append(f"duration_ms = {tc.get('duration_ms', 0)}")
         args = tc.get("args", {})
         if isinstance(args, dict):
             for k, v in args.items():
@@ -148,7 +154,7 @@ class Repo:
 
     def resolve_wikilinks(self, text: str) -> str:
         """Find [[slug]] references, return formatted appendix."""
-        slugs = re.findall(r'\[\[([a-z0-9_/.-]+)\]\]', text)
+        slugs = re.findall(r"\[\[([a-z0-9_/.-]+)\]\]", text)
         if not slugs:
             return ""
         parts = []
@@ -232,24 +238,32 @@ class Prover:
                 return f"unresolved scope/dependency blocker: {excerpt[:200]}"
         return None
 
-    def __init__(self, work_dir: Path, theorem_text: str, mode: str,
-                 make_llm, model_name: str,
-                 budget: 'Budget',
-                 autonomous: bool, verbose: bool, tui: TUI,
-                 isolation: bool = False,
-                 max_workers: int = 1,
-                 lean_project_dir: Path | None = None,
-                 lean_theorem_text: str = "",
-                 proof_md_text: str = "",
-                 resumed: bool = False,
-                 make_worker_llm=None,
-                 lean_items: bool = False,
-                 lean_worker_tools: bool = False,
-                 history_budget: int = 0,
-                 on_budget_out: str | None = None,
-                 on_rate_limited: str | None = None,
-                 verifier: bool = True,
-                 research_policy=None):
+    def __init__(
+        self,
+        work_dir: Path,
+        theorem_text: str,
+        mode: str,
+        make_llm,
+        model_name: str,
+        budget: "Budget",
+        autonomous: bool,
+        verbose: bool,
+        tui: TUI,
+        isolation: bool = False,
+        max_workers: int = 1,
+        lean_project_dir: Path | None = None,
+        lean_theorem_text: str = "",
+        proof_md_text: str = "",
+        resumed: bool = False,
+        make_worker_llm=None,
+        lean_items: bool = False,
+        lean_worker_tools: bool = False,
+        history_budget: int = 0,
+        on_budget_out: str | None = None,
+        on_rate_limited: str | None = None,
+        verifier: bool = True,
+        research_policy=None,
+    ):
         self.model = model_name
         self._make_llm = make_llm
         self._make_worker_llm = make_worker_llm or make_llm
@@ -317,19 +331,21 @@ class Prover:
         if self.resumed:
             self.whiteboard = (self.work_dir / "WHITEBOARD.md").read_text(encoding="utf-8")
             steps_dir = self.work_dir / "steps"
-            existing = [d for d in steps_dir.iterdir()
-                        if d.is_dir() and d.name.startswith("step_")]
+            existing = [d for d in steps_dir.iterdir() if d.is_dir() and d.name.startswith("step_")]
             self.step_num = len(existing)
             self._load_step_history()
         else:
             # Fresh run - write initial files
             (self.work_dir / "THEOREM.md").write_text(self.theorem_text, encoding="utf-8")
             if self.lean_theorem_text:
-                (self.work_dir / "THEOREM.lean").write_text(self.lean_theorem_text, encoding="utf-8")
+                (self.work_dir / "THEOREM.lean").write_text(
+                    self.lean_theorem_text, encoding="utf-8"
+                )
             if self.proof_md_text and self.mode == "formalize_only":
                 (self.work_dir / "PROOF.md").write_text(self.proof_md_text, encoding="utf-8")
             self.whiteboard = prompts.format_initial_whiteboard(
-                self.theorem_text, mode=self.mode,
+                self.theorem_text,
+                mode=self.mode,
             )
             (self.work_dir / "WHITEBOARD.md").write_text(self.whiteboard, encoding="utf-8")
 
@@ -349,7 +365,7 @@ class Prover:
         if self._history_budget_override > 0:
             self.history_budget = self._history_budget_override
         else:
-            ctx = getattr(self.planner_llm, 'context_length', 200_000)
+            ctx = getattr(self.planner_llm, "context_length", 200_000)
             self.history_budget = int(ctx * 4 * 0.15)
 
         # Tool calling for workers
@@ -363,18 +379,19 @@ class Prover:
                             "command": sys.executable,
                             "args": ["-m", "openprover.lean.mcp_server"],
                             "env": {
-                                "LEAN_PROJECT_DIR": str(
-                                    self.lean_project_dir.resolve()),
+                                "LEAN_PROJECT_DIR": str(self.lean_project_dir.resolve()),
                                 "LEAN_WORK_DIR": str(
-                                    self.lean_work_dir.dir.resolve()
-                                    if self.lean_work_dir else ""),
+                                    self.lean_work_dir.dir.resolve() if self.lean_work_dir else ""
+                                ),
                             },
                         }
                     }
                 }
                 self.worker_llm.mcp_config = mcp_config
             else:
-                logger.warning("lean_worker_tools enabled but worker has no tool support - tools disabled")
+                logger.warning(
+                    "lean_worker_tools enabled but worker has no tool support - tools disabled"
+                )
 
         # Derive theorem name for header
         lines = self.theorem_text.strip().splitlines()
@@ -388,10 +405,12 @@ class Prover:
     def _stream_cb(self, tab: str, output_only: bool = False):
         if not self.tui.supports_streaming:
             return None
+
         def cb(t, k="text"):
             if output_only and k == "thinking":
                 return
             self.tui.stream_text(t, kind=k, tab=tab, show_toml=output_only)
+
         return cb
 
     def _setup_tui(self, *, autonomous: bool = False):
@@ -428,7 +447,11 @@ class Prover:
             self._maybe_respawn_interrupted_workers()
 
         MAX_CONSECUTIVE_ERRORS = 10
-        while not self.budget.is_exhausted() and not self.shutting_down and not self._spending_limit_hit:
+        while (
+            not self.budget.is_exhausted()
+            and not self.shutting_down
+            and not self._spending_limit_hit
+        ):
             self.step_num += 1
             self._current_planner_result = ""
             self._current_action_outputs = []
@@ -438,18 +461,22 @@ class Prover:
             # Record history entry if planner produced output
             if self._current_planner_result:
                 self._consecutive_errors = 0
-                self.step_history.append({
-                    "step": self.step_num,
-                    "planner": self._current_planner_result,
-                    "action": self._current_step_action,
-                    "summary": self._current_step_summary,
-                    "outputs": self._current_action_outputs,
-                })
+                self.step_history.append(
+                    {
+                        "step": self.step_num,
+                        "planner": self._current_planner_result,
+                        "action": self._current_step_action,
+                        "summary": self._current_step_summary,
+                        "outputs": self._current_action_outputs,
+                    }
+                )
                 if len(self.step_history) > 3:
                     self.step_history = self.step_history[-3:]
                 # Track steps since last productive action
                 if self._current_step_action in (
-                    "spawn", "submit_proof", "submit_lean_proof",
+                    "spawn",
+                    "submit_proof",
+                    "submit_lean_proof",
                     "literature_search",
                 ):
                     self._steps_since_productive = 0
@@ -533,8 +560,8 @@ class Prover:
         if meta_path.exists():
             meta_text = meta_path.read_text(encoding="utf-8")
             # Parse [[workers]] blocks to find interrupted ones
-            for block in re.split(r'\[\[workers\]\]', meta_text)[1:]:
-                idx_m = re.search(r'^index\s*=\s*(\d+)', block, re.MULTILINE)
+            for block in re.split(r"\[\[workers\]\]", meta_text)[1:]:
+                idx_m = re.search(r"^index\s*=\s*(\d+)", block, re.MULTILINE)
                 err_m = re.search(r'^error\s*=\s*"([^"]*)"', block, re.MULTILINE)
                 if idx_m and err_m and err_m.group(1) == "interrupted":
                     interrupted_indices.add(int(idx_m.group(1)))
@@ -559,8 +586,9 @@ class Prover:
         completed_workers = {}  # {original_index: result_text}
         for i, f in enumerate(task_files):
             if i in interrupted_indices:
-                tasks_to_respawn.append({"description": f.read_text(encoding="utf-8"),
-                                         "_original_index": i})
+                tasks_to_respawn.append(
+                    {"description": f.read_text(encoding="utf-8"), "_original_index": i}
+                )
             else:
                 result_file = workers_dir / f"result_{i}.md"
                 result = result_file.read_text(encoding="utf-8") if result_file.exists() else ""
@@ -571,7 +599,9 @@ class Prover:
                 # Also carry verifier results if present
                 vresult_file = workers_dir / f"verifier_result_{i}.md"
                 if vresult_file.exists():
-                    completed_workers[i]["verifier_result"] = vresult_file.read_text(encoding="utf-8")
+                    completed_workers[i]["verifier_result"] = vresult_file.read_text(
+                        encoding="utf-8"
+                    )
 
         if not tasks_to_respawn:
             logger.info("All workers already completed for step %d", self.step_num)
@@ -579,9 +609,12 @@ class Prover:
 
         n_done = len(completed_workers)
         n_todo = len(tasks_to_respawn)
-        logger.info("Re-spawning %d interrupted worker(s) from step %d "
-                     "(%d already completed)",
-                     n_todo, self.step_num, n_done)
+        logger.info(
+            "Re-spawning %d interrupted worker(s) from step %d (%d already completed)",
+            n_todo,
+            self.step_num,
+            n_done,
+        )
         if n_done:
             self.tui.log(
                 f"Re-spawning {n_todo} interrupted worker(s) from step "
@@ -637,8 +670,8 @@ class Prover:
             self._respawn_plan = None
             step_dir = self.work_dir / "steps" / f"step_{self.step_num:03d}"
             step_dir.mkdir(parents=True, exist_ok=True)
-            n_tasks = len(plan['tasks'])
-            n_done = len(plan.get('completed_workers', {}))
+            n_tasks = len(plan["tasks"])
+            n_done = len(plan.get("completed_workers", {}))
             summary = f"Re-spawning {n_tasks} interrupted worker(s)"
             if n_done:
                 summary += f" ({n_done} already finished)"
@@ -646,7 +679,9 @@ class Prover:
             self._current_step_action = "spawn"
             self._current_step_summary = summary
             self._step_idx = self.tui.step_complete(
-                self.step_num, "spawn", summary,
+                self.step_num,
+                "spawn",
+                summary,
             )
             return self._handle_spawn(plan, step_dir)
 
@@ -663,7 +698,8 @@ class Prover:
         if intervention:
             logger.info(
                 "Intervention at step %d (budget=%.0f%%, unproductive=%d)",
-                self.step_num, self.budget.fraction_spent() * 100,
+                self.step_num,
+                self.budget.fraction_spent() * 100,
                 self._steps_since_productive,
             )
         prompt = prompts.format_planner_prompt(
@@ -733,8 +769,7 @@ class Prover:
             resp = _use_thinking_as_result(resp)
             self._track_output_tokens(resp)
             last_resp = resp
-            logger.info("Planner: %dms $%.4f",
-                         resp.get("duration_ms", 0), resp.get("cost") or 0.0)
+            logger.info("Planner: %dms $%.4f", resp.get("duration_ms", 0), resp.get("cost") or 0.0)
 
             # Parse TOML decision block(s)
             plans = prompts.parse_planner_toml(resp["result"])
@@ -747,8 +782,12 @@ class Prover:
                     f"{'retrying' if remaining else 'giving up'}...",
                     color="red",
                 )
-                logger.info("Validation error (attempt %d/%d): %s",
-                            attempt + 1, MAX_PARSE_RETRIES + 1, parse_error)
+                logger.info(
+                    "Validation error (attempt %d/%d): %s",
+                    attempt + 1,
+                    MAX_PARSE_RETRIES + 1,
+                    parse_error,
+                )
                 plans = None
                 continue
 
@@ -761,18 +800,21 @@ class Prover:
                     while True:
                         self.tui.stream_start("forcing decision", tab="planner")
                         try:
-                            phase2_max = getattr(self.planner_llm, 'answer_reserve', None) or 16_000
+                            phase2_max = getattr(self.planner_llm, "answer_reserve", None) or 16_000
                             conv_id = resp.get("conversation_id")
-                            if conv_id and hasattr(self.planner_llm, 'chat'):
+                            if conv_id and hasattr(self.planner_llm, "chat"):
                                 messages = [
                                     {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": prompt},
                                     {"role": "assistant", "content": resp["result"] or ""},
-                                    {"role": "user", "content": (
-                                        "Your response was cut off. Write your final "
-                                        "decision now — output ONLY the "
-                                        "<OPENPROVER_ACTION>...</OPENPROVER_ACTION> block."
-                                    )},
+                                    {
+                                        "role": "user",
+                                        "content": (
+                                            "Your response was cut off. Write your final "
+                                            "decision now — output ONLY the "
+                                            "<OPENPROVER_ACTION>...</OPENPROVER_ACTION> block."
+                                        ),
+                                    },
                                 ]
                                 resp = self.planner_llm.chat(
                                     messages=messages,
@@ -784,7 +826,9 @@ class Prover:
                                     conversation_id=conv_id,
                                 )
                             else:
-                                phase2_prompt = prompts.format_planner_truncated(prompt, resp["result"])
+                                phase2_prompt = prompts.format_planner_truncated(
+                                    prompt, resp["result"]
+                                )
                                 resp = self.planner_llm.call(
                                     prompt=phase2_prompt,
                                     system_prompt=system_prompt,
@@ -821,7 +865,7 @@ class Prover:
                 parse_error = (
                     "Failed to parse TOML output. Your response must end with "
                     "an <OPENPROVER_ACTION>...</OPENPROVER_ACTION> block containing "
-                    "action = \"...\" and other required fields."
+                    'action = "..." and other required fields.'
                 )
                 remaining = MAX_PARSE_RETRIES - attempt
                 self.tui.log(
@@ -835,14 +879,11 @@ class Prover:
             break  # success
 
         if plans is None:
-            self._save_step_meta(step_dir, status="parse_error", resp=last_resp,
-                                 error=parse_error)
+            self._save_step_meta(step_dir, status="parse_error", resp=last_resp, error=parse_error)
             return "continue"
 
         # Summarize actions for logging and step history
-        actions_summary = ", ".join(
-            f"{p['action']}" for p in plans
-        )
+        actions_summary = ", ".join(f"{p['action']}" for p in plans)
         primary_plan = plans[-1]  # last action is typically the "main" one
         primary_action = primary_plan["action"]
         # For spawn, derive summary from per-task summaries
@@ -852,7 +893,9 @@ class Prover:
                 for t in primary_plan.get("tasks", [])
                 if t.get("summary", "").strip()
             ]
-            primary_summary = "\n".join(task_summaries) if task_summaries else primary_plan.get("summary", "")
+            primary_summary = (
+                "\n".join(task_summaries) if task_summaries else primary_plan.get("summary", "")
+            )
         else:
             primary_summary = primary_plan.get("summary", "")
         logger.info("Actions: %s", actions_summary)
@@ -868,7 +911,8 @@ class Prover:
         # reconstruct them (planner.toml only stores the primary plan).
         if len(plans) > 1:
             (step_dir / "plans.json").write_text(
-                json.dumps(plans, ensure_ascii=False), encoding="utf-8",
+                json.dumps(plans, ensure_ascii=False),
+                encoding="utf-8",
             )
 
         # Interactive confirmation for the whole batch
@@ -877,7 +921,9 @@ class Prover:
             return result
 
         self._step_idx = self.tui.step_complete(
-            self.step_num, primary_action, primary_summary,
+            self.step_num,
+            primary_action,
+            primary_summary,
             plans=plans,
         )
 
@@ -902,11 +948,13 @@ class Prover:
         for plan in plans:
             action = plan["action"]
             last_action = action
-            self._current_action_outputs.append({
-                "action": action,
-                "summary": plan.get("summary", ""),
-                "output": "",
-            })
+            self._current_action_outputs.append(
+                {
+                    "action": action,
+                    "summary": plan.get("summary", ""),
+                    "output": "",
+                }
+            )
 
             if action == "write_whiteboard":
                 self._handle_write_whiteboard(plan)
@@ -930,8 +978,13 @@ class Prover:
                 meta_saved = True
             else:
                 self.tui.log(f"Unknown action: {action}", color="red")
-                self._save_step_meta(step_dir, status="unknown_action", action=action,
-                                     resp=resp, error=f"Unknown action: {action}")
+                self._save_step_meta(
+                    step_dir,
+                    status="unknown_action",
+                    action=action,
+                    resp=resp,
+                    error=f"Unknown action: {action}",
+                )
                 return "continue"
 
             # Stop immediately when the session is complete
@@ -946,8 +999,9 @@ class Prover:
 
     # ── Action handlers ──────────────────────────────────────
 
-    def _confirm_action(self, plans: list[dict], step_dir: Path,
-                        planner_resp: dict | None = None) -> str | None:
+    def _confirm_action(
+        self, plans: list[dict], step_dir: Path, planner_resp: dict | None = None
+    ) -> str | None:
         """Show proposal and get user confirmation when not in autonomous mode.
 
         Returns None if the action is approved (proceed with execution),
@@ -983,10 +1037,7 @@ class Prover:
             primary = plans[-1]
             action = primary.get("action", "")
             summary = primary.get("summary", "")
-            detail = (
-                f"Proposed step:\n"
-                f"{action} - {summary}".strip(" --")
-            )
+            detail = f"Proposed step:\n{action} - {summary}".strip(" --")
             self.tui.step_complete(
                 self.step_num,
                 action,
@@ -1003,11 +1054,13 @@ class Prover:
                 error="Rejected by user feedback",
                 feedback=text,
             )
-            self._current_action_outputs.append({
-                "action": "rejected",
-                "summary": "User rejected and provided feedback",
-                "output": f"Human feedback: {user_resp}",
-            })
+            self._current_action_outputs.append(
+                {
+                    "action": "rejected",
+                    "summary": "User rejected and provided feedback",
+                    "output": f"Human feedback: {user_resp}",
+                }
+            )
             self.tui.append_step_action_output(self.step_num, f"Human feedback: {user_resp}")
             self.tui.show_replan_notice("Feedback noted - will replan next step")
             return "continue"
@@ -1055,13 +1108,21 @@ class Prover:
             # Include partial planner output + feedback in history so next
             # planner call sees what was interrupted and the user's guidance.
             feedback_text = f"Human feedback: {user_resp}" if text else ""
-            self.step_history.append({
-                "step": self.step_num + 1,  # step_num was already decremented
-                "planner": f"(interrupted) {partial}".strip(),
-                "action": "interrupted",
-                "summary": "User interrupted and provided feedback",
-                "outputs": [{"action": "interrupted", "summary": "User feedback", "output": feedback_text}],
-            })
+            self.step_history.append(
+                {
+                    "step": self.step_num + 1,  # step_num was already decremented
+                    "planner": f"(interrupted) {partial}".strip(),
+                    "action": "interrupted",
+                    "summary": "User interrupted and provided feedback",
+                    "outputs": [
+                        {
+                            "action": "interrupted",
+                            "summary": "User feedback",
+                            "output": feedback_text,
+                        }
+                    ],
+                }
+            )
             if len(self.step_history) > 3:
                 self.step_history = self.step_history[-3:]
             self.tui.show_replan_notice("Feedback noted - will replan next step")
@@ -1071,7 +1132,9 @@ class Prover:
         """Handle submit_proof - informal markdown proof only."""
         if self.research_policy is not None:
             decision = self.research_policy.before_submit(
-                self, plan, _step_dir,
+                self,
+                plan,
+                _step_dir,
             )
             if decision is not None:
                 return decision
@@ -1084,7 +1147,9 @@ class Prover:
 
         if self.mode == "formalize_only":
             self.tui.log("submit_proof: not available in formalize-only mode", color="red")
-            self._push_output("submit_proof rejected: in formalize-only mode, use submit_lean_proof instead.")
+            self._push_output(
+                "submit_proof rejected: in formalize-only mode, use submit_lean_proof instead."
+            )
             return "continue"
 
         content = self.repo.read_item(proof_slug)
@@ -1130,8 +1195,7 @@ class Prover:
         return " ".join(Prover._strip_lean_comments(text).split())
 
     @staticmethod
-    def _check_proof_preserves_theorem(theorem_text: str,
-                                       proof_text: str) -> str | None:
+    def _check_proof_preserves_theorem(theorem_text: str, proof_text: str) -> str | None:
         """Verify the submitted proof preserves everything from THEOREM.lean
         except for `sorry` replacements.
 
@@ -1159,7 +1223,7 @@ class Prover:
         )
         if not thm_start:
             return None  # THEOREM.lean has no declaration; nothing to check
-        thm = thm[thm_start.start():]
+        thm = thm[thm_start.start() :]
 
         # Split on `sorry` (word boundary). If there's no sorry, the
         # theorem has no hole — nothing to do.
@@ -1174,7 +1238,6 @@ class Prover:
         prf = " ".join(Prover._strip_lean_comments(proof_text).split())
 
         pos = 0
-        last_frag_idx = len(fragments) - 1
         for i, frag in enumerate(fragments):
             if not frag:
                 # Empty fragment. Two common cases:
@@ -1197,8 +1260,8 @@ class Prover:
             if idx < 0:
                 label = (
                     "the theorem header (everything up to the first `sorry`)"
-                    if i == 0 else
-                    f"the text that should appear after sorry #{i}"
+                    if i == 0
+                    else f"the text that should appear after sorry #{i}"
                 )
                 return (
                     f"{label} from THEOREM.lean was not found in your "
@@ -1238,7 +1301,9 @@ class Prover:
         content = self.repo.read_item(lean_proof_slug)
         if not content:
             self.tui.log(f"submit_lean_proof: [[{lean_proof_slug}]] not found", color="red")
-            self._push_output(f"submit_lean_proof rejected: repo item [[{lean_proof_slug}]] not found.")
+            self._push_output(
+                f"submit_lean_proof rejected: repo item [[{lean_proof_slug}]] not found."
+            )
             return "continue"
 
         proof_text = content
@@ -1253,21 +1318,20 @@ class Prover:
         # prove the benchmark task.
         if self.lean_theorem_text:
             reason = self._check_proof_preserves_theorem(
-                self.lean_theorem_text, proof_text,
+                self.lean_theorem_text,
+                proof_text,
             )
             if reason is not None:
                 self.tui.log(
-                    f"submit_lean_proof: proof does not match THEOREM.lean",
+                    "submit_lean_proof: proof does not match THEOREM.lean",
                     color="red",
                 )
                 logger.info(
                     "submit_lean_proof rejected [[%s]]: %s",
-                    lean_proof_slug, reason.splitlines()[0],
+                    lean_proof_slug,
+                    reason.splitlines()[0],
                 )
-                self._push_output(
-                    f"submit_lean_proof REJECTED for [[{lean_proof_slug}]]: "
-                    f"{reason}"
-                )
+                self._push_output(f"submit_lean_proof REJECTED for [[{lean_proof_slug}]]: {reason}")
                 return "continue"
 
         # Write and verify
@@ -1280,7 +1344,8 @@ class Prover:
         lean_dir.mkdir(exist_ok=True)
         (lean_dir / "proof_attempt.lean").write_text(proof_text, encoding="utf-8")
         (lean_dir / "proof_result.txt").write_text(
-            "OK" if success else lean_feedback, encoding="utf-8",
+            "OK" if success else lean_feedback,
+            encoding="utf-8",
         )
         (lean_dir / "proof_cmd.txt").write_text(cmd_info, encoding="utf-8")
 
@@ -1344,9 +1409,11 @@ class Prover:
     def _validate_slug(slug: str) -> str | None:
         """Return None if valid, else a human-readable rejection reason."""
         if len(slug) > Prover._SLUG_MAX_LEN:
-            return (f"slug too long ({len(slug)} chars, max "
-                    f"{Prover._SLUG_MAX_LEN}); use a short identifier, "
-                    f"not the item's content")
+            return (
+                f"slug too long ({len(slug)} chars, max "
+                f"{Prover._SLUG_MAX_LEN}); use a short identifier, "
+                f"not the item's content"
+            )
         if any(c in slug for c in "\n\r\t\x00"):
             return "slug contains newline/tab/null characters"
         parts = slug.split("/")
@@ -1390,8 +1457,7 @@ class Prover:
                 continue
 
             try:
-                self._handle_write_item(slug, content, fmt, step_dir,
-                                        lean_idx, lean_feedback)
+                self._handle_write_item(slug, content, fmt, step_dir, lean_idx, lean_feedback)
                 if fmt == "lean" and content and self.lean_work_dir:
                     lean_idx += 1
             except OSError as e:
@@ -1404,8 +1470,7 @@ class Prover:
                 self.tui.log(f"[[{slug}]]: error writing item: {e}", color="red")
                 logger.info("Rejected write_item: %s: %s", type(e).__name__, e)
                 lean_feedback.append(
-                    f"[[{slug}]]: Rejected - {type(e).__name__}: {e}. "
-                    f"The item was NOT saved."
+                    f"[[{slug}]]: Rejected - {type(e).__name__}: {e}. The item was NOT saved."
                 )
             except ValueError as e:
                 # pathlib/os raise ValueError for things like embedded null
@@ -1414,18 +1479,15 @@ class Prover:
                 self.tui.log(f"[[{slug}]]: error writing item: {e}", color="red")
                 logger.info("Rejected write_item: %s: %s", type(e).__name__, e)
                 lean_feedback.append(
-                    f"[[{slug}]]: Rejected - {type(e).__name__}: {e}. "
-                    f"The item was NOT saved."
+                    f"[[{slug}]]: Rejected - {type(e).__name__}: {e}. The item was NOT saved."
                 )
 
         if lean_feedback:
-            self._push_output(
-                "## Lean Verification Results\n\n" + "\n\n".join(lean_feedback)
-            )
+            self._push_output("## Lean Verification Results\n\n" + "\n\n".join(lean_feedback))
 
-    def _handle_write_item(self, slug: str, content,
-                           fmt: str, step_dir: Path,
-                           lean_idx: int, lean_feedback: list):
+    def _handle_write_item(
+        self, slug: str, content, fmt: str, step_dir: Path, lean_idx: int, lean_feedback: list
+    ):
         """Process a single write_items entry. Appends to lean_feedback."""
         if fmt == "lean" and content and self.lean_work_dir:
             path = self.lean_work_dir.make_file(slug, content)
@@ -1436,13 +1498,16 @@ class Prover:
             lean_dir.mkdir(exist_ok=True)
             flat_slug = slug.replace("/", "_")
             (lean_dir / f"item_{lean_idx}_{flat_slug}.lean").write_text(
-                content, encoding="utf-8",
+                content,
+                encoding="utf-8",
             )
             (lean_dir / f"result_{lean_idx}_{flat_slug}.txt").write_text(
-                "OK" if success else feedback, encoding="utf-8",
+                "OK" if success else feedback,
+                encoding="utf-8",
             )
             (lean_dir / f"cmd_{lean_idx}_{flat_slug}.txt").write_text(
-                cmd_info, encoding="utf-8",
+                cmd_info,
+                encoding="utf-8",
             )
 
             # Distinguish real errors from warnings-only
@@ -1454,21 +1519,18 @@ class Prover:
             if success:
                 self.repo.write_item(slug, content, fmt="lean")
                 if feedback:
-                    self.tui.log(f"Wrote [[{slug}]] (lean, warnings only)",
-                                 color="green")
+                    self.tui.log(f"Wrote [[{slug}]] (lean, warnings only)", color="green")
                     logger.info("Lean item [[%s]] verified with warnings", slug)
                     lean_feedback.append(
                         f"[[{slug}]]: Lean verification PASSED (with warnings)"
                         f"\n```\n{feedback}\n```"
                     )
                 else:
-                    self.tui.log(f"Wrote [[{slug}]] (lean, verified OK)",
-                                 color="green")
+                    self.tui.log(f"Wrote [[{slug}]] (lean, verified OK)", color="green")
                     logger.info("Lean item [[%s]] verified OK", slug)
                     lean_feedback.append(f"[[{slug}]]: Lean verification PASSED")
             else:
-                self.tui.log(f"[[{slug}]] lean verification failed - not saved",
-                             color="yellow")
+                self.tui.log(f"[[{slug}]] lean verification failed - not saved", color="yellow")
                 logger.info("Lean item [[%s]] failed verification - not saved", slug)
                 lean_feedback.append(
                     f"[[{slug}]]: Lean verification FAILED - item was NOT saved "
@@ -1485,18 +1547,13 @@ class Prover:
     def _handle_read_theorem(self):
         parts = [f"## THEOREM.md\n\n{self.theorem_text}"]
         if self.lean_theorem_text:
+            parts.append(f"\n\n## THEOREM.lean\n\n```lean\n{self.lean_theorem_text}\n```")
             parts.append(
-                f"\n\n## THEOREM.lean\n\n```lean\n{self.lean_theorem_text}\n```"
-            )
-            parts.append(
-                f"\n\nNumber of `sorry` keywords to replace: "
-                f"{self.lean_theorem.num_sorries}"
+                f"\n\nNumber of `sorry` keywords to replace: {self.lean_theorem.num_sorries}"
             )
         proof_md_path = self.work_dir / "PROOF.md"
         if proof_md_path.exists():
-            parts.append(
-                f"\n\n## PROOF.md\n\n{proof_md_path.read_text(encoding='utf-8')}"
-            )
+            parts.append(f"\n\n## PROOF.md\n\n{proof_md_path.read_text(encoding='utf-8')}")
         proof_lean_path = self.work_dir / "PROOF.lean"
         if proof_lean_path.exists():
             parts.append(
@@ -1516,11 +1573,13 @@ class Prover:
         self.tui.wb_scroll_offset = 0
         self.tui.log("Whiteboard updated", color="yellow")
 
-    def _handle_spawn(self, plan: dict, step_dir: Path,
-                      planner_resp: dict | None = None) -> str:
+    def _handle_spawn(self, plan: dict, step_dir: Path, planner_resp: dict | None = None) -> str:
         if self.research_policy is not None:
             prepared = self.research_policy.prepare_spawn(
-                self, plan, step_dir, planner_resp,
+                self,
+                plan,
+                step_dir,
+                planner_resp,
             )
             if prepared is not None:
                 if isinstance(prepared, tuple):
@@ -1533,12 +1592,13 @@ class Prover:
         completed_workers = plan.get("completed_workers", {})
         if not tasks and not completed_workers:
             self.tui.log("spawn but no tasks specified", color="yellow")
-            self._save_step_meta(step_dir, status="ok", action="spawn",
-                                 resp=planner_resp, error="No tasks specified")
+            self._save_step_meta(
+                step_dir, status="ok", action="spawn", resp=planner_resp, error="No tasks specified"
+            )
             return "continue"
 
         # Limit to max_workers
-        tasks = tasks[:self.max_workers]
+        tasks = tasks[: self.max_workers]
 
         self._workers_active = True
         self._interrupt_count = 0
@@ -1582,21 +1642,24 @@ class Prover:
 
                 pending = set(futures.keys())
                 while pending:
-                    done_set, pending = wait(pending, timeout=0.5,
-                                             return_when=FIRST_COMPLETED)
+                    done_set, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
                     for future in done_set:
                         idx = futures[future]
                         try:
                             worker_resps[idx] = future.result()
                         except Exception as e:
                             worker_resps[idx] = {
-                                "result": f"Worker error: {e}", "cost": 0.0,
-                                "duration_ms": 0, "raw": {}, "error": str(e),
+                                "result": f"Worker error: {e}",
+                                "cost": 0.0,
+                                "duration_ms": 0,
+                                "raw": {},
+                                "error": str(e),
                             }
                         wresp = worker_resps[idx]
                         if wresp.get("error") and wresp["error"] != "interrupted":
-                            self.tui.tab_log(worker_ids[idx],
-                                             f"Error: {wresp['error']}", color="red")
+                            self.tui.tab_log(
+                                worker_ids[idx], f"Error: {wresp['error']}", color="red"
+                            )
                         done_count += 1
                         logger.info("Worker %d/%d done", done_count, n)
                         self.tui.mark_worker_done(worker_ids[idx])
@@ -1609,9 +1672,7 @@ class Prover:
         self._workers_active = False
 
         # Check if any workers were interrupted
-        any_interrupted = any(
-            w and w.get("error") == "interrupted" for w in worker_resps
-        )
+        any_interrupted = any(w and w.get("error") == "interrupted" for w in worker_resps)
         if any_interrupted:
             self.planner_llm.clear_interrupt()
             self.worker_llm.clear_interrupt()
@@ -1654,14 +1715,11 @@ class Prover:
                     desc = cw["description"]
                     result = cw["result"]
                     first_line = desc.split("\n")[0][:60] if desc else f"Worker {orig_idx}"
-                    all_parts.append(
-                        f"## Worker {orig_idx}: {first_line}\n\n{result}"
-                    )
+                    all_parts.append(f"## Worker {orig_idx}: {first_line}\n\n{result}")
                     # Carry forward verifier result if present
                     if cw.get("verifier_result"):
                         all_parts.append(
-                            f"## Verification of Worker {orig_idx}\n\n"
-                            f"{cw['verifier_result']}"
+                            f"## Verification of Worker {orig_idx}\n\n{cw['verifier_result']}"
                         )
                 else:
                     # Find this in the new workers
@@ -1669,30 +1727,27 @@ class Prover:
                         if oi == orig_idx:
                             wresp = worker_resps[ni]
                             desc = tasks[ni].get("description", "")
-                            first_line = (desc.split("\n")[0][:60]
-                                          if desc else f"Worker {orig_idx}")
+                            first_line = desc.split("\n")[0][:60] if desc else f"Worker {orig_idx}"
                             result = wresp["result"] if wresp else ""
-                            all_parts.append(
-                                f"## Worker {orig_idx}: {first_line}\n\n{result}"
-                            )
+                            all_parts.append(f"## Worker {orig_idx}: {first_line}\n\n{result}")
                             (workers_dir / f"result_{orig_idx}.md").write_text(
-                                result or "", encoding="utf-8",
+                                result or "",
+                                encoding="utf-8",
                             )
                             if ni in verifier_resps:
                                 v_result = verifier_resps[ni].get("result", "")
                                 all_parts.append(
-                                    f"## Verification of Worker {orig_idx}"
-                                    f"\n\n{v_result}"
+                                    f"## Verification of Worker {orig_idx}\n\n{v_result}"
                                 )
-                                (workers_dir / f"verifier_result_{orig_idx}.md"
-                                 ).write_text(v_result or "", encoding="utf-8")
-                            tc_log = (wresp.get("tool_calls_log", [])
-                                      if wresp else [])
+                                (workers_dir / f"verifier_result_{orig_idx}.md").write_text(
+                                    v_result or "", encoding="utf-8"
+                                )
+                            tc_log = wresp.get("tool_calls_log", []) if wresp else []
                             if tc_log:
-                                (workers_dir / f"tool_calls_{orig_idx}.toml"
-                                 ).write_text(
-                                     _format_tool_calls_toml(tc_log), encoding="utf-8",
-                                 )
+                                (workers_dir / f"tool_calls_{orig_idx}.toml").write_text(
+                                    _format_tool_calls_toml(tc_log),
+                                    encoding="utf-8",
+                                )
                             break
         else:
             # Normal path (no completed_workers to merge)
@@ -1702,21 +1757,23 @@ class Prover:
                 result = wresp["result"] if wresp else ""
                 all_parts.append(f"## Worker {i}: {first_line}\n\n{result}")
                 (workers_dir / f"result_{i}.md").write_text(
-                    result or "", encoding="utf-8",
+                    result or "",
+                    encoding="utf-8",
                 )
                 # Append verifier result if available
                 if i in verifier_resps:
                     v_result = verifier_resps[i].get("result", "")
-                    all_parts.append(
-                        f"## Verification of Worker {i}\n\n{v_result}")
+                    all_parts.append(f"## Verification of Worker {i}\n\n{v_result}")
                     (workers_dir / f"verifier_result_{i}.md").write_text(
-                        v_result or "", encoding="utf-8",
+                        v_result or "",
+                        encoding="utf-8",
                     )
                 # Save tool calls log
                 tc_log = wresp.get("tool_calls_log", []) if wresp else []
                 if tc_log:
                     (workers_dir / f"tool_calls_{i}.toml").write_text(
-                        _format_tool_calls_toml(tc_log), encoding="utf-8",
+                        _format_tool_calls_toml(tc_log),
+                        encoding="utf-8",
                     )
 
         self._push_output("\n\n".join(all_parts))
@@ -1736,9 +1793,8 @@ class Prover:
                 verdict = "VERDICT: UNFINISHED - verification did not complete"
                 # Append notice to the result so the planner sees it too
                 vresp["result"] = (
-                    (vresp.get("result") or "")
-                    + "\n\n[Verifier output was incomplete — no verdict produced.]"
-                )
+                    vresp.get("result") or ""
+                ) + "\n\n[Verifier output was incomplete — no verdict produced.]"
             if verdict:
                 verdicts[i] = verdict
         self.tui.step_entries[self._step_idx]["verdicts"] = verdicts
@@ -1747,7 +1803,10 @@ class Prover:
         # Save step metadata with worker details
         status = "interrupted" if any_interrupted else "ok"
         self._save_step_meta(
-            step_dir, status=status, action="spawn", resp=planner_resp,
+            step_dir,
+            status=status,
+            action="spawn",
+            resp=planner_resp,
             workers=[w for w in worker_resps if w],
         )
 
@@ -1756,26 +1815,40 @@ class Prover:
 
         if self.research_policy is not None:
             self.research_policy.after_spawn(
-                self, plan, step_dir, "interrupted" if any_interrupted else "ok",
+                self,
+                plan,
+                step_dir,
+                "interrupted" if any_interrupted else "ok",
             )
 
         return "continue"
 
-    def _handle_literature_search(self, plan: dict, step_dir: Path,
-                                   planner_resp: dict | None = None) -> str:
+    def _handle_literature_search(
+        self, plan: dict, step_dir: Path, planner_resp: dict | None = None
+    ) -> str:
         if self.isolation:
             self.tui.log("Literature search not available (isolation mode)", color="yellow")
             self._push_output("Literature search is not available in isolation mode.")
-            self._save_step_meta(step_dir, status="ok", action="literature_search",
-                                 resp=planner_resp, error="Isolation mode")
+            self._save_step_meta(
+                step_dir,
+                status="ok",
+                action="literature_search",
+                resp=planner_resp,
+                error="Isolation mode",
+            )
             return "continue"
 
         query = plan.get("search_query", "")
         context = plan.get("search_context", "")
         if not query:
             self.tui.log("literature_search but no query", color="yellow")
-            self._save_step_meta(step_dir, status="ok", action="literature_search",
-                                 resp=planner_resp, error="No query specified")
+            self._save_step_meta(
+                step_dir,
+                status="ok",
+                action="literature_search",
+                resp=planner_resp,
+                error="No query specified",
+            )
             return "continue"
 
         logger.info("Literature search: %s", query)
@@ -1788,7 +1861,8 @@ class Prover:
         workers_dir = step_dir / "workers"
         workers_dir.mkdir(exist_ok=True)
         (workers_dir / "task_0.md").write_text(
-            f"Query: {query}\n\nContext: {context}", encoding="utf-8",
+            f"Query: {query}\n\nContext: {context}",
+            encoding="utf-8",
         )
 
         self.tui.set_waiting_status("searching literature")
@@ -1829,8 +1903,13 @@ class Prover:
                     self.tui.log("Interrupted - switching to manual mode", color="yellow")
                 result = "(terminated by user)"
                 self._push_output(result)
-                search_resp = {"result": result, "cost": 0.0, "duration_ms": 0,
-                               "raw": {}, "error": "interrupted"}
+                search_resp = {
+                    "result": result,
+                    "cost": 0.0,
+                    "duration_ms": 0,
+                    "raw": {},
+                    "error": "interrupted",
+                }
                 break
             except RuntimeError as e:
                 self.tui.stream_end(tab=wid)
@@ -1839,8 +1918,13 @@ class Prover:
                 result = f"Literature search failed: {e}"
                 self.tui.log(f"Search error: {e}", color="red")
                 self._push_output(result)
-                search_resp = {"result": result, "cost": 0.0, "duration_ms": 0,
-                               "raw": {}, "error": str(e)}
+                search_resp = {
+                    "result": result,
+                    "cost": 0.0,
+                    "duration_ms": 0,
+                    "raw": {},
+                    "error": str(e),
+                }
                 break
         self.tui.set_waiting_status("")
 
@@ -1848,16 +1932,18 @@ class Prover:
         if search_resp and search_resp.get("error") == "interrupted":
             status = "interrupted"
         self._save_step_meta(
-            step_dir, status=status, action="literature_search",
-            resp=planner_resp, workers=[search_resp] if search_resp else None,
+            step_dir,
+            status=status,
+            action="literature_search",
+            resp=planner_resp,
+            workers=[search_resp] if search_resp else None,
         )
 
         self.tui.mark_worker_done(wid)
         self.tui.snapshot_worker_tabs(self.step_num)
         return "continue"
 
-    def _run_worker(self, task: dict, worker_id: str,
-                    archive_path: Path | None = None) -> dict:
+    def _run_worker(self, task: dict, worker_id: str, archive_path: Path | None = None) -> dict:
         """Execute a single worker. Thread-safe.
 
         Returns dict with keys: result (str), cost, duration_ms, raw, error.
@@ -1868,22 +1954,34 @@ class Prover:
         use_native_tools = self.lean_worker_tools and getattr(
             self.worker_llm, "supports_native_tools", False
         )
-        use_mcp_tools = self.lean_worker_tools and getattr(self.worker_llm, 'mcp_config', None)
+        use_mcp_tools = self.lean_worker_tools and getattr(self.worker_llm, "mcp_config", None)
         use_tools = use_native_tools or use_mcp_tools
         system_prompt = prompts.worker_system_prompt(lean_worker_tools=use_tools)
 
         if use_native_tools:
             return self._run_worker_multi_turn(
-                prompt, system_prompt, worker_id, archive_path,
+                prompt,
+                system_prompt,
+                worker_id,
+                archive_path,
             )
         return self._run_worker_single_turn(
-            prompt, system_prompt, worker_id, archive_path,
+            prompt,
+            system_prompt,
+            worker_id,
+            archive_path,
             use_mcp_tools=bool(use_mcp_tools),
         )
 
-    def _run_worker_single_turn(self, prompt: str, system_prompt: str,
-                                worker_id: str, archive_path: Path | None,
-                                *, use_mcp_tools: bool = False) -> dict:
+    def _run_worker_single_turn(
+        self,
+        prompt: str,
+        system_prompt: str,
+        worker_id: str,
+        archive_path: Path | None,
+        *,
+        use_mcp_tools: bool = False,
+    ) -> dict:
         """Single-turn worker with optional MCP-backed Lean tools."""
         tool_calls_log: list[dict] = []
 
@@ -1893,10 +1991,15 @@ class Prover:
 
         def _tool_cb(name, tool_input, result, status, duration_ms=0):
             logger.info("[%s] %s: %s (%dms)", worker_id, name, status, duration_ms)
-            tool_calls_log.append({
-                "tool": name, "args": tool_input, "result": result,
-                "status": status, "duration_ms": duration_ms,
-            })
+            tool_calls_log.append(
+                {
+                    "tool": name,
+                    "args": tool_input,
+                    "result": result,
+                    "status": status,
+                    "duration_ms": duration_ms,
+                }
+            )
             self.tui.add_worker_action(worker_id, name, tool_input, result, status, duration_ms)
 
         while True:
@@ -1920,22 +2023,29 @@ class Prover:
                     logger.info("[%s] %s - Phase 2", worker_id, reason)
                     if reason == "soft_interrupted":
                         self.worker_llm.clear_soft_interrupt()
-                    label = "interrupted - forcing output..." if reason == "soft_interrupted" else "forcing output..."
+                    label = (
+                        "interrupted - forcing output..."
+                        if reason == "soft_interrupted"
+                        else "forcing output..."
+                    )
                     self.tui.stream_start(label, tab=worker_id)
-                    answer_reserve = getattr(self.worker_llm, 'answer_reserve', None)
+                    answer_reserve = getattr(self.worker_llm, "answer_reserve", None)
                     phase2_max = answer_reserve or 16_000
 
                     conv_id = resp.get("conversation_id")
-                    if conv_id and hasattr(self.worker_llm, 'chat'):
+                    if conv_id and hasattr(self.worker_llm, "chat"):
                         # Continue the provider conversation when it exposes one.
                         messages = [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": prompt},
                             {"role": "assistant", "content": resp["result"] or ""},
-                            {"role": "user", "content": (
-                                "Your response was cut off. Write your final answer now. "
-                                "Output only the answer — no re-reasoning, no backtracking, no narration."
-                            )},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your response was cut off. Write your final answer now. "
+                                    "Output only the answer — no re-reasoning, no backtracking, no narration."
+                                ),
+                            },
                         ]
                         resp2 = self.worker_llm.chat(
                             messages=messages,
@@ -1943,7 +2053,9 @@ class Prover:
                             max_tokens=phase2_max,
                             label=f"{worker_id}_phase2",
                             stream_callback=self._stream_cb(worker_id, output_only=True),
-                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md" if archive_path else None,
+                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md"
+                            if archive_path
+                            else None,
                             conversation_id=conv_id,
                         )
                     else:
@@ -1960,7 +2072,9 @@ class Prover:
                             system_prompt=system_prompt,
                             label=f"{worker_id}_phase2",
                             stream_callback=self._stream_cb(worker_id, output_only=True),
-                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md" if archive_path else None,
+                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md"
+                            if archive_path
+                            else None,
                             max_tokens=phase2_max,
                             no_thinking=True,
                         )
@@ -1979,8 +2093,13 @@ class Prover:
             except Interrupted:
                 self.tui.stream_end(tab=worker_id)
                 logger.info("[%s] interrupted", worker_id)
-                resp = {"result": "(terminated by user)", "cost": 0.0,
-                        "duration_ms": 0, "raw": {}, "error": "interrupted"}
+                resp = {
+                    "result": "(terminated by user)",
+                    "cost": 0.0,
+                    "duration_ms": 0,
+                    "raw": {},
+                    "error": "interrupted",
+                }
                 break
             except RuntimeError as e:
                 self.tui.stream_end(tab=worker_id)
@@ -1988,8 +2107,13 @@ class Prover:
                 if action == "retry":
                     continue
                 self.tui.tab_log(worker_id, f"Error: {e}", color="red")
-                resp = {"result": f"Worker error: {e}", "cost": 0.0,
-                        "duration_ms": 0, "raw": {}, "error": str(e)}
+                resp = {
+                    "result": f"Worker error: {e}",
+                    "cost": 0.0,
+                    "duration_ms": 0,
+                    "raw": {},
+                    "error": str(e),
+                }
                 break
         resp["tool_calls_log"] = tool_calls_log
         return resp
@@ -2004,8 +2128,9 @@ class Prover:
                 total += len(tc.get("function", {}).get("arguments", ""))
         return total
 
-    def _run_worker_multi_turn(self, prompt: str, system_prompt: str,
-                               worker_id: str, archive_path: Path | None) -> dict:
+    def _run_worker_multi_turn(
+        self, prompt: str, system_prompt: str, worker_id: str, archive_path: Path | None
+    ) -> dict:
         """Multi-turn tool-calling worker for clients that opt in."""
         tool_calls_log: list[dict] = []
         messages = [
@@ -2019,8 +2144,8 @@ class Prover:
 
         # Context limit: reserve space for the model's response.
         # ~4 chars per token is a rough estimate.
-        ctx_length = getattr(self.worker_llm, 'context_length', 200_000)
-        answer_reserve = getattr(self.worker_llm, 'answer_reserve', 4096)
+        ctx_length = getattr(self.worker_llm, "context_length", 200_000)
+        answer_reserve = getattr(self.worker_llm, "answer_reserve", 4096)
         # Leave room for answer + thinking in the context window
         max_input_chars = (ctx_length - answer_reserve) * 4
 
@@ -2030,18 +2155,20 @@ class Prover:
             while True:
                 # Check turn limit
                 if call_idx >= MAX_TOOL_TURNS:
-                    logger.info("[%s] hit %d-turn limit — wrapping up",
-                                worker_id, MAX_TOOL_TURNS)
-                    self.tui.tab_log(worker_id, f"Turn limit ({MAX_TOOL_TURNS}) — wrapping up",
-                                     color="yellow")
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "You have reached the tool-call limit. "
-                            "Write your FINAL answer now based on what you have so far. "
-                            "Include any code that compiled successfully."
-                        ),
-                    })
+                    logger.info("[%s] hit %d-turn limit — wrapping up", worker_id, MAX_TOOL_TURNS)
+                    self.tui.tab_log(
+                        worker_id, f"Turn limit ({MAX_TOOL_TURNS}) — wrapping up", color="yellow"
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You have reached the tool-call limit. "
+                                "Write your FINAL answer now based on what you have so far. "
+                                "Include any code that compiled successfully."
+                            ),
+                        }
+                    )
                     self.tui.stream_start("forcing output (turn limit)...", tab=worker_id)
                     phase2_kwargs = {}
                     if conversation_id:
@@ -2054,7 +2181,8 @@ class Prover:
                         stream_callback=self._stream_cb(worker_id, output_only=True),
                         archive_path=(
                             archive_path.parent / f"{archive_path.stem}_turn_limit.md"
-                            if archive_path else None
+                            if archive_path
+                            else None
                         ),
                         **phase2_kwargs,
                     )
@@ -2069,17 +2197,21 @@ class Prover:
                 if msg_chars > max_input_chars:
                     logger.warning(
                         "[%s] context nearly full (%d chars > %d limit) — forcing output",
-                        worker_id, msg_chars, max_input_chars,
+                        worker_id,
+                        msg_chars,
+                        max_input_chars,
                     )
                     self.tui.tab_log(worker_id, "Context nearly full — wrapping up", color="yellow")
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "You are running out of context space. Write your final "
-                            "answer NOW based on what you have so far. Do not make "
-                            "any more tool calls."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You are running out of context space. Write your final "
+                                "answer NOW based on what you have so far. Do not make "
+                                "any more tool calls."
+                            ),
+                        }
+                    )
                     self.tui.stream_start("forcing output (context limit)...", tab=worker_id)
                     phase2_kwargs = {}
                     if conversation_id:
@@ -2092,7 +2224,8 @@ class Prover:
                         stream_callback=self._stream_cb(worker_id, output_only=True),
                         archive_path=(
                             archive_path.parent / f"{archive_path.stem}_context_limit.md"
-                            if archive_path else None
+                            if archive_path
+                            else None
                         ),
                         **phase2_kwargs,
                     )
@@ -2101,10 +2234,13 @@ class Prover:
                     total_duration += resp["duration_ms"]
                     break
 
-                self.tui.stream_start("working..." if call_idx == 0 else "continuing...", tab=worker_id)
+                self.tui.stream_start(
+                    "working..." if call_idx == 0 else "continuing...", tab=worker_id
+                )
                 call_archive = (
                     archive_path.parent / f"{archive_path.stem}_{call_idx}.md"
-                    if archive_path else None
+                    if archive_path
+                    else None
                 )
                 chat_kwargs = {}
                 if conversation_id:
@@ -2144,28 +2280,38 @@ class Prover:
                         self.tui.start_worker_action(worker_id, tool_name, tool_args)
                         t0 = time.time()
                         tool_result, tool_status = execute_worker_tool(
-                            tool_name, tool_args, worker_id,
-                            self.lean_work_dir, self.lean_project_dir,
+                            tool_name,
+                            tool_args,
+                            worker_id,
+                            self.lean_work_dir,
+                            self.lean_project_dir,
                             self.lean_explore_service,
                         )
                         tool_dur_ms = int((time.time() - t0) * 1000)
-                        logger.info("[%s] %s: %s (%dms)",
-                                    worker_id, tool_name, tool_status, tool_dur_ms)
+                        logger.info(
+                            "[%s] %s: %s (%dms)", worker_id, tool_name, tool_status, tool_dur_ms
+                        )
 
-                        tool_calls_log.append({
-                            "tool": tool_name, "args": tool_args,
-                            "result": tool_result, "status": tool_status,
-                            "duration_ms": tool_dur_ms,
-                        })
+                        tool_calls_log.append(
+                            {
+                                "tool": tool_name,
+                                "args": tool_args,
+                                "result": tool_result,
+                                "status": tool_status,
+                                "duration_ms": tool_dur_ms,
+                            }
+                        )
 
                         # Update TUI with completed action
                         self.tui.add_worker_action(
-                            worker_id, tool_name, tool_args,
-                            tool_result, tool_status, tool_dur_ms,
+                            worker_id,
+                            tool_name,
+                            tool_args,
+                            tool_result,
+                            tool_status,
+                            tool_dur_ms,
                         )
-                        tool_results_parts.append(
-                            f"## {tool_name} result\n\n{tool_result}"
-                        )
+                        tool_results_parts.append(f"## {tool_name} result\n\n{tool_result}")
 
                     # Append assistant message with tool calls + tool results
                     assistant_msg = {
@@ -2174,14 +2320,14 @@ class Prover:
                         "tool_calls": resp["tool_calls"],
                     }
                     messages.append(assistant_msg)
-                    for tc, result_part in zip(
-                        resp["tool_calls"], tool_results_parts
-                    ):
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": result_part.split("\n\n", 1)[-1],
-                        })
+                    for tc, result_part in zip(resp["tool_calls"], tool_results_parts):
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": result_part.split("\n\n", 1)[-1],
+                            }
+                        )
                     continue
 
                 if finish in ("length", "soft_interrupted"):
@@ -2191,12 +2337,14 @@ class Prover:
                     logger.info("[%s] %s - Phase 2", worker_id, finish)
                     assistant_msg = {"role": "assistant", "content": resp["result"] or ""}
                     messages.append(assistant_msg)
-                    messages.append({
-                        "role": "user",
-                        "content": "Your response was cut off. Continue with your final answer.",
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Your response was cut off. Continue with your final answer.",
+                        }
+                    )
                     self.tui.stream_start("forcing output...", tab=worker_id)
-                    answer_reserve = getattr(self.worker_llm, 'answer_reserve', None)
+                    answer_reserve = getattr(self.worker_llm, "answer_reserve", None)
                     phase2_kwargs = {}
                     if conversation_id:
                         phase2_kwargs["conversation_id"] = conversation_id
@@ -2208,7 +2356,8 @@ class Prover:
                         stream_callback=self._stream_cb(worker_id, output_only=True),
                         archive_path=(
                             archive_path.parent / f"{archive_path.stem}_phase2.json"
-                            if archive_path else None
+                            if archive_path
+                            else None
                         ),
                         **phase2_kwargs,
                     )
@@ -2232,8 +2381,13 @@ class Prover:
         except Interrupted:
             self.tui.stream_end(tab=worker_id)
             logger.info("[%s] interrupted", worker_id)
-            result = {"result": "(terminated by user)", "cost": total_cost,
-                      "duration_ms": total_duration, "raw": {}, "error": "interrupted"}
+            result = {
+                "result": "(terminated by user)",
+                "cost": total_cost,
+                "duration_ms": total_duration,
+                "raw": {},
+                "error": "interrupted",
+            }
         except RuntimeError as e:
             self.tui.stream_end(tab=worker_id)
             action = self._check_error_policy(e)
@@ -2241,17 +2395,24 @@ class Prover:
                 # Retry: re-enter the multi-turn loop from scratch
                 return self._run_worker_multi_turn(prompt, system_prompt, worker_id, archive_path)
             self.tui.tab_log(worker_id, f"Error: {e}", color="red")
-            result = {"result": f"Worker error: {e}", "cost": total_cost,
-                      "duration_ms": total_duration, "raw": {}, "error": str(e)}
+            result = {
+                "result": f"Worker error: {e}",
+                "cost": total_cost,
+                "duration_ms": total_duration,
+                "raw": {},
+                "error": str(e),
+            }
 
         result["tool_calls_log"] = tool_calls_log
         return result
 
-    def _run_verifiers(self, tasks: list[dict], worker_resps: list[dict | None],
-                       workers_dir: Path) -> dict[int, dict]:
+    def _run_verifiers(
+        self, tasks: list[dict], worker_resps: list[dict | None], workers_dir: Path
+    ) -> dict[int, dict]:
         """Run independent verifiers for all non-interrupted workers. Returns {worker_idx: resp}."""
         non_interrupted = [
-            (i, t, w) for i, (t, w) in enumerate(zip(tasks, worker_resps))
+            (i, t, w)
+            for i, (t, w) in enumerate(zip(tasks, worker_resps))
             if w and w.get("error") != "interrupted" and w.get("result")
         ]
         verifier_resps: dict[int, dict] = {}
@@ -2281,15 +2442,20 @@ class Prover:
                 desc = task.get("description", "")
                 archive = workers_dir / f"verifier_{i}_call.md"
                 future = pool.submit(
-                    self._run_verifier, desc, wresp["result"],
-                    verifier_ids[j], archive,
+                    self._run_verifier,
+                    desc,
+                    wresp["result"],
+                    verifier_ids[j],
+                    archive,
                 )
                 vfutures[future] = (j, i)
 
             v_pending = set(vfutures.keys())
             while v_pending:
                 done_set, v_pending = wait(
-                    v_pending, timeout=0.5, return_when=FIRST_COMPLETED,
+                    v_pending,
+                    timeout=0.5,
+                    return_when=FIRST_COMPLETED,
                 )
                 for future in done_set:
                     j, i = vfutures[future]
@@ -2297,16 +2463,20 @@ class Prover:
                         verifier_resps[i] = future.result()
                     except Exception as e:
                         verifier_resps[i] = {
-                            "result": f"Verifier error: {e}", "cost": 0.0,
-                            "duration_ms": 0, "raw": {}, "error": str(e),
+                            "result": f"Verifier error: {e}",
+                            "cost": 0.0,
+                            "duration_ms": 0,
+                            "raw": {},
+                            "error": str(e),
                         }
                     self.tui.mark_worker_done(verifier_ids[j])
 
         self.tui.set_waiting_status("")
         return verifier_resps
 
-    def _run_verifier(self, task_desc: str, worker_output: str,
-                      verifier_id: str, archive_path: Path | None = None) -> dict:
+    def _run_verifier(
+        self, task_desc: str, worker_output: str, verifier_id: str, archive_path: Path | None = None
+    ) -> dict:
         """Run an independent verifier for a worker's output. Thread-safe."""
         prompt = prompts.format_verifier_prompt(task_desc, worker_output)
         system_prompt = prompts.verifier_system_prompt()
@@ -2328,23 +2498,26 @@ class Prover:
                 if resp.get("finish_reason") in ("length", "max_tokens"):
                     logger.info("[%s] truncated - Phase 2", verifier_id)
                     self.tui.stream_start("forcing verdict...", tab=verifier_id)
-                    answer_reserve = getattr(self.worker_llm, 'answer_reserve', None)
+                    answer_reserve = getattr(self.worker_llm, "answer_reserve", None)
                     phase2_max = answer_reserve or 4_000
 
                     conv_id = resp.get("conversation_id")
-                    if conv_id and hasattr(self.worker_llm, 'chat'):
+                    if conv_id and hasattr(self.worker_llm, "chat"):
                         messages = [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": prompt},
                             {"role": "assistant", "content": resp["result"] or ""},
-                            {"role": "user", "content": (
-                                "Your verification was cut off. Based on your analysis, "
-                                "provide your final verdict now.\n\n"
-                                "Respond with ONLY one of:\n"
-                                "VERDICT: CORRECT\n"
-                                "VERDICT: CRITICALLY FLAWED - <brief reason>\n"
-                                "VERDICT: NEEDS MINOR FIXES - <brief reason>"
-                            )},
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your verification was cut off. Based on your analysis, "
+                                    "provide your final verdict now.\n\n"
+                                    "Respond with ONLY one of:\n"
+                                    "VERDICT: CORRECT\n"
+                                    "VERDICT: CRITICALLY FLAWED - <brief reason>\n"
+                                    "VERDICT: NEEDS MINOR FIXES - <brief reason>"
+                                ),
+                            },
                         ]
                         resp2 = self.worker_llm.chat(
                             messages=messages,
@@ -2352,7 +2525,9 @@ class Prover:
                             max_tokens=phase2_max,
                             label=f"{verifier_id}_phase2",
                             stream_callback=self._stream_cb(verifier_id, output_only=True),
-                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md" if archive_path else None,
+                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md"
+                            if archive_path
+                            else None,
                             conversation_id=conv_id,
                         )
                     else:
@@ -2372,7 +2547,9 @@ class Prover:
                             system_prompt=system_prompt,
                             label=f"{verifier_id}_phase2",
                             stream_callback=self._stream_cb(verifier_id, output_only=True),
-                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md" if archive_path else None,
+                            archive_path=archive_path.parent / f"{archive_path.stem}_phase2.md"
+                            if archive_path
+                            else None,
                             max_tokens=phase2_max,
                             no_thinking=True,
                         )
@@ -2392,18 +2569,27 @@ class Prover:
             except Interrupted:
                 self.tui.stream_end(tab=verifier_id)
                 logger.info("[%s] interrupted", verifier_id)
-                resp = {"result": "(terminated by user)", "cost": 0.0,
-                        "duration_ms": 0, "raw": {}, "error": "interrupted"}
+                resp = {
+                    "result": "(terminated by user)",
+                    "cost": 0.0,
+                    "duration_ms": 0,
+                    "raw": {},
+                    "error": "interrupted",
+                }
                 break
             except RuntimeError as e:
                 self.tui.stream_end(tab=verifier_id)
                 if self._check_error_policy(e) == "retry":
                     continue
-                resp = {"result": f"Verifier error: {e}", "cost": 0.0,
-                        "duration_ms": 0, "raw": {}, "error": str(e)}
+                resp = {
+                    "result": f"Verifier error: {e}",
+                    "cost": 0.0,
+                    "duration_ms": 0,
+                    "raw": {},
+                    "error": str(e),
+                }
                 break
         return resp
-
 
     # ── Saving & discussion ──────────────────────────────────
 
@@ -2422,7 +2608,7 @@ class Prover:
                 else:
                     lines.append(f'{key} = "{val}"')
         if "read" in plan:
-            lines.append(f'read = {json.dumps(plan["read"])}')
+            lines.append(f"read = {json.dumps(plan['read'])}")
         if "items" in plan:
             for item in plan["items"]:
                 if not isinstance(item, dict):
@@ -2444,7 +2630,8 @@ class Prover:
                 desc = task.get("description", "")
                 lines.append(f'description = """\n{desc}\n"""')
         (step_dir / "planner.toml").write_text(
-            "\n".join(lines) + "\n", encoding="utf-8",
+            "\n".join(lines) + "\n",
+            encoding="utf-8",
         )
 
     @staticmethod
@@ -2466,9 +2653,13 @@ class Prover:
     def _is_spending_limit_error(error: Exception) -> bool:
         """Check if an error indicates a provider spending limit."""
         msg = str(error).lower()
-        return ("spending" in msg or "spend limit" in msg
-                or "billing" in msg or "quota" in msg
-                or ("rate" in msg and "limit" in msg))
+        return (
+            "spending" in msg
+            or "spend limit" in msg
+            or "billing" in msg
+            or "quota" in msg
+            or ("rate" in msg and "limit" in msg)
+        )
 
     def _check_spending_limit(self, error: Exception) -> str:
         """Handle rate-limit / spending-limit errors based on --on-budget-out.
@@ -2570,23 +2761,27 @@ class Prover:
         total = 0
         for meta_path in sorted(steps_dir.glob("step_*/meta.toml")):
             text = meta_path.read_text(encoding="utf-8")
-            for m in re.finditer(r'^output_tokens\s*=\s*(\d+)', text, re.MULTILINE):
+            for m in re.finditer(r"^output_tokens\s*=\s*(\d+)", text, re.MULTILINE):
                 total += int(m.group(1))
         if total > 0:
             self.budget.add_output_tokens(total)
             logger.info("Restored %d output tokens from history", total)
 
-    def _save_step_meta(self, step_dir: Path, *,
-                        status: str,
-                        action: str = "",
-                        resp: dict | None = None,
-                        error: str = "",
-                        feedback: str = "",
-                        workers: list[dict] | None = None):
+    def _save_step_meta(
+        self,
+        step_dir: Path,
+        *,
+        status: str,
+        action: str = "",
+        resp: dict | None = None,
+        error: str = "",
+        feedback: str = "",
+        workers: list[dict] | None = None,
+    ):
         """Write meta.toml with structured metadata for the step."""
         lines = [
             f'timestamp = "{datetime.now(timezone.utc).isoformat()}"',
-            f'step = {self.step_num}',
+            f"step = {self.step_num}",
             f'status = "{status}"',
             f'action = "{action}"',
         ]
@@ -2601,12 +2796,12 @@ class Prover:
             tokens = self._extract_token_usage(resp)
             lines.append("")
             lines.append("[planner]")
-            lines.append(f'cost_usd = {resp.get("cost", 0.0)}')
-            lines.append(f'duration_ms = {resp.get("duration_ms", 0)}')
-            lines.append(f'input_tokens = {tokens["input_tokens"]}')
-            lines.append(f'output_tokens = {tokens["output_tokens"]}')
-            lines.append(f'cache_creation_tokens = {tokens["cache_creation_tokens"]}')
-            lines.append(f'cache_read_tokens = {tokens["cache_read_tokens"]}')
+            lines.append(f"cost_usd = {resp.get('cost', 0.0)}")
+            lines.append(f"duration_ms = {resp.get('duration_ms', 0)}")
+            lines.append(f"input_tokens = {tokens['input_tokens']}")
+            lines.append(f"output_tokens = {tokens['output_tokens']}")
+            lines.append(f"cache_creation_tokens = {tokens['cache_creation_tokens']}")
+            lines.append(f"cache_read_tokens = {tokens['cache_read_tokens']}")
             raw = resp.get("raw") or {}
             lines.append(f'model = "{raw.get("model", self.planner_llm.model)}"')
             lines.append(f'stop_reason = "{raw.get("stop_reason", "")}"')
@@ -2615,20 +2810,21 @@ class Prover:
         if workers:
             for i, w in enumerate(workers):
                 lines.append("")
-                lines.append(f"[[workers]]")
+                lines.append("[[workers]]")
                 lines.append(f"index = {i}")
-                lines.append(f'cost_usd = {w.get("cost", 0.0)}')
-                lines.append(f'duration_ms = {w.get("duration_ms", 0)}')
+                lines.append(f"cost_usd = {w.get('cost', 0.0)}")
+                lines.append(f"duration_ms = {w.get('duration_ms', 0)}")
                 tokens = self._extract_token_usage(w)
-                lines.append(f'input_tokens = {tokens["input_tokens"]}')
-                lines.append(f'output_tokens = {tokens["output_tokens"]}')
-                lines.append(f'cache_creation_tokens = {tokens["cache_creation_tokens"]}')
-                lines.append(f'cache_read_tokens = {tokens["cache_read_tokens"]}')
+                lines.append(f"input_tokens = {tokens['input_tokens']}")
+                lines.append(f"output_tokens = {tokens['output_tokens']}")
+                lines.append(f"cache_creation_tokens = {tokens['cache_creation_tokens']}")
+                lines.append(f"cache_read_tokens = {tokens['cache_read_tokens']}")
                 if w.get("error"):
                     lines.append(f'error = "{w["error"]}"')
 
         (step_dir / "meta.toml").write_text(
-            "\n".join(lines) + "\n", encoding="utf-8",
+            "\n".join(lines) + "\n",
+            encoding="utf-8",
         )
 
     def _write_discussion(self):
@@ -2657,7 +2853,8 @@ class Prover:
             )
             self.tui.stream_end(tab="planner")
             (self.work_dir / "DISCUSSION.md").write_text(
-                resp["result"], encoding="utf-8",
+                resp["result"],
+                encoding="utf-8",
             )
             self.tui.log(f"  {self.work_dir / 'DISCUSSION.md'}", dim=True)
         except (Interrupted, RuntimeError) as e:
@@ -2666,8 +2863,9 @@ class Prover:
                 self.tui.log(f"Error generating discussion: {e}", color="red")
             (self.work_dir / "DISCUSSION.md").write_text(
                 f"# Discussion\n\nSession ended after {self.step_num} steps.\n\n"
-                f"## Final Whiteboard\n\n{self.whiteboard}\n"
-                , encoding="utf-8")
+                f"## Final Whiteboard\n\n{self.whiteboard}\n",
+                encoding="utf-8",
+            )
             self.tui.log(f"  {self.work_dir / 'DISCUSSION.md'}", dim=True)
 
     @property
@@ -2705,8 +2903,7 @@ class Prover:
             return
 
         step_dirs = sorted(
-            [d for d in steps_dir.iterdir()
-             if d.is_dir() and d.name.startswith("step_")],
+            [d for d in steps_dir.iterdir() if d.is_dir() and d.name.startswith("step_")],
         )
 
         for idx, step_dir in enumerate(step_dirs):
@@ -2735,7 +2932,10 @@ class Prover:
 
             # Log step in planner tab
             step_idx = self.tui.step_complete(
-                step_num, action, summary, plans=plans,
+                step_num,
+                action,
+                summary,
+                plans=plans,
             )
             # Populate write_items from any plan in the batch (not just when
             # the primary action is write_items).
@@ -2752,37 +2952,27 @@ class Prover:
                     lean_parts: list[str] = []
                     for result_file in sorted(lean_dir.glob("result_*.txt")):
                         # Extract slug from filename: result_0_slug.txt
-                        slug = "_".join(
-                            result_file.stem.split("_")[2:]
-                        )
+                        slug = "_".join(result_file.stem.split("_")[2:])
                         result_text = result_file.read_text(encoding="utf-8").strip()
                         if result_text == "OK":
-                            lean_parts.append(
-                                f"[[{slug}]]: Lean verification PASSED"
-                            )
+                            lean_parts.append(f"[[{slug}]]: Lean verification PASSED")
                         else:
                             lean_parts.append(
-                                f"[[{slug}]]: Lean verification FAILED\n"
-                                f"```\n{result_text}\n```"
+                                f"[[{slug}]]: Lean verification FAILED\n```\n{result_text}\n```"
                             )
                     if lean_parts:
                         self.tui.append_step_action_output(
                             step_num,
-                            "## Lean Verification Results\n\n"
-                            + "\n\n".join(lean_parts),
+                            "## Lean Verification Results\n\n" + "\n\n".join(lean_parts),
                         )
             if action == "read_theorem":
                 # Reconstruct the theorem content that was read
                 parts = [f"## THEOREM.md\n\n{self.theorem_text}"]
                 if self.lean_theorem_text:
-                    parts.append(
-                        f"\n\n## THEOREM.lean\n\n```lean\n{self.lean_theorem_text}\n```"
-                    )
+                    parts.append(f"\n\n## THEOREM.lean\n\n```lean\n{self.lean_theorem_text}\n```")
                 proof_md = self.work_dir / "PROOF.md"
                 if proof_md.exists():
-                    parts.append(
-                        f"\n\n## PROOF.md\n\n{proof_md.read_text(encoding='utf-8')}"
-                    )
+                    parts.append(f"\n\n## PROOF.md\n\n{proof_md.read_text(encoding='utf-8')}")
                 proof_lean = self.work_dir / "PROOF.lean"
                 if proof_lean.exists():
                     parts.append(
@@ -2848,7 +3038,8 @@ class Prover:
                     v_result = v_result_file.read_text(encoding="utf-8")
                     vid = f"verifier_{step_num}_{tidx}"
                     vtab = self.tui.add_worker_tab(
-                        vid, f"Verify {tidx}",
+                        vid,
+                        f"Verify {tidx}",
                         task_description=f"Verifying Worker {tidx}",
                     )
                     if vtab is not None:

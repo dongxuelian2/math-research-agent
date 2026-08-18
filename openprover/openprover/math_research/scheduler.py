@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from typing import Any
 
 from .project import ProjectError, ProjectStore, utc_now
@@ -131,20 +129,25 @@ class StrategyFingerprintStore:
     def record_failure(self, strategy: StrategyFingerprint) -> dict:
         data = self.load()
         key = strategy.fingerprint
-        record = data["strategies"].get(key, {
-            **strategy.to_dict(),
-            "failure_count": 0,
-            "frozen": False,
-            "history": [],
-        })
+        record = data["strategies"].get(
+            key,
+            {
+                **strategy.to_dict(),
+                "failure_count": 0,
+                "frozen": False,
+                "history": [],
+            },
+        )
         record["failure_count"] = int(record.get("failure_count", 0)) + 1
         record["frozen"] = record["failure_count"] >= 2
         record["last_failed_at"] = utc_now()
-        record["history"].append({
-            "event": "FAILURE",
-            "failure_point": strategy.failure_point,
-            "at": utc_now(),
-        })
+        record["history"].append(
+            {
+                "event": "FAILURE",
+                "failure_point": strategy.failure_point,
+                "at": utc_now(),
+            }
+        )
         data["strategies"][key] = record
         data["last_updated"] = utc_now()
         self._write(data)
@@ -242,24 +245,30 @@ class RoleScheduler:
             summary = str(task.get("summary", f"Obligation {index + 1}"))
             description = str(task.get("description", ""))
             branch = str(task.get("branch_id") or task.get("branch", "main"))
-            obligation = str(
-                task.get("obligation_id") or task.get("obligation", summary)
+            obligation = str(task.get("obligation_id") or task.get("obligation", summary))
+            assignments.append(
+                WorkerAssignment(
+                    index=index,
+                    role=role,
+                    summary=summary,
+                    description=self.role_prompt(
+                        role,
+                        description,
+                        branch=branch,
+                        obligation=obligation,
+                    ),
+                    branch=branch,
+                    obligation=obligation,
+                )
             )
-            assignments.append(WorkerAssignment(
-                index=index,
-                role=role,
-                summary=summary,
-                description=self.role_prompt(
-                    role, description, branch=branch, obligation=obligation,
-                ),
-                branch=branch,
-                obligation=obligation,
-            ))
         return assignments
 
     @staticmethod
     def role_prompt(
-        role: str, description: str, *, branch: str = "main",
+        role: str,
+        description: str,
+        *,
+        branch: str = "main",
         obligation: str = "unspecified",
     ) -> str:
         directives = {
@@ -284,12 +293,10 @@ class RoleScheduler:
         if explicit in WORKER_ROLES:
             return explicit
         text = _normalized(
-            f"{task.get('summary', '')} {task.get('description', '')} "
-            f"{task.get('obligation', '')}"
+            f"{task.get('summary', '')} {task.get('description', '')} {task.get('obligation', '')}"
         )
         candidates = [
-            role for role, hints in _ROLE_HINTS.items()
-            if any(hint in text for hint in hints)
+            role for role, hints in _ROLE_HINTS.items() if any(hint in text for hint in hints)
         ]
         for role in candidates:
             if role not in used_roles:
@@ -324,12 +331,14 @@ class StopController:
 
     def acknowledge(self, *, run_id: str, checkpoint: str) -> dict:
         value = self.load()
-        value.update({
-            "status": "CHECKPOINTED",
-            "run_id": run_id,
-            "checkpoint": checkpoint,
-            "acknowledged_at": utc_now(),
-        })
+        value.update(
+            {
+                "status": "CHECKPOINTED",
+                "run_id": run_id,
+                "checkpoint": checkpoint,
+                "acknowledged_at": utc_now(),
+            }
+        )
         self._write(value)
         return value
 

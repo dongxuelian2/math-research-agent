@@ -1,16 +1,17 @@
 """Shared utilities for LLM client modules."""
 
 import json
-from pathlib import Path
 
 
 class Interrupted(Exception):
     """Raised when an LLM call is cancelled via interrupt()."""
+
     pass
 
 
 class StreamingUnavailable(RuntimeError):
     """Raised when HF server cannot stream in current configuration."""
+
     pass
 
 
@@ -19,9 +20,13 @@ def is_rate_limited_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     if "429" in msg:
         return True
-    return ("spending" in msg or "spend limit" in msg
-            or "billing" in msg or "quota" in msg
-            or ("rate" in msg and "limit" in msg))
+    return (
+        "spending" in msg
+        or "spend limit" in msg
+        or "billing" in msg
+        or "quota" in msg
+        or ("rate" in msg and "limit" in msg)
+    )
 
 
 def is_transient_error(exc: Exception) -> bool:
@@ -34,20 +39,35 @@ def is_transient_error(exc: Exception) -> bool:
     msg = str(exc).lower()
     if any(code in msg for code in ("502", "503", "504")):
         return True
-    return ("request timed out" in msg
-            or "request timeout" in msg
-            or "read timed out" in msg
-            or "connection reset" in msg
-            or "connection aborted" in msg
-            or "incompleteread" in msg
-            or ("chunked" in msg and "read" in msg)
-            or "remotedisconnected" in msg
-            or ("gateway" in msg and "time" in msg))
+    return (
+        "request timed out" in msg
+        or "request timeout" in msg
+        or "read timed out" in msg
+        or "connection reset" in msg
+        or "connection aborted" in msg
+        or "incompleteread" in msg
+        or ("chunked" in msg and "read" in msg)
+        or "remotedisconnected" in msg
+        or ("gateway" in msg and "time" in msg)
+    )
 
 
-def archive(model, archive_dir, call_num, label, prompt, system_prompt,
-            json_schema, response, error, elapsed_ms, archive_path=None,
-            *, thinking="", result_text=""):
+def archive(
+    model,
+    archive_dir,
+    call_num,
+    label,
+    prompt,
+    system_prompt,
+    json_schema,
+    response,
+    error,
+    elapsed_ms,
+    archive_path=None,
+    *,
+    thinking="",
+    result_text="",
+):
     """Archive an LLM call to a readable markdown file + raw JSON sidecar."""
     if archive_path:
         path = archive_path
@@ -105,7 +125,9 @@ def archive(model, archive_dir, call_num, label, prompt, system_prompt,
         parts.append(f"\n\n======== USER PROMPT ========\n\n{prompt}")
 
     if json_schema:
-        parts.append(f"\n\n======== JSON SCHEMA ========\n\n```json\n{json.dumps(json_schema, indent=2)}\n```")
+        parts.append(
+            f"\n\n======== JSON SCHEMA ========\n\n```json\n{json.dumps(json_schema, indent=2)}\n```"
+        )
 
     if thinking:
         parts.append(f"\n\n======== THINKING ========\n\n{thinking}")
@@ -115,7 +137,7 @@ def archive(model, archive_dir, call_num, label, prompt, system_prompt,
     elif error:
         parts.append(f"\n\n======== ERROR ========\n\n{error}")
     elif response is None:
-        parts.append(f"\n\n======== RESPONSE ========\n\n(waiting for LLM response)")
+        parts.append("\n\n======== RESPONSE ========\n\n(waiting for LLM response)")
 
     # Archives are interchange artifacts and must be deterministic UTF-8.
     path.write_text("".join(parts) + "\n", encoding="utf-8")

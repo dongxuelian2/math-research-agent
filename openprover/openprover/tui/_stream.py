@@ -4,14 +4,13 @@ import re
 import sys
 import time
 
-_TOML_TAGS_RE = re.compile(r'</?(?:OPENPROVER_ACTION|TOML_OUTPUT)>\n?')
-
 from ._colors import DIM, GREEN, RESET, SPINNER
 from ._types import _LogEntry, _Tab
 
+_TOML_TAGS_RE = re.compile(r"</?(?:OPENPROVER_ACTION|TOML_OUTPUT)>\n?")
+
 
 class StreamMixin:
-
     @staticmethod
     def _spinner_status(elapsed: int, tokens: int) -> str:
         """Format the elapsed time + token count suffix for spinner display."""
@@ -38,11 +37,10 @@ class StreamMixin:
             elapsed = int(now - tab.spinner_start)
             status = self._spinner_status(elapsed, tab.spinner_tokens)
             with self._write_lock:
-                if (not tab.spinner_label
-                        or self._has_visible_stream_content(tab)):
+                if not tab.spinner_label or self._has_visible_stream_content(tab):
                     return
-                bar = f' {GREEN}▎{RESET}' if self._spinner_selected(tab) else '  '
-                self._write_raw(f'\r\033[2K{bar}{DIM}{ch} {tab.spinner_label} {status}{RESET}')
+                bar = f" {GREEN}▎{RESET}" if self._spinner_selected(tab) else "  "
+                self._write_raw(f"\r\033[2K{bar}{DIM}{ch} {tab.spinner_label} {status}{RESET}")
                 sys.stdout.flush()
 
     # ── Streaming ───────────────────────────────────────────────
@@ -72,9 +70,11 @@ class StreamMixin:
             if self.view == "whiteboard_split":
                 self._split_dirty = True
             else:
-                self._write(f'  {DIM}{SPINNER[0]} {label} {self._spinner_status(0, 0)}{RESET}')
+                self._write(f"  {DIM}{SPINNER[0]} {label} {self._spinner_status(0, 0)}{RESET}")
 
-    def stream_text(self, text: str, kind: str = "text", tab: str = "planner", show_toml: bool = False):
+    def stream_text(
+        self, text: str, kind: str = "text", tab: str = "planner", show_toml: bool = False
+    ):
         self._check_keys()
         target = self._find_tab_or_none(tab)
         if target is None:
@@ -94,9 +94,8 @@ class StreamMixin:
 
         # Was there visible content before this chunk?
         had_visible = self._has_visible_stream_content(target)
-        had_visible_output = (
-            target.output_non_toml_seen
-            or (target.output_toml_seen and (self.trace_visible or target.show_toml))
+        had_visible_output = target.output_non_toml_seen or (
+            target.output_toml_seen and (self.trace_visible or target.show_toml)
         )
 
         output_segments: list[tuple[bool, str]] = []
@@ -111,9 +110,11 @@ class StreamMixin:
                 target.stream_segments.append(("thinking", [text]))
         else:
             # Update spinner label when transitioning from thinking to action
-            if (not self.trace_visible
-                    and target.spinner_label == "thinking"
-                    and not target.output_buf):
+            if (
+                not self.trace_visible
+                and target.spinner_label == "thinking"
+                and not target.output_buf
+            ):
                 target.spinner_label = "crafting action"
             target.output_buf.append(text)
             # Track interleaved order
@@ -136,13 +137,12 @@ class StreamMixin:
         has_visible = self._has_visible_stream_content(target)
 
         # Clear spinner on first visible content
-        if (not had_visible and has_visible
-                and self._main_visible and is_active and at_bottom):
+        if not had_visible and has_visible and self._main_visible and is_active and at_bottom:
             if self.view == "whiteboard_split":
                 self._split_dirty = True
                 return
             with self._write_lock:
-                self._write_raw('\r\033[2K')
+                self._write_raw("\r\033[2K")
                 sys.stdout.flush()
 
         trace_needs_newline = (
@@ -161,16 +161,16 @@ class StreamMixin:
             if trace_needs_newline and self.trace_visible:
                 self._write("\n")
             if is_thinking:
-                self._write(f'{DIM}{text}{RESET}')
+                self._write(f"{DIM}{text}{RESET}")
             else:
                 for is_toml, seg in output_segments:
                     if not seg:
                         continue
                     if is_toml:
                         if self.trace_visible:
-                            self._write(f'{DIM}{seg}{RESET}')
+                            self._write(f"{DIM}{seg}{RESET}")
                         elif show_toml:
-                            clean = _TOML_TAGS_RE.sub('', seg)
+                            clean = _TOML_TAGS_RE.sub("", seg)
                             if clean:
                                 self._write(clean)
                     else:
@@ -205,24 +205,22 @@ class StreamMixin:
         target.stream_segments = []
 
         is_active = target is self._active_tab
-        had_visible = ((target.last_trace and self.trace_visible)
-                       or target.last_output)
         if is_active and self._main_visible:
             if self.view == "whiteboard_split" or target.scroll_offset > 0:
                 self._redraw()
             else:
-                self._write('\r\033[2K')
+                self._write("\r\033[2K")
         self._redraw_header()
 
     def _spinner_selected(self, tab: _Tab) -> bool:
         """Return True when the spinner line belongs to the currently selected entry."""
         if tab.id == "planner":
-            return (self._nav_step >= 0
-                    and self.step_entries
-                    and self._nav_step == len(self.step_entries) - 1)
-        return (tab.nav_idx >= 0
-                and tab.entries
-                and tab.nav_idx == len(tab.entries) - 1)
+            return (
+                self._nav_step >= 0
+                and self.step_entries
+                and self._nav_step == len(self.step_entries) - 1
+            )
+        return tab.nav_idx >= 0 and tab.entries and tab.nav_idx == len(tab.entries) - 1
 
     def _advance_tab_spinners(self):
         now = time.monotonic()
@@ -238,8 +236,7 @@ class StreamMixin:
         if updated:
             self._redraw_header()
 
-    def _split_toml_stream_segments(self, tab: _Tab,
-                                    chunk: str) -> list[tuple[bool, str]]:
+    def _split_toml_stream_segments(self, tab: _Tab, chunk: str) -> list[tuple[bool, str]]:
         """Stream-safe split that preserves partial TOML tags across chunks."""
         open_to_close = {
             "<TOML_OUTPUT>": "</TOML_OUTPUT>",
@@ -261,7 +258,7 @@ class StreamMixin:
                 if close_idx < 0:
                     tail = data[i:]
                     keep = self._longest_partial_tag_suffix(tail, (close_tag,))
-                    emit = tail[:-len(keep)] if keep else tail
+                    emit = tail[: -len(keep)] if keep else tail
                     if emit:
                         out.append((True, emit))
                     tab.toml_pending = keep
@@ -283,7 +280,7 @@ class StreamMixin:
             if next_open_idx < 0:
                 tail = data[i:]
                 keep = self._longest_partial_tag_suffix(tail, tags_all)
-                emit = tail[:-len(keep)] if keep else tail
+                emit = tail[: -len(keep)] if keep else tail
                 if emit:
                     out.append((False, emit))
                 tab.toml_pending = keep
@@ -298,7 +295,7 @@ class StreamMixin:
                 tab.toml_close_tag = close_tag
                 tail = data[next_open_idx:]
                 keep = self._longest_partial_tag_suffix(tail, (close_tag,))
-                emit = tail[:-len(keep)] if keep else tail
+                emit = tail[: -len(keep)] if keep else tail
                 if emit:
                     out.append((True, emit))
                 tab.toml_pending = keep

@@ -75,9 +75,9 @@ def _canonical_source(value: str) -> str:
 
 
 def _stable_hash(value: Any) -> str:
-    payload = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
@@ -121,7 +121,17 @@ class FailureItem:
 
 def _failure_category(reason: str, auditor: str) -> str:
     value = f"{auditor} {reason}".casefold()
-    if any(word in value for word in ("infrastructure", "subprocess", "encoding", "filesystem", "malformed json", "timeout")):
+    if any(
+        word in value
+        for word in (
+            "infrastructure",
+            "subprocess",
+            "encoding",
+            "filesystem",
+            "malformed json",
+            "timeout",
+        )
+    ):
         return "INFRASTRUCTURE_ERROR"
     if any(word in value for word in ("provider", "quota", "rate limit", "transport")):
         return "PROVIDER_ERROR"
@@ -179,51 +189,54 @@ class FailureMap:
                     continue
                 handled.add(key)
                 category = _failure_category(str(reason), auditor)
-                items.append(FailureItem(
-                    category=category,
-                    exact_rejected_claim=str(reason),
-                    auditor=auditor,
-                    candidate_location=candidate_location,
-                    authority_expected=(
-                        "exact Foundation, Semantic, or Project Theorem authority ID"
-                        if category in {"FOUNDATION_GAP", "SEMANTIC_GAP", "DEPENDENCY_GAP"}
-                        else ""
-                    ),
-                    blocking=True,
-                    repair_suggestion=_repair_suggestion(category),
-                    affected_branch=affected_branch,
-                ))
-        gate_reasons = (
-            list(getattr(gate, "failure_reasons", []))
-            + list(getattr(gate, "execution_errors", []))
+                items.append(
+                    FailureItem(
+                        category=category,
+                        exact_rejected_claim=str(reason),
+                        auditor=auditor,
+                        candidate_location=candidate_location,
+                        authority_expected=(
+                            "exact Foundation, Semantic, or Project Theorem authority ID"
+                            if category in {"FOUNDATION_GAP", "SEMANTIC_GAP", "DEPENDENCY_GAP"}
+                            else ""
+                        ),
+                        blocking=True,
+                        repair_suggestion=_repair_suggestion(category),
+                        affected_branch=affected_branch,
+                    )
+                )
+        gate_reasons = list(getattr(gate, "failure_reasons", [])) + list(
+            getattr(gate, "execution_errors", [])
         )
         for reason in gate_reasons:
             if any(existing_reason == str(reason) for _, existing_reason in handled):
                 continue
             category = _failure_category(str(reason), "gate")
-            items.append(FailureItem(
-                category=category,
-                exact_rejected_claim=str(reason),
-                auditor="gate",
-                candidate_location=candidate_location,
-                authority_expected=(
-                    "exact authority ID" if "GAP" in category else ""
-                ),
-                blocking=True,
-                repair_suggestion=_repair_suggestion(category),
-                affected_branch=affected_branch,
-            ))
+            items.append(
+                FailureItem(
+                    category=category,
+                    exact_rejected_claim=str(reason),
+                    auditor="gate",
+                    candidate_location=candidate_location,
+                    authority_expected=("exact authority ID" if "GAP" in category else ""),
+                    blocking=True,
+                    repair_suggestion=_repair_suggestion(category),
+                    affected_branch=affected_branch,
+                )
+            )
         if not items:
-            items.append(FailureItem(
-                category="UNKNOWN",
-                exact_rejected_claim="Audit gate did not pass",
-                auditor="gate",
-                candidate_location=candidate_location,
-                authority_expected="",
-                blocking=True,
-                repair_suggestion="Request a human review of the audit artifacts.",
-                affected_branch=affected_branch,
-            ))
+            items.append(
+                FailureItem(
+                    category="UNKNOWN",
+                    exact_rejected_claim="Audit gate did not pass",
+                    auditor="gate",
+                    candidate_location=candidate_location,
+                    authority_expected="",
+                    blocking=True,
+                    repair_suggestion="Request a human review of the audit artifacts.",
+                    affected_branch=affected_branch,
+                )
+            )
         return cls(run_id=run_id, target_id=target_id, items=items)
 
     def to_dict(self) -> dict:
@@ -246,18 +259,20 @@ class FailureMap:
             "",
         ]
         for index, item in enumerate(self.items, 1):
-            lines.extend([
-                f"## {index}. {item.category}",
-                "",
-                f"- Rejected claim: {item.exact_rejected_claim}",
-                f"- Auditor: `{item.auditor}`",
-                f"- Candidate location: `{item.candidate_location}`",
-                f"- Authority expected: {item.authority_expected or '(none)' }",
-                f"- Blocking: `{str(item.blocking).lower()}`",
-                f"- Repair: {item.repair_suggestion}",
-                f"- Branch: `{item.affected_branch}`",
-                "",
-            ])
+            lines.extend(
+                [
+                    f"## {index}. {item.category}",
+                    "",
+                    f"- Rejected claim: {item.exact_rejected_claim}",
+                    f"- Auditor: `{item.auditor}`",
+                    f"- Candidate location: `{item.candidate_location}`",
+                    f"- Authority expected: {item.authority_expected or '(none)'}",
+                    f"- Blocking: `{str(item.blocking).lower()}`",
+                    f"- Repair: {item.repair_suggestion}",
+                    f"- Branch: `{item.affected_branch}`",
+                    "",
+                ]
+            )
         md_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
         return json_path, md_path
 
@@ -275,7 +290,9 @@ def _repair_suggestion(category: str) -> str:
         "INFRASTRUCTURE_ERROR": "Retry the failed operation within the bounded infrastructure retry budget.",
         "PROVIDER_ERROR": "Checkpoint provider state and resume after quota or transport recovery.",
     }
-    return suggestions.get(category, "Repair the exact recorded obligation; do not reopen the whole theorem.")
+    return suggestions.get(
+        category, "Repair the exact recorded obligation; do not reopen the whole theorem."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,10 +312,15 @@ class ReplayPolicy:
         path = Path(path).resolve()
         data = json.loads(path.read_text(encoding="utf-8"))
         materialized = data.get("materialized_sources", {})
-        allowed = list(materialized.values()) if isinstance(materialized, dict) else list(materialized or [])
+        allowed = (
+            list(materialized.values())
+            if isinstance(materialized, dict)
+            else list(materialized or [])
+        )
         allowed.extend(data.get("allowed_sources", []))
         forbidden = [
-            item for item in data.get("excluded_later_results", [])
+            item
+            for item in data.get("excluded_later_results", [])
             if "listed sections only" not in str(item).casefold()
         ]
         forbidden.extend(
@@ -314,18 +336,24 @@ class ReplayPolicy:
         )
         approved = data.get("approved_historical_authorities", {})
         if isinstance(approved, dict):
-            approved_items = tuple(sorted(
-                (str(key), _canonical_source(value))
-                for key, value in approved.items()
-            ))
+            approved_items = tuple(
+                sorted((str(key), _canonical_source(value)) for key, value in approved.items())
+            )
             allowed.extend(approved.values())
         else:
             approved_items = ()
         raw = path.read_bytes()
         return cls(
             allowed_sources=tuple(sorted({_canonical_source(item) for item in allowed if item})),
-            forbidden_sources=tuple(sorted({_canonical_source(str(item).split(" (")[0]) for item in forbidden if item})),
-            allowed_authority_ids=tuple(sorted(set(data.get("allowed_proved_dependencies", [])) | set(data.get("allowed_authority_ids", [])))),
+            forbidden_sources=tuple(
+                sorted({_canonical_source(str(item).split(" (")[0]) for item in forbidden if item})
+            ),
+            allowed_authority_ids=tuple(
+                sorted(
+                    set(data.get("allowed_proved_dependencies", []))
+                    | set(data.get("allowed_authority_ids", []))
+                )
+            ),
             approved_historical_authorities=approved_items,
             target_cutoff=str(data.get("target_cutoff", "")),
             source_manifest=str(path),
@@ -354,7 +382,9 @@ class ReplayPolicy:
             "allowed_sources": list(self.allowed_sources),
             "forbidden_sources": list(self.forbidden_sources),
             "allowed_authority_ids": list(self.allowed_authority_ids),
-            "approved_historical_authorities": [list(item) for item in self.approved_historical_authorities],
+            "approved_historical_authorities": [
+                list(item) for item in self.approved_historical_authorities
+            ],
             "target_cutoff": self.target_cutoff,
             "source_manifest": self.source_manifest,
             "source_manifest_hash": self.source_manifest_hash,
@@ -391,8 +421,7 @@ class ReplayPolicy:
 
     def _is_forbidden(self, source: str) -> bool:
         return any(
-            fnmatch.fnmatch(source, pattern.replace("*", "*"))
-            or source == pattern
+            fnmatch.fnmatch(source, pattern.replace("*", "*")) or source == pattern
             for pattern in self.forbidden_sources
         )
 
@@ -405,7 +434,9 @@ class ReplayPolicy:
         if authority_type not in {"semantic", "project_theorem"}:
             errors.append("automatic repair is limited to semantic or project theorem authorities")
         if authority_id not in self.allowed_authority_ids and expected is None:
-            errors.append(f"authority is outside the approved historical dependency graph: {authority_id}")
+            errors.append(
+                f"authority is outside the approved historical dependency graph: {authority_id}"
+            )
         if expected is not None and source_file != expected:
             errors.append("authority source does not match the manifest identity")
         ok, source_errors = self.audit_sources([source_file])
@@ -487,10 +518,12 @@ class PreSubmitGate:
     def evaluate(self, candidate: str) -> PreSubmitDecision:
         blockers: list[dict] = []
         if self.blocked_dependencies:
-            blockers.append({
-                "type": "BLOCKED_DEPENDENCY",
-                "detail": ", ".join(self.blocked_dependencies),
-            })
+            blockers.append(
+                {
+                    "type": "BLOCKED_DEPENDENCY",
+                    "detail": ", ".join(self.blocked_dependencies),
+                }
+            )
         if self.dependency_cycles:
             blockers.append({"type": "DEPENDENCY_GAP", "detail": "dependency cycle detected"})
         match = _MANIFEST_RE.search(candidate)
@@ -499,18 +532,31 @@ class PreSubmitGate:
             try:
                 manifest = json.loads(match.group(1))
             except json.JSONDecodeError as exc:
-                blockers.append({"type": "MISSING_AUTHORITY", "detail": f"invalid authority manifest JSON: {exc}"})
+                blockers.append(
+                    {
+                        "type": "MISSING_AUTHORITY",
+                        "detail": f"invalid authority manifest JSON: {exc}",
+                    }
+                )
         elif self.require_manifest:
-            blockers.append({"type": "MISSING_AUTHORITY", "detail": "OPENPROVER_AUTHORITY_MANIFEST is required"})
+            blockers.append(
+                {"type": "MISSING_AUTHORITY", "detail": "OPENPROVER_AUTHORITY_MANIFEST is required"}
+            )
         for item in manifest.get("unresolved", []):
-            blocker_type = str(item.get("type", "DEPENDENCY_GAP")) if isinstance(item, dict) else str(item)
+            blocker_type = (
+                str(item.get("type", "DEPENDENCY_GAP")) if isinstance(item, dict) else str(item)
+            )
             if blocker_type not in HARD_BLOCKERS:
                 blocker_type = "DEPENDENCY_GAP"
             blockers.append({"type": blocker_type, "detail": str(item)})
         if manifest and not manifest.get("all_external_claims_classified", False):
-            blockers.append({"type": "MISSING_AUTHORITY", "detail": "external claims are not fully classified"})
+            blockers.append(
+                {"type": "MISSING_AUTHORITY", "detail": "external claims are not fully classified"}
+            )
         if manifest and not manifest.get("branches_resolved", False):
-            blockers.append({"type": "UNRESOLVED_BRANCH", "detail": "candidate reports unresolved branches"})
+            blockers.append(
+                {"type": "UNRESOLVED_BRANCH", "detail": "candidate reports unresolved branches"}
+            )
         dependency_report = self.resolver.resolve(manifest.get("authority_uses", [])).to_dict()
         for error in dependency_report.get("errors", []):
             blockers.append({"type": "MISSING_AUTHORITY", "detail": error})
@@ -526,7 +572,9 @@ class PreSubmitGate:
                 candidate,
                 re.IGNORECASE,
             ):
-                blockers.append({"type": blocker_type, "detail": "candidate contains unresolved blocker token"})
+                blockers.append(
+                    {"type": blocker_type, "detail": "candidate contains unresolved blocker token"}
+                )
         unique = []
         seen = set()
         for blocker in blockers:
@@ -598,7 +646,8 @@ class CampaignStore:
             "dependency_repair_catalog": dependency_repair_catalog or {},
             "dependency_repair_source_root": (
                 str(Path(dependency_repair_source_root).resolve())
-                if dependency_repair_source_root else None
+                if dependency_repair_source_root
+                else None
             ),
             "budget_seconds": budget_seconds,
             "initial_workers": initial_workers,
@@ -644,9 +693,13 @@ class CampaignStore:
         parent = next((item for item in record["runs"] if item["run_id"] == parent_run_id), None)
         if parent is None:
             raise ProjectError(f"Parent run is not in campaign: {parent_run_id}")
-        existing = next((item for item in record["runs"] if item.get("parent_run_id") == parent_run_id), None)
+        existing = next(
+            (item for item in record["runs"] if item.get("parent_run_id") == parent_run_id), None
+        )
         if existing is not None:
-            raise ProjectError(f"Successor already exists for {parent_run_id}: {existing['run_id']}")
+            raise ProjectError(
+                f"Successor already exists for {parent_run_id}: {existing['run_id']}"
+            )
         if parent.get("status") not in TERMINAL_RUN_STATUSES:
             raise ProjectError("Successor requires a terminal immutable parent run")
         cycle = int(parent.get("repair_cycle", 0)) + 1
@@ -676,21 +729,29 @@ class CampaignStore:
         # child process opens them; Future/thread/process objects never cross
         # this boundary.
         record["pipeline_state"] = copy.deepcopy(record.get("pipeline_state") or {})
-        record.setdefault("successor_inheritance", []).append({
-            "from_run_id": parent_run_id,
-            "to_run_id": run_id,
-            "preserved": [
-                "pending_literature", "blocked_dependencies", "verified_authority",
-                "dag_edges", "escalation_history", "pending_verification",
-            ],
-            "at": utc_now(),
-        })
+        record.setdefault("successor_inheritance", []).append(
+            {
+                "from_run_id": parent_run_id,
+                "to_run_id": run_id,
+                "preserved": [
+                    "pending_literature",
+                    "blocked_dependencies",
+                    "verified_authority",
+                    "dag_edges",
+                    "escalation_history",
+                    "pending_verification",
+                ],
+                "at": utc_now(),
+            }
+        )
         record["runs"].append(child)
         record["repair_cycles_used"] = cycle
         self._save(record)
         return child
 
-    def mark_run(self, campaign_id: str, run_id: str, *, status: str, phase: str = "COMPLETE") -> dict:
+    def mark_run(
+        self, campaign_id: str, run_id: str, *, status: str, phase: str = "COMPLETE"
+    ) -> dict:
         record = self.load(campaign_id)
         run = next((item for item in record["runs"] if item["run_id"] == run_id), None)
         if run is None:
@@ -717,8 +778,14 @@ class CampaignStore:
         record.pop("completed_at", None)
         return self._save(record)
 
-    def update_runtime_state(self, campaign_id: str, *, pipeline_state: dict | None = None,
-                             routing_state: dict | None = None, run_id: str | None = None) -> dict:
+    def update_runtime_state(
+        self,
+        campaign_id: str,
+        *,
+        pipeline_state: dict | None = None,
+        routing_state: dict | None = None,
+        run_id: str | None = None,
+    ) -> dict:
         """Persist durable logical state without copying futures/process handles."""
         record = self.load(campaign_id)
         if pipeline_state is not None:
@@ -757,9 +824,7 @@ class CampaignStore:
     def _successor_id(self, target_id: str, cycle: int) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         base = f"{target_id}-repair-{cycle}-{stamp}"
-        existing = {
-            path.name for path in (self.project.root / "runs").glob(f"{base}*")
-        }
+        existing = {path.name for path in (self.project.root / "runs").glob(f"{base}*")}
         candidate = base
         serial = 1
         while candidate in existing:
@@ -807,9 +872,7 @@ class CampaignEngine:
                     run_id=current["run_id"],
                     checkpoint="before_new_worker",
                 )
-                return self.store.checkpoint(
-                    campaign_id, "STOPPED_AT_CHECKPOINT"
-                )
+                return self.store.checkpoint(campaign_id, "STOPPED_AT_CHECKPOINT")
             orchestrator = self._make_orchestrator(campaign, current)
             try:
                 state = orchestrator.run()
@@ -829,7 +892,12 @@ class CampaignEngine:
             phase = str(state.get("phase", "COMPLETE"))
             self.store.mark_run(campaign_id, current["run_id"], status=status, phase=phase)
             if phase == "CHECKPOINT":
-                if stop_after_checkpoint or status in {"BLOCKED_PROVIDER_QUOTA", "BLOCKED_INFRASTRUCTURE", "TIME_BUDGET_EXHAUSTED", "STOPPED_AT_CHECKPOINT"}:
+                if stop_after_checkpoint or status in {
+                    "BLOCKED_PROVIDER_QUOTA",
+                    "BLOCKED_INFRASTRUCTURE",
+                    "TIME_BUDGET_EXHAUSTED",
+                    "STOPPED_AT_CHECKPOINT",
+                }:
                     if status == "STOPPED_AT_CHECKPOINT":
                         stop_controller.acknowledge(
                             run_id=current["run_id"],
@@ -858,7 +926,11 @@ class CampaignEngine:
             factory = ResearchOrchestrator
         else:
             factory = self.orchestrator_factory
-        policy = ReplayPolicy.from_dict(campaign["replay_policy"]) if campaign.get("replay_policy") else None
+        policy = (
+            ReplayPolicy.from_dict(campaign["replay_policy"])
+            if campaign.get("replay_policy")
+            else None
+        )
         return factory(
             self.project,
             campaign["target_id"],
@@ -878,9 +950,7 @@ class CampaignEngine:
                 > int(campaign.get("initial_workers") or self.worker_count)
             ),
             secondary_verification=bool(campaign.get("secondary_verification", False)),
-            stop_controller=StopController(
-                self.project, campaign["campaign_id"]
-            ),
+            stop_controller=StopController(self.project, campaign["campaign_id"]),
             campaign_routing_override=campaign.get("routing_override") or {},
             pipeline_state=(
                 campaign.get("pipeline_state")
@@ -905,16 +975,15 @@ class CampaignEngine:
         parent_run_id = child.get("parent_run_id")
         if not policy_data or not catalog or not source_root or not parent_run_id:
             return
-        failure_path = (
-            self.project.root / "runs" / parent_run_id / "FAILURE_MAP.json"
-        )
+        failure_path = self.project.root / "runs" / parent_run_id / "FAILURE_MAP.json"
         if not failure_path.exists():
             return
         failure_map = json.loads(failure_path.read_text(encoding="utf-8"))
         missing_text = "\n".join(
             str(item.get("exact_rejected_claim", ""))
             for item in failure_map.get("items", [])
-            if item.get("category") in {
+            if item.get("category")
+            in {
                 "DEPENDENCY_GAP",
                 "SEMANTIC_GAP",
                 "FOUNDATION_GAP",
@@ -939,18 +1008,23 @@ class CampaignEngine:
                 source_root=source_root,
                 destination_root=child_dir / "inherited_sources",
             )
-            materialized.append({
-                "authority_id": authority_id,
-                "authority_type": record["authority_type"],
-                "source_file": record["source_file"],
-                "materialized_path": destination.relative_to(child_dir).as_posix(),
-                "policy_hash": policy.policy_hash,
-            })
-        _write_json(child_dir / "dependency_repair.json", {
-            "schema_version": 1,
-            "parent_run_id": parent_run_id,
-            "materialized_authorities": materialized,
-            "rejected_authorities": rejected,
-            "leak_audit_pass": not rejected,
-            "created_at": utc_now(),
-        })
+            materialized.append(
+                {
+                    "authority_id": authority_id,
+                    "authority_type": record["authority_type"],
+                    "source_file": record["source_file"],
+                    "materialized_path": destination.relative_to(child_dir).as_posix(),
+                    "policy_hash": policy.policy_hash,
+                }
+            )
+        _write_json(
+            child_dir / "dependency_repair.json",
+            {
+                "schema_version": 1,
+                "parent_run_id": parent_run_id,
+                "materialized_authorities": materialized,
+                "rejected_authorities": rejected,
+                "leak_audit_pass": not rejected,
+                "created_at": utc_now(),
+            },
+        )
