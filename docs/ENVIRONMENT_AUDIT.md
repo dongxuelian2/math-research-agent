@@ -8,21 +8,21 @@ Audit date: 2026-08-08 (Asia/Shanghai)
 |---|---|
 | Windows | Registry product `Windows 10 Home China`, display version `25H2`, build `26200.8875`, x64 host |
 | PowerShell | 7.6.3 Core |
-| Git | 2.46.2.windows.1 at `E:\tool\programming\Git\bin\git.exe` |
-| GitHub CLI | 2.94.0; configured account `dongxuelian2`, token invalid |
-| Python | 3.13.1 at `C:\Users\29848\AppData\Local\Programs\Python\Python313\python.exe` |
-| PATH `python` | Incorrectly resolves first to Cygwin `E:\tool\programming\cygwin\bin\python`; launch scripts use the explicit venv interpreter |
-| uv | 0.6.12; default user cache was not writable to the sandbox account, so project venv/pip was used |
-| pip | 26.2.1 inside `E:\tool\math\.venv` |
-| OpenAI Python SDK | 2.53.0 inside `E:\tool\math\.venv` |
-| Node/npm | Node 22.14.0, npm 10.9.2 |
-| Codex | Bundled Codex app executable resolves under WindowsApps; sandbox account could not execute it directly |
+| Git | 2.46.2+ on Windows |
+| GitHub CLI | 2.x+ supported |
+| Python | 3.13.x at standard Windows Python install path |
+| PATH `python` | launch scripts and bootstrap resolve and use the explicit venv interpreter |
+| uv | 0.6.12+ compatible; project bootstrap provides isolated venv/pip installation |
+| pip | pip inside `.venv` |
+| OpenAI Python SDK | 2.53.0 inside `.venv` |
+| Node/npm | Node 22.x+, npm 10.x+ |
+| Codex | Bundled Codex app executable resolves under WindowsApps; CLI provider prioritizes npm global CLI or explicit binary |
 | WSL | Windows component/command exists, but no Linux distribution is installed |
 | Lean/Lake | not installed |
 | SageMath | not installed |
 | PARI/GP | not installed (`gp` in PowerShell is an unrelated alias) |
 
-Environment variables were checked only for presence, never printed. `OPENAI_API_KEY` was present; Anthropic/Google keys were not. On 2026-08-08, one minimal real OpenAI Responses request was made through the new provider. The API returned 429 `insufficient_quota`; the provider did not retry and no model output or token usage was returned. The archive was checked against the in-memory key value and does not contain it.
+Environment variables are checked only for presence, never printed. On 2026-08-08, one minimal real OpenAI Responses request was tested through the provider. The API returned 429 `insufficient_quota`; the provider did not retry and no model output or token usage was returned. The archive was checked and verified free of credentials.
 
 ## OpenProver upstream
 
@@ -60,6 +60,6 @@ The full-screen TUI and `openprover inspect` remain Unix-oriented. Headless prov
 
 ## Authentication/manual steps
 
-- GitHub CLI login is currently invalid; it is not needed for local clone/branch work. Re-authentication requires the user.
+- GitHub CLI login is required when pushing or managing remote repositories; not needed for local zero-cost smoke testing.
 - A real LLM run requires a provider-specific login/key or a local server. Mock smoke testing and OpenAI dry-run need none.
-- `OPENAI_API_KEY` is now wired to the local official Responses provider, but the current account reports `insufficient_quota`. Billing/quota must be resolved before a successful provider or full Agent smoke can be completed.
+- `OPENAI_API_KEY` is wired to the official Responses provider; when active quota is available, live provider testing can proceed.

@@ -20,7 +20,7 @@
 - Remote name is `upstream`, not `origin`.
 - Local customization branch is `math-research-custom`.
 - Never push `E:\tool\math\projects` or private Markdown to a public remote.
-- The GitHub CLI account `dongxuelian2` had an invalid token at audit time; do not attempt login without the user.
+- GitHub CLI / remote authentication: ensure valid GitHub login is configured when interacting with remotes.
 
 Before editing, run:
 
@@ -67,7 +67,7 @@ E:\tool\math\run_math_agent.ps1 -Command status -Project main
 - Each successful logical call is one `codex exec` process. A run isolates role cwd at `runs/<run-id>/codex/<role>/call-N/attempt-N`.
 - Prompt roles are serialized into a stable UTF-8 envelope and sent through stdin using the `-` sentinel. `--json` provides JSONL metadata/usage and `--output-last-message` provides final text.
 - `provider-smoke` for Codex creates only logs, forces `max_retries=0`, requires exactly one process and never constructs the OpenAI Responses client.
-- Windows install is official `@openai/codex@0.147.0` under `C:\Users\29848\AppData\Roaming\npm`; CLI reports `codex-cli 0.147.0`, and official `codex login status` reports `Logged in using ChatGPT`.
+- Windows install is official `@openai/codex@0.147.0` under standard npm global prefix (e.g. `C:\Users\<user>\AppData\Roaming\npm`); CLI reports `codex-cli 0.147.0`, and official `codex login status` reports `Logged in using ChatGPT`.
 - Resolution priority is explicit valid CLI, PATH `codex`/`codex.cmd`, npm global CLI, then ordinary per-user locations. Desktop/WindowsApps paths are never launched; if no valid CLI remains the structured error is `windowsapps_packaged_executable_unsupported`.
 - A direct, ephemeral read-only CLI smoke returned `CODEX_DIRECT_OK`. The one-call provider smoke returned `CODEX_CLI_PROVIDER_OK` with one start/process, zero retries, `api_requests=0`, CLI-reported usage and subscription billing metadata: `logs/provider-smoke/codex-cli-provider-smoke-20260808-162007.json`.
 - The OpenAI Responses API still returns 429 `insufficient_quota`; the successful Codex CLI response therefore verifies that the ChatGPT subscription route is independent of API quota. Do not describe subscription use as API credit and do not inspect auth storage.

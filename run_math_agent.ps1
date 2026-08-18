@@ -38,7 +38,7 @@ $OutputEncoding = $Utf8NoBom
 $MathRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = Join-Path $MathRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $Python)) {
-    throw "Python environment not found: $Python. See README.md setup/repair instructions."
+    throw "Python environment not found at '$Python'. Run '.\scripts\bootstrap.ps1' to set up the environment."
 }
 
 if ([System.IO.Path]::IsPathRooted($Project)) {

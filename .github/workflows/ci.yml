@@ -1,0 +1,36 @@
+name: CI Baseline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Windows Mock & Unit Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Bootstrap Environment
+        run: |
+          .\scripts\bootstrap.ps1
+        shell: powershell
+
+      - name: Run Deterministic Math Research Test Suite
+        run: |
+          .\.venv\Scripts\python.exe -m pytest -q openprover/tests/math_research
+        shell: powershell
+
+      - name: Run Zero-Cost Mock Demo Status Check
+        run: |
+          .\run_math_agent.ps1 -Command status -Project demo
+        shell: powershell

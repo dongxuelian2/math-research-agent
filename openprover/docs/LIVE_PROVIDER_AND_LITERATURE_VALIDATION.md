@@ -30,7 +30,7 @@ behaviour is not directly observable from the CLI and is reported as such.
 
 ## B — Luna account/catalog
 
-The refreshed local Codex catalog (`C:\Users\29848\.codex\models_cache.json`,
+The refreshed local Codex catalog (`%USERPROFILE%\.codex\models_cache.json`,
 CLI `0.147.0`) lists `gpt-5.6-luna` as API-visible with efforts
 `low,medium,high,xhigh,max`.  The authenticated one-call smoke used
 `gpt-5.6-luna/max` and returned `LIVE_PROVIDER_OK` with no fallback: 11,802
