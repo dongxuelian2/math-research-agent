@@ -17,31 +17,41 @@ from .schemas import LiteratureResultSchema, SchemaError, parse_structured_respo
 from .routing import ModelRouter, RoutedLLMClient
 
 
-AUTHORITY_STATUSES = frozenset({
-    "DISCOVERED_REFERENCE",
-    "METADATA_VERIFIED",
-    "SOURCE_RETRIEVED",
-    "THEOREM_EXTRACTED",
-    "AUTHORITY_CANDIDATE",
-    "AUTHORITY_VERIFYING",
-    "UNVERIFIED_REFERENCE",
-    "AUTHORITY_VERIFICATION_PENDING",
-    "VERIFIED_SOURCE_THEOREM",
-    "AUTHORITY_VERIFICATION_FAILED",
-    "AUTHORITY_INCOMPLETE",
-})
-APPLICABILITY_STATUSES = frozenset({
-    "APPLICABILITY_CANDIDATE",
-    "APPLICABILITY_VERIFIED",
-    "APPLICABLE_EXTERNAL_AUTHORITY",
-    "APPLICABILITY_REJECTED",
-    "APPLICABILITY_UNCERTAIN",
-    "NEEDS_REVALIDATION",
-})
-READER_VERDICTS = frozenset({
-    "THEOREM_EXTRACTED", "ABSTRACT_ONLY", "METADATA_ONLY",
-    "FULL_TEXT_UNAVAILABLE", "SOURCE_CONFLICT", "MALFORMED_SOURCE",
-})
+AUTHORITY_STATUSES = frozenset(
+    {
+        "DISCOVERED_REFERENCE",
+        "METADATA_VERIFIED",
+        "SOURCE_RETRIEVED",
+        "THEOREM_EXTRACTED",
+        "AUTHORITY_CANDIDATE",
+        "AUTHORITY_VERIFYING",
+        "UNVERIFIED_REFERENCE",
+        "AUTHORITY_VERIFICATION_PENDING",
+        "VERIFIED_SOURCE_THEOREM",
+        "AUTHORITY_VERIFICATION_FAILED",
+        "AUTHORITY_INCOMPLETE",
+    }
+)
+APPLICABILITY_STATUSES = frozenset(
+    {
+        "APPLICABILITY_CANDIDATE",
+        "APPLICABILITY_VERIFIED",
+        "APPLICABLE_EXTERNAL_AUTHORITY",
+        "APPLICABILITY_REJECTED",
+        "APPLICABILITY_UNCERTAIN",
+        "NEEDS_REVALIDATION",
+    }
+)
+READER_VERDICTS = frozenset(
+    {
+        "THEOREM_EXTRACTED",
+        "ABSTRACT_ONLY",
+        "METADATA_ONLY",
+        "FULL_TEXT_UNAVAILABLE",
+        "SOURCE_CONFLICT",
+        "MALFORMED_SOURCE",
+    }
+)
 SOURCE_PRIORITIES = {
     "original_paper": 1,
     "author_preprint": 2,
@@ -54,10 +64,22 @@ SOURCE_PRIORITIES = {
 }
 
 REQUIRED_AUTHORITY_FIELDS = (
-    "title", "authors", "year", "source", "DOI_or_stable_identifier",
-    "version", "theorem_number", "page_or_section", "exact_statement",
-    "normalized_statement", "hypotheses", "notation_map", "retrieval_source",
-    "retrieved_at", "reader_verdict", "authority_verifier_verdict",
+    "title",
+    "authors",
+    "year",
+    "source",
+    "DOI_or_stable_identifier",
+    "version",
+    "theorem_number",
+    "page_or_section",
+    "exact_statement",
+    "normalized_statement",
+    "hypotheses",
+    "notation_map",
+    "retrieval_source",
+    "retrieved_at",
+    "reader_verdict",
+    "authority_verifier_verdict",
     "used_by_obligations",
 )
 
@@ -117,14 +139,16 @@ def assumption_snapshot_hash(
 
 def validate_literature_request(request: dict) -> None:
     required = {
-        "obligation_id", "requested_statement", "why_needed",
-        "blocking_or_nonblocking", "expected_impact", "search_hints",
+        "obligation_id",
+        "requested_statement",
+        "why_needed",
+        "blocking_or_nonblocking",
+        "expected_impact",
+        "search_hints",
     }
     missing = required - set(request)
     if missing:
-        raise ProjectError(
-            "LITERATURE_REQUEST missing fields: " + ", ".join(sorted(missing))
-        )
+        raise ProjectError("LITERATURE_REQUEST missing fields: " + ", ".join(sorted(missing)))
     if request["blocking_or_nonblocking"] not in {"blocking", "nonblocking"}:
         raise ProjectError("blocking_or_nonblocking must be blocking or nonblocking")
     if not isinstance(request["search_hints"], (list, dict, str)):
@@ -141,12 +165,15 @@ class ExternalAuthorityRegistry:
         self._lock = threading.RLock()
 
     def load(self) -> dict:
-        value = _read_json(self.path, {
-            "schema_version": 2,
-            "source_theorems": {},
-            "applicability_records": {},
-            "last_updated": None,
-        })
+        value = _read_json(
+            self.path,
+            {
+                "schema_version": 2,
+                "source_theorems": {},
+                "applicability_records": {},
+                "last_updated": None,
+            },
+        )
         if value.get("schema_version") != 2:
             raise ProjectError("Unsupported external authority registry schema")
         value.setdefault("applicability_records", {})
@@ -156,14 +183,19 @@ class ExternalAuthorityRegistry:
 
     @staticmethod
     def applicability_id(
-        authority_id: str, obligation_id: str, current_target: str,
+        authority_id: str,
+        obligation_id: str,
+        current_target: str,
         assumption_snapshot: str,
     ) -> str:
-        identity = "|".join((
-            str(authority_id), str(obligation_id),
-            normalize_extracted_statement(current_target).casefold(),
-            str(assumption_snapshot),
-        ))
+        identity = "|".join(
+            (
+                str(authority_id),
+                str(obligation_id),
+                normalize_extracted_statement(current_target).casefold(),
+                str(assumption_snapshot),
+            )
+        )
         return "app-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
 
     def register(self, record: dict) -> dict:
@@ -175,9 +207,13 @@ class ExternalAuthorityRegistry:
             stable = str(value.get("DOI_or_stable_identifier") or "").strip()
             if not stable:
                 raise ProjectError("External authority requires a stable identifier")
-            authority_id = "ext-" + hashlib.sha256(stable.casefold().encode("utf-8")).hexdigest()[:16]
+            authority_id = (
+                "ext-" + hashlib.sha256(stable.casefold().encode("utf-8")).hexdigest()[:16]
+            )
             value["authority_id"] = authority_id
-        if re.search(r"\b(?:fake|fabricated|example\.invalid|placeholder|todo)\b", authority_id, re.I):
+        if re.search(
+            r"\b(?:fake|fabricated|example\.invalid|placeholder|todo)\b", authority_id, re.I
+        ):
             raise ProjectError("Fabricated or placeholder authority identifiers are forbidden")
         missing = [field for field in REQUIRED_AUTHORITY_FIELDS if field not in value]
         if missing:
@@ -185,14 +221,15 @@ class ExternalAuthorityRegistry:
         if not value.get("retrieval_source"):
             raise ProjectError("Model memory is not a bibliographic retrieval source")
         if str(value.get("retrieval_source", "")).strip().casefold() in {
-            "model_memory", "llm_memory", "memory", "training_data",
+            "model_memory",
+            "llm_memory",
+            "memory",
+            "training_data",
         }:
             raise ProjectError("Model memory is not a bibliographic retrieval source")
         source_type = str(value.get("source_type") or "").strip()
         if source_type not in SOURCE_PRIORITIES:
-            raise ProjectError(
-                "source_type must record the actual primary/secondary source class"
-            )
+            raise ProjectError("source_type must record the actual primary/secondary source class")
         value["source_priority"] = SOURCE_PRIORITIES[source_type]
         value["status"] = "UNVERIFIED_REFERENCE"
         value["statement_hash"] = statement_hash(value.get("normalized_statement", ""))
@@ -227,13 +264,13 @@ class ExternalAuthorityRegistry:
             else:
                 try:
                     artifact_path = self._trusted_path(artifact)
-                    actual_hash = "sha256:" + hashlib.sha256(
-                        artifact_path.read_bytes()
-                    ).hexdigest()
+                    actual_hash = "sha256:" + hashlib.sha256(artifact_path.read_bytes()).hexdigest()
                     if actual_hash != expected_hash:
                         errors.append("retrieved source artifact hash mismatch")
                 except (OSError, ValueError):
-                    errors.append("retrieved source artifact is unavailable or outside registry root")
+                    errors.append(
+                        "retrieved source artifact is unavailable or outside registry root"
+                    )
             self._verify_extraction_binding(record, errors)
             if not str(record.get("exact_statement", "")).strip():
                 errors.append("exact theorem statement is missing")
@@ -248,20 +285,19 @@ class ExternalAuthorityRegistry:
             claimed_type = verification.get("claimed_source_type")
             if claimed_type and claimed_type != record.get("source_type"):
                 errors.append("secondary source may not masquerade as primary")
-            status = (
-                "VERIFIED_SOURCE_THEOREM" if not errors
-                else "AUTHORITY_VERIFICATION_FAILED"
-            )
+            status = "VERIFIED_SOURCE_THEOREM" if not errors else "AUTHORITY_VERIFICATION_FAILED"
             record["status"] = status
             record["authority_verifier_verdict"] = verification.get("verdict")
             record["authority_verification_errors"] = errors
             record["verified_at"] = utc_now() if not errors else None
-            record.setdefault("verification_history", []).append({
-                "status": status,
-                "verification": copy.deepcopy(verification),
-                "errors": errors,
-                "at": utc_now(),
-            })
+            record.setdefault("verification_history", []).append(
+                {
+                    "status": status,
+                    "verification": copy.deepcopy(verification),
+                    "errors": errors,
+                    "at": utc_now(),
+                }
+            )
             data["source_theorems"][authority_id] = record
             data["last_updated"] = utc_now()
             _write_json(self.path, data)
@@ -278,17 +314,15 @@ class ExternalAuthorityRegistry:
         """Re-read the exact text span and bind it to both retrieved artifacts."""
 
         extraction_ref = str(record.get("extraction_artifact_path") or "").strip()
-        extraction_hash = str(
-            record.get("extraction_artifact_sha256") or ""
-        ).strip().casefold()
+        extraction_hash = str(record.get("extraction_artifact_sha256") or "").strip().casefold()
         text_ref = str(record.get("text_artifact_path") or "").strip()
         text_hash = str(record.get("text_artifact_sha256") or "").strip().casefold()
-        statement_digest = str(
-            record.get("extracted_statement_sha256") or ""
-        ).strip().casefold()
+        statement_digest = str(record.get("extracted_statement_sha256") or "").strip().casefold()
         required_hashes = (extraction_hash, text_hash, statement_digest)
-        if not extraction_ref or not text_ref or not all(
-            re.fullmatch(r"sha256:[0-9a-f]{64}", value) for value in required_hashes
+        if (
+            not extraction_ref
+            or not text_ref
+            or not all(re.fullmatch(r"sha256:[0-9a-f]{64}", value) for value in required_hashes)
         ):
             errors.append("theorem extraction artifact/span binding is missing")
             return
@@ -306,9 +340,10 @@ class ExternalAuthorityRegistry:
             extraction = json.loads(extraction_bytes.decode("utf-8"))
             if not isinstance(extraction, dict):
                 raise ValueError("extraction artifact must be an object")
-            if str(extraction.get("source_artifact_sha256") or "").casefold() != str(
-                record.get("retrieved_content_sha256") or ""
-            ).casefold():
+            if (
+                str(extraction.get("source_artifact_sha256") or "").casefold()
+                != str(record.get("retrieved_content_sha256") or "").casefold()
+            ):
                 errors.append("extraction is bound to a different source artifact")
             if str(extraction.get("text_artifact_sha256") or "").casefold() != text_hash:
                 errors.append("extraction is bound to a different text artifact")
@@ -318,10 +353,12 @@ class ExternalAuthorityRegistry:
             extraction_id = str(record.get("extraction_id") or "")
             selected = next(
                 (
-                    item for item in candidates
+                    item
+                    for item in candidates
                     if isinstance(item, dict)
                     and (
-                        extraction_id and str(item.get("extraction_id") or "") == extraction_id
+                        extraction_id
+                        and str(item.get("extraction_id") or "") == extraction_id
                         or not extraction_id
                         and int(item.get("span_start", -1)) == int(record.get("span_start", -2))
                         and int(item.get("span_end", -1)) == int(record.get("span_end", -2))
@@ -334,9 +371,10 @@ class ExternalAuthorityRegistry:
                 return
             span_start = int(selected.get("span_start", -1))
             span_end = int(selected.get("span_end", -1))
-            if int(record.get("span_start", -2)) != span_start or int(
-                record.get("span_end", -2)
-            ) != span_end:
+            if (
+                int(record.get("span_start", -2)) != span_start
+                or int(record.get("span_end", -2)) != span_end
+            ):
                 errors.append("authority span does not match extraction artifact span")
             text = text_bytes.decode("utf-8")
             if span_start < 0 or span_end <= span_start or span_end > len(text):
@@ -349,30 +387,41 @@ class ExternalAuthorityRegistry:
                 errors.append("theorem statement span hash mismatch")
             if str(selected.get("extracted_statement_sha256") or "").casefold() != statement_digest:
                 errors.append("extraction artifact statement hash mismatch")
-            if normalize_extracted_statement(
-                selected.get("raw_extracted_text", "")
-            ) != normalized_span:
+            if (
+                normalize_extracted_statement(selected.get("raw_extracted_text", ""))
+                != normalized_span
+            ):
                 errors.append("extraction artifact raw text does not match the recorded span")
-            if normalize_extracted_statement(
-                selected.get("normalized_extracted_text", "")
-            ) != normalized_span:
+            if (
+                normalize_extracted_statement(selected.get("normalized_extracted_text", ""))
+                != normalized_span
+            ):
                 errors.append("extraction artifact normalized text does not match the span")
             if normalize_extracted_statement(record.get("exact_statement", "")) != normalized_span:
                 errors.append("authority exact statement does not match the extracted span")
-            if normalize_extracted_statement(record.get("normalized_statement", "")) != normalized_span:
+            if (
+                normalize_extracted_statement(record.get("normalized_statement", ""))
+                != normalized_span
+            ):
                 errors.append("authority normalized statement does not match the extracted span")
-            if record.get("theorem_number") and str(
-                selected.get("theorem_label") or selected.get("label") or ""
-            ).casefold() != str(record.get("theorem_number") or "").casefold():
+            if (
+                record.get("theorem_number")
+                and str(selected.get("theorem_label") or selected.get("label") or "").casefold()
+                != str(record.get("theorem_number") or "").casefold()
+            ):
                 errors.append("authority theorem label does not match extraction artifact")
-            if record.get("page_or_section") and str(
-                selected.get("location") or ""
-            ).casefold() != str(record.get("page_or_section") or "").casefold():
+            if (
+                record.get("page_or_section")
+                and str(selected.get("location") or "").casefold()
+                != str(record.get("page_or_section") or "").casefold()
+            ):
                 errors.append("authority theorem location does not match extraction artifact")
         except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
             errors.append("theorem extraction artifact is malformed or unavailable")
 
-    def require_verified_source(self, authority_id: str, *, obligation_id: str | None = None) -> dict:
+    def require_verified_source(
+        self, authority_id: str, *, obligation_id: str | None = None
+    ) -> dict:
         with self._lock:
             data = self.load()
             record = data["source_theorems"].get(authority_id)
@@ -398,37 +447,58 @@ class ExternalAuthorityRegistry:
 
         value = copy.deepcopy(reconstruction)
         required = {
-            "obligation_id", "authority_id", "current_target", "current_assumptions",
-            "external_statement", "external_hypotheses", "notation_map",
-            "hypothesis_mapping", "conclusion_mapping", "exception_analysis",
-            "direction_analysis", "normalization_analysis", "required_local_lemmas",
-            "authorized_local_lemmas", "unresolved_conditions", "reconstructor_call_id",
-            "reconstructor_model", "reconstructor_tier", "assumption_snapshot_hash",
+            "obligation_id",
+            "authority_id",
+            "current_target",
+            "current_assumptions",
+            "external_statement",
+            "external_hypotheses",
+            "notation_map",
+            "hypothesis_mapping",
+            "conclusion_mapping",
+            "exception_analysis",
+            "direction_analysis",
+            "normalization_analysis",
+            "required_local_lemmas",
+            "authorized_local_lemmas",
+            "unresolved_conditions",
+            "reconstructor_call_id",
+            "reconstructor_model",
+            "reconstructor_tier",
+            "assumption_snapshot_hash",
         }
         missing = sorted(required - set(value))
         if missing:
             raise ProjectError("Applicability reconstruction missing fields: " + ", ".join(missing))
         source = self.require_verified_source(str(value["authority_id"]))
-        if normalize_extracted_statement(value["external_statement"]) != normalize_extracted_statement(
-            source.get("exact_statement", "")
-        ):
-            raise ProjectError("Applicability reconstruction is bound to a different source theorem")
+        if normalize_extracted_statement(
+            value["external_statement"]
+        ) != normalize_extracted_statement(source.get("exact_statement", "")):
+            raise ProjectError(
+                "Applicability reconstruction is bound to a different source theorem"
+            )
         expected_snapshot = assumption_snapshot_hash(
-            str(value["obligation_id"]), str(value["current_target"]),
-            list(value["current_assumptions"]), list(value["authorized_local_lemmas"]),
+            str(value["obligation_id"]),
+            str(value["current_target"]),
+            list(value["current_assumptions"]),
+            list(value["authorized_local_lemmas"]),
         )
         if value["assumption_snapshot_hash"] != expected_snapshot:
             raise ProjectError("Applicability reconstruction assumption snapshot mismatch")
         app_id = self.applicability_id(
-            str(value["authority_id"]), str(value["obligation_id"]),
-            str(value["current_target"]), expected_snapshot,
+            str(value["authority_id"]),
+            str(value["obligation_id"]),
+            str(value["current_target"]),
+            expected_snapshot,
         )
         value["applicability_id"] = app_id
         value["reconstruction_id"] = str(value.get("reconstruction_id") or f"recon-{app_id[4:]}")
         value["source_theorem_id"] = str(value.get("source_theorem_id") or value["authority_id"])
         value["normalized_current_target"] = normalize_extracted_statement(value["current_target"])
         value["normalized_current_assumptions"] = [
-            normalize_extracted_statement(item.get("statement", item) if isinstance(item, dict) else item)
+            normalize_extracted_statement(
+                item.get("statement", item) if isinstance(item, dict) else item
+            )
             for item in value["current_assumptions"]
         ]
         value["status"] = "APPLICABILITY_CANDIDATE"
@@ -436,10 +506,14 @@ class ExternalAuthorityRegistry:
         artifact_dir = self.root / "applicability" / app_id
         artifact_path = artifact_dir / "EXTERNAL_AUTHORITY_RECONSTRUCTION.json"
         hash_payload = copy.deepcopy(value)
-        encoded = json.dumps(hash_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        encoded = json.dumps(
+            hash_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
         value["artifact_hash"] = "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
         _write_json(artifact_path, value)
-        value["reconstruction_artifact_path"] = str(artifact_path.relative_to(self.root)).replace("\\", "/")
+        value["reconstruction_artifact_path"] = str(artifact_path.relative_to(self.root)).replace(
+            "\\", "/"
+        )
         with self._lock:
             data = self.load()
             data["applicability_records"][app_id] = value
@@ -457,16 +531,22 @@ class ExternalAuthorityRegistry:
                 raise ProjectError(f"Unknown applicability record: {applicability_id}")
             errors: list[str] = []
             verifier_call_id = str(verification.get("verifier_call_id") or "").strip()
-            if not verifier_call_id or verifier_call_id == str(record.get("reconstructor_call_id") or ""):
+            if not verifier_call_id or verifier_call_id == str(
+                record.get("reconstructor_call_id") or ""
+            ):
                 errors.append("independent applicability verifier is required")
             try:
                 artifact = self._trusted_path(record["reconstruction_artifact_path"])
                 stored = json.loads(artifact.read_text(encoding="utf-8"))
                 stored_hash = stored.pop("artifact_hash", None)
                 stored.pop("reconstruction_artifact_path", None)
-                encoded = json.dumps(stored, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                encoded = json.dumps(
+                    stored, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                )
                 actual = "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-                if actual != record.get("artifact_hash") or stored_hash != record.get("artifact_hash"):
+                if actual != record.get("artifact_hash") or stored_hash != record.get(
+                    "artifact_hash"
+                ):
                     errors.append("applicability reconstruction artifact hash mismatch")
             except (OSError, ValueError, KeyError, json.JSONDecodeError, TypeError):
                 errors.append("applicability reconstruction artifact is unavailable or malformed")
@@ -475,17 +555,28 @@ class ExternalAuthorityRegistry:
                 errors.append("structured hypothesis mapping is missing")
             else:
                 for item in mappings:
-                    if not isinstance(item, dict) or item.get("status") not in {"PROVED", "NOT_APPLICABLE"}:
+                    if not isinstance(item, dict) or item.get("status") not in {
+                        "PROVED",
+                        "NOT_APPLICABLE",
+                    }:
                         errors.append("an external hypothesis is unresolved or failed")
                         break
                     if not item.get("evidence"):
                         errors.append("a hypothesis mapping lacks evidence")
                         break
-            if not isinstance(record.get("conclusion_mapping"), dict) or record["conclusion_mapping"].get("status") != "PROVED":
+            if (
+                not isinstance(record.get("conclusion_mapping"), dict)
+                or record["conclusion_mapping"].get("status") != "PROVED"
+            ):
                 errors.append("external conclusion was not proved to imply the target")
-            if not isinstance(record.get("direction_analysis"), dict) or record["direction_analysis"].get("status") != "PROVED":
+            if (
+                not isinstance(record.get("direction_analysis"), dict)
+                or record["direction_analysis"].get("status") != "PROVED"
+            ):
                 errors.append("implication direction was not proved")
-            if not isinstance(record.get("exception_analysis"), dict) or record["exception_analysis"].get("status") not in {"PROVED", "NOT_APPLICABLE"}:
+            if not isinstance(record.get("exception_analysis"), dict) or record[
+                "exception_analysis"
+            ].get("status") not in {"PROVED", "NOT_APPLICABLE"}:
                 errors.append("exception analysis did not pass")
             if record.get("unresolved_conditions"):
                 errors.append("applicability reconstruction has unresolved conditions")
@@ -499,9 +590,14 @@ class ExternalAuthorityRegistry:
             verdict = str(verification.get("verdict") or "UNCERTAIN").upper()
             if verdict != "APPLICABLE":
                 errors.append(f"independent verifier verdict is {verdict}")
-            status = "APPLICABLE_EXTERNAL_AUTHORITY" if not errors else (
-                "APPLICABILITY_UNCERTAIN" if verdict in {"UNCERTAIN", "INCOMPLETE_RECONSTRUCTION"}
-                else "APPLICABILITY_REJECTED"
+            status = (
+                "APPLICABLE_EXTERNAL_AUTHORITY"
+                if not errors
+                else (
+                    "APPLICABILITY_UNCERTAIN"
+                    if verdict in {"UNCERTAIN", "INCOMPLETE_RECONSTRUCTION"}
+                    else "APPLICABILITY_REJECTED"
+                )
             )
             record["status"] = status
             record["applicability_verifier_verdict"] = verdict
@@ -510,28 +606,46 @@ class ExternalAuthorityRegistry:
             record["verifier_model"] = verification.get("verifier_model")
             record["verifier_tier"] = verification.get("verifier_tier")
             record["verified_at"] = utc_now() if not errors else None
-            verifier_path = self.root / "applicability" / applicability_id / "INDEPENDENT_APPLICABILITY_VERIFICATION.json"
-            _write_json(verifier_path, {**copy.deepcopy(verification), "promotion_status": status, "errors": errors})
-            record["verifier_artifact_path"] = str(verifier_path.relative_to(self.root)).replace("\\", "/")
+            verifier_path = (
+                self.root
+                / "applicability"
+                / applicability_id
+                / "INDEPENDENT_APPLICABILITY_VERIFICATION.json"
+            )
+            _write_json(
+                verifier_path,
+                {**copy.deepcopy(verification), "promotion_status": status, "errors": errors},
+            )
+            record["verifier_artifact_path"] = str(verifier_path.relative_to(self.root)).replace(
+                "\\", "/"
+            )
             data["applicability_records"][applicability_id] = record
             data["last_updated"] = utc_now()
             _write_json(self.path, data)
             return copy.deepcopy(record)
 
     def require_applicable(
-        self, authority_id: str, obligation_id: str, current_target: str,
+        self,
+        authority_id: str,
+        obligation_id: str,
+        current_target: str,
         current_assumptions: list[Any] | None = None,
         authorized_local_lemmas: list[Any] | None = None,
     ) -> dict:
         snapshot = assumption_snapshot_hash(
-            obligation_id, current_target, current_assumptions, authorized_local_lemmas,
+            obligation_id,
+            current_target,
+            current_assumptions,
+            authorized_local_lemmas,
         )
         app_id = self.applicability_id(authority_id, obligation_id, current_target, snapshot)
         with self._lock:
             data = self.load()
             record = data["applicability_records"].get(app_id)
             if not record or record.get("status") != "APPLICABLE_EXTERNAL_AUTHORITY":
-                raise ProjectError(f"External theorem is not applicable to current obligation snapshot: {app_id}")
+                raise ProjectError(
+                    f"External theorem is not applicable to current obligation snapshot: {app_id}"
+                )
             return copy.deepcopy(record)
 
 
@@ -548,14 +662,18 @@ class LiteratureMemory:
         value.setdefault("entries", {})
         return value
 
-    def add_verified_authority(self, authority: dict, *, concepts: list[str], keywords: list[str]) -> dict:
+    def add_verified_authority(
+        self, authority: dict, *, concepts: list[str], keywords: list[str]
+    ) -> dict:
         if authority.get("status") != "VERIFIED_SOURCE_THEOREM":
             raise ProjectError("Only verified source theorems enter literature memory")
         entry = {
             "authority_id": authority["authority_id"],
             "statement_hash": authority.get("statement_hash")
-                or statement_hash(authority.get("normalized_statement", "")),
-            "normalized_concepts": sorted({item.strip().casefold() for item in concepts if item.strip()}),
+            or statement_hash(authority.get("normalized_statement", "")),
+            "normalized_concepts": sorted(
+                {item.strip().casefold() for item in concepts if item.strip()}
+            ),
             "keywords": sorted({item.strip().casefold() for item in keywords if item.strip()}),
             "authors": copy.deepcopy(authority.get("authors", [])),
             "source_identifier": authority.get("DOI_or_stable_identifier"),
@@ -569,8 +687,11 @@ class LiteratureMemory:
         return copy.deepcopy(entry)
 
     def search(
-        self, *, normalized_statement: str | None = None,
-        concepts: list[str] | None = None, keywords: list[str] | None = None,
+        self,
+        *,
+        normalized_statement: str | None = None,
+        concepts: list[str] | None = None,
+        keywords: list[str] | None = None,
     ) -> list[dict]:
         target_hash = statement_hash(normalized_statement) if normalized_statement else None
         concept_set = {item.strip().casefold() for item in concepts or []}
@@ -601,8 +722,9 @@ class NegativeLiteratureMemory:
         value.setdefault("entries", [])
         return value
 
-    def record(self, *, query: str, concept: str, source: str, result: str,
-               why_insufficient: str) -> dict:
+    def record(
+        self, *, query: str, concept: str, source: str, result: str, why_insufficient: str
+    ) -> dict:
         entry = {
             "query": query,
             "concept": concept,
@@ -624,7 +746,8 @@ class NegativeLiteratureMemory:
                 item.get("query", "").strip().casefold(),
                 item.get("concept", "").strip().casefold(),
                 item.get("source", "").strip().casefold(),
-            ) == key
+            )
+            == key
             for item in self.load()["entries"]
         )
 
@@ -653,8 +776,10 @@ class LiteratureSynthesis:
         if (
             self.literature_verdict == "NO_SUFFICIENT_RESULT_FOUND"
             and self.conflicts_and_uncertainty
-            and any("budget" in item.casefold() or "unavailable" in item.casefold()
-                    for item in self.conflicts_and_uncertainty)
+            and any(
+                "budget" in item.casefold() or "unavailable" in item.casefold()
+                for item in self.conflicts_and_uncertainty
+            )
         ):
             raise ProjectError(
                 "Budget/tool exhaustion must use INSUFFICIENT_SEARCH, not NO_SUFFICIENT_RESULT_FOUND"
@@ -665,8 +790,12 @@ class LiteratureSynthesis:
             if not items:
                 return "- (none)"
             return "\n".join(
-                "- " + (json.dumps(item, ensure_ascii=False, sort_keys=True)
-                         if isinstance(item, dict) else str(item))
+                "- "
+                + (
+                    json.dumps(item, ensure_ascii=False, sort_keys=True)
+                    if isinstance(item, dict)
+                    else str(item)
+                )
                 for item in items
             )
 
@@ -726,7 +855,7 @@ class LiteratureSynthesis:
 
 ## 14. Recommended next action
 
-{self.recommended_next_action or '(none)'}
+{self.recommended_next_action or "(none)"}
 
 ## 15. Literature verdict
 
@@ -752,7 +881,8 @@ def literature_provider_status(config: dict) -> dict:
         if name in {"routine", "research", "literature_searcher", "literature_lead"}:
             candidates.append(route)
     search_routes = [
-        route for route in candidates
+        route
+        for route in candidates
         if route.get("enabled", True)
         and route.get("provider") in {"gemini", "vertex_gemini"}
         and route.get("allow_web_search", False)
@@ -828,9 +958,9 @@ class LiteratureTaskExecutor:
             public_query = str(payload.get("public_query") or "").strip()
             if not public_query:
                 raise ProjectError("Literature search requires a minimized public_query")
-            expected_query_hash = "sha256:" + hashlib.sha256(
-                public_query.encode("utf-8")
-            ).hexdigest()
+            expected_query_hash = (
+                "sha256:" + hashlib.sha256(public_query.encode("utf-8")).hexdigest()
+            )
             if payload.get("query_hash") != expected_query_hash:
                 raise ProjectError("Literature search query hash does not match approved query")
             if not payload.get("approval_source") or not payload.get("approval_timestamp"):
@@ -839,9 +969,7 @@ class LiteratureTaskExecutor:
                     "reason": "Public-query approval provenance is incomplete",
                     "public_query": public_query,
                 }
-            if self.scholarly_adapter is not None and payload.get(
-                "use_scholarly_adapter", False
-            ):
+            if self.scholarly_adapter is not None and payload.get("use_scholarly_adapter", False):
                 records = self.scholarly_adapter.search(
                     public_query,
                     provider_names=payload.get("scholarly_providers"),
@@ -854,16 +982,18 @@ class LiteratureTaskExecutor:
                     required_id = str(preferences.get("stable_identifier") or "").strip().casefold()
                     if required_doi or required_id:
                         records = [
-                            record for record in records
+                            record
+                            for record in records
                             if (
-                                bool(required_doi)
-                                and (record.doi or "").casefold() == required_doi
-                            ) or (
+                                bool(required_doi) and (record.doi or "").casefold() == required_doi
+                            )
+                            or (
                                 bool(required_id)
-                                and required_id in {
-                                str(record.source_id).casefold(),
-                                str(record.doi or "").casefold(),
-                                str(record.arxiv_id or "").casefold(),
+                                and required_id
+                                in {
+                                    str(record.source_id).casefold(),
+                                    str(record.doi or "").casefold(),
+                                    str(record.arxiv_id or "").casefold(),
                                 }
                             )
                         ]
@@ -881,7 +1011,10 @@ class LiteratureTaskExecutor:
                     ],
                 }
             prompt_body = {"public_query": public_query, "strategy": payload.get("strategy")}
-        elif role in {"literature_reader", "literature_deep_reader"} and self.document_retriever is not None:
+        elif (
+            role in {"literature_reader", "literature_deep_reader"}
+            and self.document_retriever is not None
+        ):
             return self._retrieve_and_extract(task)
         elif role == "literature_synthesizer" and self.document_retriever is not None:
             return self._synthesize_artifact_candidate(task)
@@ -916,10 +1049,8 @@ class LiteratureTaskExecutor:
         )
         if context is not None:
             context.set_handle(client)
-        prompt = (
-            f"[Worker role: {role}]\n"
-            f"[Obligation ID: {task['obligation_id']}]\n"
-            + json.dumps(prompt_body, ensure_ascii=False, indent=2)
+        prompt = f"[Worker role: {role}]\n[Obligation ID: {task['obligation_id']}]\n" + json.dumps(
+            prompt_body, ensure_ascii=False, indent=2
         )
         try:
             response = client.call(
@@ -931,19 +1062,15 @@ class LiteratureTaskExecutor:
                 response_schema=LiteratureResultSchema,
             )
             try:
-                result = parse_structured_response(
-                    response, LiteratureResultSchema
-                ).model_dump(mode="python")
+                result = parse_structured_response(response, LiteratureResultSchema).model_dump(
+                    mode="python"
+                )
             except SchemaError as exc:
-                raise ProjectError(
-                    f"{role} returned invalid structured output: {exc}"
-                ) from exc
+                raise ProjectError(f"{role} returned invalid structured output: {exc}") from exc
             if role == "literature_authority_auditor":
                 result = self._deterministic_authority_gate(result, task)
             verdict = result.get("literature_verdict")
-            if verdict == "CONFLICTING_LITERATURE" or result.get(
-                "architecture_changing", False
-            ):
+            if verdict == "CONFLICTING_LITERATURE" or result.get("architecture_changing", False):
                 self.router.escalate(
                     task["obligation_id"],
                     reason=(
@@ -955,12 +1082,10 @@ class LiteratureTaskExecutor:
                 )
             if role == "literature_synthesizer":
                 fields = LiteratureSynthesis.__dataclass_fields__
-                synthesis = LiteratureSynthesis(**{
-                    key: value for key, value in result.items() if key in fields
-                })
-                synthesis_path = (
-                    self.archive_dir / task["task_id"] / "LITERATURE_SYNTHESIS.md"
+                synthesis = LiteratureSynthesis(
+                    **{key: value for key, value in result.items() if key in fields}
                 )
+                synthesis_path = self.archive_dir / task["task_id"] / "LITERATURE_SYNTHESIS.md"
                 synthesis.write(synthesis_path)
                 result["synthesis_path"] = str(synthesis_path)
             return result
@@ -988,7 +1113,9 @@ class LiteratureTaskExecutor:
         elif isinstance(hints, list):
             for index, value in enumerate(hints):
                 if str(value).strip():
-                    queries.append(("exact_theorem" if index == 0 else "equivalent_formulation", str(value)))
+                    queries.append(
+                        ("exact_theorem" if index == 0 else "equivalent_formulation", str(value))
+                    )
         elif isinstance(hints, dict):
             source_preferences = copy.deepcopy(hints.get("source_preferences") or {})
             if hints.get("doi"):
@@ -997,12 +1124,21 @@ class LiteratureTaskExecutor:
             if isinstance(explicit, dict):
                 queries.extend((str(strategy), str(query)) for strategy, query in explicit.items())
             elif isinstance(explicit, list):
-                queries.extend(("exact_theorem" if index == 0 else "equivalent_formulation", str(query)) for index, query in enumerate(explicit))
+                queries.extend(
+                    ("exact_theorem" if index == 0 else "equivalent_formulation", str(query))
+                    for index, query in enumerate(explicit)
+                )
             elif hints.get("public_query"):
-                queries.append((str(hints.get("strategy") or "exact_theorem"), str(hints["public_query"])))
+                queries.append(
+                    (str(hints.get("strategy") or "exact_theorem"), str(hints["public_query"]))
+                )
             elif hints.get("keywords"):
                 keywords = hints["keywords"]
-                query = " ".join(str(item) for item in keywords) if isinstance(keywords, list) else str(keywords)
+                query = (
+                    " ".join(str(item) for item in keywords)
+                    if isinstance(keywords, list)
+                    else str(keywords)
+                )
                 queries.append(("keyword_search", query))
         search_tasks = [
             {
@@ -1022,7 +1158,12 @@ class LiteratureTaskExecutor:
             "search_plan_status": "PUBLIC_QUERY_PROPOSED",
             "search_tasks": search_tasks,
             "literature_request_id": request.get("literature_request_id"),
-            "usage": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "cached_tokens": 0},
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_tokens": 0,
+            },
         }
 
     def _retrieve_and_extract(self, task: dict) -> dict:
@@ -1033,9 +1174,11 @@ class LiteratureTaskExecutor:
             raise ProjectError(f"Reader source is unavailable: {source_id}")
         candidates = []
         for value in (
-            source.get("full_text_url"), source.get("source"),
+            source.get("full_text_url"),
+            source.get("source"),
             *[
-                item.get("url") for item in source.get("related_versions", [])
+                item.get("url")
+                for item in source.get("related_versions", [])
                 if isinstance(item, dict)
             ],
         ):
@@ -1065,16 +1208,30 @@ class LiteratureTaskExecutor:
                 "source_id": source_id,
                 "reason": last_error or "no theorem span could be extracted",
                 "theorems": [],
-                "usage": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "cached_tokens": 0},
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "reasoning_tokens": 0,
+                    "cached_tokens": 0,
+                },
             }
         return {
             "reader_verdict": "THEOREM_EXTRACTED",
             "source_id": source_id,
-            "artifact": {key: value for key, value in artifact.to_dict().items() if key != "extracted_text"},
+            "artifact": {
+                key: value for key, value in artifact.to_dict().items() if key != "extracted_text"
+            },
             "theorems": copy.deepcopy(artifact.theorem_extracts),
-            "retrieval_status": "PDF_RETRIEVAL_PASS" if artifact.media_type == "application/pdf" else "HTML_RETRIEVAL_PASS",
+            "retrieval_status": "PDF_RETRIEVAL_PASS"
+            if artifact.media_type == "application/pdf"
+            else "HTML_RETRIEVAL_PASS",
             "extraction_status": "THEOREM_EXTRACTION_PASS",
-            "usage": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "cached_tokens": 0},
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_tokens": 0,
+            },
         }
 
     def _synthesize_artifact_candidate(self, task: dict) -> dict:
@@ -1083,7 +1240,8 @@ class LiteratureTaskExecutor:
         context = obligation.get("context") or {}
         expected_label = str(context.get("expected_theorem_label") or "").casefold()
         readers = [
-            item for item in snapshot["tasks"].values()
+            item
+            for item in snapshot["tasks"].values()
             if item.get("obligation_id") == task["obligation_id"]
             and item.get("role") in {"literature_reader", "literature_deep_reader"}
             and item.get("status") in {"COMPLETE", "COMPLETED_BEFORE_CANCEL"}
@@ -1115,20 +1273,36 @@ class LiteratureTaskExecutor:
             try:
                 return str(path.relative_to(root)).replace("\\", "/")
             except ValueError as exc:
-                raise ProjectError("Literature artifact is outside authority registry root") from exc
+                raise ProjectError(
+                    "Literature artifact is outside authority registry root"
+                ) from exc
 
-        exact = normalize_extracted_statement(selected_extract.get("raw_extracted_text") or selected_extract.get("statement"))
-        stable = str(source.get("DOI_or_stable_identifier") or source.get("canonical_identifier") or source["source_id"])
-        authority_id = "ext-" + hashlib.sha256(
-            (stable.casefold() + "|" + str(selected_extract.get("extraction_id"))).encode("utf-8")
-        ).hexdigest()[:16]
+        exact = normalize_extracted_statement(
+            selected_extract.get("raw_extracted_text") or selected_extract.get("statement")
+        )
+        stable = str(
+            source.get("DOI_or_stable_identifier")
+            or source.get("canonical_identifier")
+            or source["source_id"]
+        )
+        authority_id = (
+            "ext-"
+            + hashlib.sha256(
+                (stable.casefold() + "|" + str(selected_extract.get("extraction_id"))).encode(
+                    "utf-8"
+                )
+            ).hexdigest()[:16]
+        )
         record = {
             "authority_id": authority_id,
-            "title": source.get("title"), "authors": source.get("authors") or [],
-            "year": source.get("year"), "source": source.get("source"),
+            "title": source.get("title"),
+            "authors": source.get("authors") or [],
+            "year": source.get("year"),
+            "source": source.get("source"),
             "DOI_or_stable_identifier": stable,
             "version": f"artifact {artifact['sha256']}",
-            "theorem_number": selected_extract.get("theorem_label") or selected_extract.get("label"),
+            "theorem_number": selected_extract.get("theorem_label")
+            or selected_extract.get("label"),
             "page_or_section": selected_extract.get("location"),
             "exact_statement": exact,
             "normalized_statement": normalize_extracted_statement(exact),
@@ -1139,7 +1313,9 @@ class LiteratureTaskExecutor:
             "reader_verdict": "THEOREM_EXTRACTED",
             "authority_verifier_verdict": "PENDING",
             "used_by_obligations": [task["obligation_id"]],
-            "source_type": source.get("source_type") if source.get("source_type") in SOURCE_PRIORITIES else "published_version",
+            "source_type": source.get("source_type")
+            if source.get("source_type") in SOURCE_PRIORITIES
+            else "published_version",
             "content_scope": "FULL_TEXT",
             "retrieved_content_path": relative(artifact["local_path"]),
             "retrieved_content_sha256": artifact["sha256"],
@@ -1154,11 +1330,14 @@ class LiteratureTaskExecutor:
             "extractor_version": selected_extract.get("extractor_version"),
         }
         synthesis_path = self.archive_dir / task["task_id"] / "LITERATURE_SYNTHESIS.json"
-        _write_json(synthesis_path, {
-            "literature_verdict": "EXACT_RESULT_FOUND",
-            "authority_candidate": record,
-            "source_id": source["source_id"],
-        })
+        _write_json(
+            synthesis_path,
+            {
+                "literature_verdict": "EXACT_RESULT_FOUND",
+                "authority_candidate": record,
+                "source_id": source["source_id"],
+            },
+        )
         return {
             "literature_verdict": "EXACT_RESULT_FOUND",
             "authority_status": "AUTHORITY_CANDIDATE",
@@ -1170,7 +1349,12 @@ class LiteratureTaskExecutor:
                 "claimed_source_type": record["source_type"],
             },
             "synthesis_path": str(synthesis_path),
-            "usage": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "cached_tokens": 0},
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_tokens": 0,
+                "cached_tokens": 0,
+            },
         }
 
     def _verify_stored_candidate(self, task: dict) -> dict:
@@ -1185,9 +1369,15 @@ class LiteratureTaskExecutor:
             "authority_status": "AUTHORITY_CANDIDATE",
             "authority_verification_candidate": True,
         }
-        if self.authority_registry is None or not isinstance(record, dict) or not isinstance(verification, dict):
+        if (
+            self.authority_registry is None
+            or not isinstance(record, dict)
+            or not isinstance(verification, dict)
+        ):
             base["authority_status"] = "AUTHORITY_VERIFICATION_FAILED"
-            base["authority_verification_errors"] = ["deterministic authority candidate input is incomplete"]
+            base["authority_verification_errors"] = [
+                "deterministic authority candidate input is incomplete"
+            ]
             return base
         try:
             registered = self.authority_registry.register(record)
@@ -1198,14 +1388,18 @@ class LiteratureTaskExecutor:
             return base
         if verified.get("status") != "VERIFIED_SOURCE_THEOREM":
             base["authority_status"] = "AUTHORITY_VERIFICATION_FAILED"
-            base["authority_verification_errors"] = verified.get("authority_verification_errors", [])
+            base["authority_verification_errors"] = verified.get(
+                "authority_verification_errors", []
+            )
             return base
-        base.update({
-            "authority_status": "VERIFIED_SOURCE_THEOREM",
-            "deterministic_verification": True,
-            "authority_id": verified["authority_id"],
-            "authority_record_path": str(self.authority_registry.path),
-        })
+        base.update(
+            {
+                "authority_status": "VERIFIED_SOURCE_THEOREM",
+                "deterministic_verification": True,
+                "authority_id": verified["authority_id"],
+                "authority_record_path": str(self.authority_registry.path),
+            }
+        )
         return base
 
     def _deterministic_authority_gate(self, result: dict, task: dict) -> dict:
@@ -1219,10 +1413,7 @@ class LiteratureTaskExecutor:
         base["authority_status"] = "AUTHORITY_CANDIDATE"
         base["authority_verification_candidate"] = True
         promoted = self._promote_candidate(record, verification)
-        promoted.update({
-            key: value for key, value in base.items()
-            if key not in promoted
-        })
+        promoted.update({key: value for key, value in base.items() if key not in promoted})
         return promoted
 
     @staticmethod

@@ -18,6 +18,7 @@ from .routing import RoutedLLMClient
 from .scheduler import RoleScheduler
 from .trust_kernel import DependencyAuthorityResolver, TrustKernel
 
+
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -135,9 +136,7 @@ class CandidateEngine(_OwnerComponent):
         policy_kwargs = {}
         if self.hard_submit_gate:
             context_data = json.loads(
-                (self.run_dir / "context" / "context.json").read_text(
-                    encoding="utf-8"
-                )
+                (self.run_dir / "context" / "context.json").read_text(encoding="utf-8")
             )
             trust_kernel = TrustKernel.for_project(self.project)
             resolver = DependencyAuthorityResolver(
@@ -146,16 +145,18 @@ class CandidateEngine(_OwnerComponent):
                 project=self.project,
                 notation_scope=context_data.get("notation_scope", ""),
             )
-            policy_kwargs.update({
-                "pre_submit_gate": PreSubmitGate(
-                    resolver=resolver,
-                    blocked_dependencies=self.state.get("blocked_dependencies", []),
-                    dependency_cycles=self.state.get("dependency_cycles", []),
-                    replay_policy=self.replay_policy,
-                    require_manifest=True,
-                ),
-                "pre_submit_gate_path": self.run_dir / "pre_submit_gate.json",
-            })
+            policy_kwargs.update(
+                {
+                    "pre_submit_gate": PreSubmitGate(
+                        resolver=resolver,
+                        blocked_dependencies=self.state.get("blocked_dependencies", []),
+                        dependency_cycles=self.state.get("dependency_cycles", []),
+                        replay_policy=self.replay_policy,
+                        require_manifest=True,
+                    ),
+                    "pre_submit_gate_path": self.run_dir / "pre_submit_gate.json",
+                }
+            )
         if self.role_scheduling:
             policy_kwargs["role_scheduler"] = RoleScheduler(
                 initial_workers=self.initial_worker_count,

@@ -7,7 +7,7 @@ from openprover.math_research.campaign import (
     PreSubmitGate,
     ReplayPolicy,
 )
-from openprover.math_research.project import ProjectError, ProjectStore
+from openprover.math_research.project import ProjectStore
 from openprover.math_research.trust_kernel import (
     DependencyAuthorityResolver,
     TrustKernel,
@@ -36,13 +36,15 @@ def _candidate(*, unresolved=None, sources=None, classified=True, branches=True)
         "all_external_claims_classified": classified,
         "branches_resolved": branches,
         "unresolved": unresolved or [],
-        "authority_uses": [{
-            "claim": "The displayed equality",
-            "claim_class": "LOCAL_PROOF",
-            "authority_id": "",
-            "authority_type": "local_proof",
-            "proof_location": "§1",
-        }],
+        "authority_uses": [
+            {
+                "claim": "The displayed equality",
+                "claim_class": "LOCAL_PROOF",
+                "authority_id": "",
+                "authority_type": "local_proof",
+                "proof_location": "§1",
+            }
+        ],
         "source_paths": sources or [],
     }
     return (
@@ -99,9 +101,7 @@ def test_replay_policy_loads_real_manifest_shape_and_inherits_exactly(tmp_path):
         "allowed_proved_dependencies": ["GP3"],
         "excluded_later_results": ["later/critical_G_A2_*.md"],
         "excluded_answer_leaks": [{"source_file": "answers/resolution.md"}],
-        "approved_historical_authorities": {
-            "SEM-G-PRIM-01": "safe/gp3.md"
-        },
+        "approved_historical_authorities": {"SEM-G-PRIM-01": "safe/gp3.md"},
         "target_cutoff": "2026-01-02T00:00:00+00:00",
     }
     path = tmp_path / "manifest.json"
@@ -118,14 +118,14 @@ def test_replay_policy_loads_real_manifest_shape_and_inherits_exactly(tmp_path):
 
 def test_replay_manifest_section_exclusion_does_not_forbid_safe_trimmed_file(tmp_path):
     manifest = {
-        "materialized_sources": {
-            "safe_campaign": "safe/campaign.md"
-        },
-        "excluded_answer_leaks": [{
-            "source_file": "safe/campaign.md",
-            "section": "§12 only",
-            "action": "exclude section",
-        }],
+        "materialized_sources": {"safe_campaign": "safe/campaign.md"},
+        "excluded_answer_leaks": [
+            {
+                "source_file": "safe/campaign.md",
+                "section": "§12 only",
+                "action": "exclude section",
+            }
+        ],
     }
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -189,14 +189,16 @@ def test_auto_dependency_repair_rejects_late_or_unverified_source(tmp_path):
         allowed_authority_ids=("GP3",),
         target_cutoff="2026-01-02T00:00:00+00:00",
     )
-    allowed, errors = policy.authorize_dependency_repair({
-        "authority_id": "GP3",
-        "authority_type": "project_theorem",
-        "source_file": "safe/gp3.md",
-        "source_created_at": "2026-01-03T00:00:00+00:00",
-        "identity_verified": False,
-        "leak_audit_pass": True,
-    })
+    allowed, errors = policy.authorize_dependency_repair(
+        {
+            "authority_id": "GP3",
+            "authority_type": "project_theorem",
+            "source_file": "safe/gp3.md",
+            "source_created_at": "2026-01-03T00:00:00+00:00",
+            "identity_verified": False,
+            "leak_audit_pass": True,
+        }
+    )
     assert allowed is False
     assert any("earlier" in error for error in errors)
     assert any("identity" in error for error in errors)

@@ -29,4 +29,3 @@ def test_incomplete_gate_cannot_mark_proved():
     gate.boundary_cases = False
     with pytest.raises(InvalidTransition):
         validate_transition("AUDITING", "PROVED", actor="Archivist", gate=gate)
-

@@ -28,22 +28,33 @@ def test_theorem_extraction_stops_before_unmistakable_paper_narrative():
 
 def _openalex_payload():
     return {
-        "results": [{
-            "id": "https://openalex.org/W123",
-            "title": "A public theorem about integers",
-            "publication_year": 2020,
-            "doi": "https://doi.org/10.1000/example",
-            "ids": {"doi": "https://doi.org/10.1000/example", "arxiv": "https://arxiv.org/abs/2001.00001"},
-            "authorships": [{"author": {"display_name": "Ada Lovelace"}}],
-            "primary_location": {
-                "landing_page_url": "https://example.org/paper",
-                "pdf_url": "https://example.org/paper.pdf",
-                "source": {"display_name": "Journal of Public Mathematics"},
-            },
-            "open_access": {"oa_url": "https://example.org/paper.pdf"},
-            "abstract_inverted_index": {"Every": [0], "integer": [1], "has": [2], "a": [3], "property": [4]},
-            "locations": [],
-        }]
+        "results": [
+            {
+                "id": "https://openalex.org/W123",
+                "title": "A public theorem about integers",
+                "publication_year": 2020,
+                "doi": "https://doi.org/10.1000/example",
+                "ids": {
+                    "doi": "https://doi.org/10.1000/example",
+                    "arxiv": "https://arxiv.org/abs/2001.00001",
+                },
+                "authorships": [{"author": {"display_name": "Ada Lovelace"}}],
+                "primary_location": {
+                    "landing_page_url": "https://example.org/paper",
+                    "pdf_url": "https://example.org/paper.pdf",
+                    "source": {"display_name": "Journal of Public Mathematics"},
+                },
+                "open_access": {"oa_url": "https://example.org/paper.pdf"},
+                "abstract_inverted_index": {
+                    "Every": [0],
+                    "integer": [1],
+                    "has": [2],
+                    "a": [3],
+                    "property": [4],
+                },
+                "locations": [],
+            }
+        ]
     }
 
 
@@ -69,18 +80,32 @@ def test_adapter_deduplicates_cross_provider_versions(tmp_path):
     def request(url, _headers, _timeout):
         if "openalex" in url:
             return 200, {}, json.dumps(_openalex_payload()).encode()
-        return 200, {}, json.dumps({"message": {"items": [{
-            "title": ["A public theorem about integers"],
-            "DOI": "10.1000/example",
-            "author": [{"given": "Ada", "family": "Lovelace"}],
-            "issued": {"date-parts": [[2020]]},
-            "URL": "https://doi.org/10.1000/example",
-        }]}}).encode()
+        return (
+            200,
+            {},
+            json.dumps(
+                {
+                    "message": {
+                        "items": [
+                            {
+                                "title": ["A public theorem about integers"],
+                                "DOI": "10.1000/example",
+                                "author": [{"given": "Ada", "family": "Lovelace"}],
+                                "issued": {"date-parts": [[2020]]},
+                                "URL": "https://doi.org/10.1000/example",
+                            }
+                        ]
+                    }
+                }
+            ).encode(),
+        )
 
-    adapter = ScholarlySearchAdapter([
-        OpenAlexProvider(cache_dir=tmp_path, request_fn=request, minimum_interval=0),
-        CrossrefProvider(cache_dir=tmp_path, request_fn=request, minimum_interval=0),
-    ])
+    adapter = ScholarlySearchAdapter(
+        [
+            OpenAlexProvider(cache_dir=tmp_path, request_fn=request, minimum_interval=0),
+            CrossrefProvider(cache_dir=tmp_path, request_fn=request, minimum_interval=0),
+        ]
+    )
     records = adapter.search("integer theorem", limit=5)
     assert len(records) == 1
     assert any(item["provider"] == "crossref" for item in records[0].related_versions)
@@ -90,7 +115,9 @@ def test_provider_errors_have_stable_classification(tmp_path):
     def request(_url, _headers, _timeout):
         return 429, {"Retry-After": "0"}, b"{}"
 
-    provider = OpenAlexProvider(cache_dir=tmp_path, request_fn=request, max_retries=1, minimum_interval=0)
+    provider = OpenAlexProvider(
+        cache_dir=tmp_path, request_fn=request, max_retries=1, minimum_interval=0
+    )
     with pytest.raises(ScholarlyProviderError) as error:
         provider.search("rate limited")
     assert error.value.error_type == "RATE_LIMITED"

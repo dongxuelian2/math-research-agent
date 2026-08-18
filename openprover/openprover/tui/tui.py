@@ -20,8 +20,7 @@ from ._input import InputMixin
 from ._render import RenderMixin
 
 
-class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
-          InputMixin, RenderMixin):
+class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin, InputMixin, RenderMixin):
     supports_streaming = True
 
     def __init__(self):
@@ -104,9 +103,7 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
                 return tab
         return None
 
-    def setup(self, theorem_name: str, work_dir: str,
-              step_num: int = 0,
-              model_name: str = ""):
+    def setup(self, theorem_name: str, work_dir: str, step_num: int = 0, model_name: str = ""):
         self.theorem_name = theorem_name
         self.work_dir = work_dir
         self.step_num = step_num
@@ -121,11 +118,11 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
             self._old_termios = None
 
         with self._write_lock:
-            self._write_raw('\033[?1049h\033[2J\033[?1000h\033[?1006h')
+            self._write_raw("\033[?1049h\033[2J\033[?1000h\033[?1006h")
             self._draw_header()
-            self._write_raw(f'\033[{self._content_start};{self.rows}r')
+            self._write_raw(f"\033[{self._content_start};{self.rows}r")
             sys.stdout.flush()
-        self._write(f'\033[{self._content_start};1H\033[?25l')
+        self._write(f"\033[{self._content_start};1H\033[?25l")
         self._active = True
 
         # Ensure cursor and terminal are restored even on abnormal exit
@@ -146,7 +143,7 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
         if self._bg_thread:
             self._bg_thread.join(timeout=0.2)
             self._bg_thread = None
-        self._write('\033[?1000l\033[?1006l\033[r\033[?1049l\033[?25h')
+        self._write("\033[?1000l\033[?1006l\033[r\033[?1049l\033[?25h")
         if self._old_termios:
             try:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self._old_termios)
@@ -162,8 +159,8 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
     def _on_resize(self, signum, frame):
         size = shutil.get_terminal_size()
         self.cols, self.rows = size.columns, size.lines
-        self._write('\033[2J')
-        self._write(f'\033[{self._content_start};{self.rows}r')
+        self._write("\033[2J")
+        self._write(f"\033[{self._content_start};{self.rows}r")
         self._redraw()
 
     # ── Low-level output ────────────────────────────────────────
@@ -188,9 +185,9 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
             self.budget_status = self._budget_ref.status_str()
         with self._write_lock:
             self._buf = []
-            self._write_raw('\033[s')
+            self._write_raw("\033[s")
             self._draw_header()
-            self._write_raw('\033[u')
+            self._write_raw("\033[u")
             frame = "".join(self._buf)
             self._buf = None
             sys.stdout.write(frame)
@@ -202,9 +199,9 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
             return
         with self._write_lock:
             self._buf = []
-            self._write_raw('\033[s')
+            self._write_raw("\033[s")
             self._draw_header()
-            self._write_raw('\033[u')
+            self._write_raw("\033[u")
             frame = "".join(self._buf)
             self._buf = None
             sys.stdout.write(frame)
@@ -223,7 +220,7 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
             elif tab.scroll_offset > 0:
                 pass  # Stay where we are; new content is at the bottom
             else:
-                self._write(f' {text}\n')
+                self._write(f" {text}\n")
 
     def log(self, text: str, color: str = "", bold: bool = False, dim: bool = False):
         self._tab_log(self.tabs[0], self._style(text, color, bold, dim))
@@ -237,4 +234,4 @@ class TUI(TextMixin, StreamMixin, NavMixin, TabsMixin, StepsMixin,
         """Log a trace message to the logs tab (dim style)."""
         tab = self._find_tab("logs")
         if tab.id == "logs":
-            self._tab_log(tab, f'{DIM}{text}{RESET}')
+            self._tab_log(tab, f"{DIM}{text}{RESET}")

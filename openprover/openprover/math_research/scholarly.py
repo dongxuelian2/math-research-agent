@@ -107,7 +107,9 @@ class ScholarlyRecord:
 class ScholarlyProvider(Protocol):
     name: str
 
-    def search(self, query: str, *, limit: int = 10, force_refresh: bool = False) -> list[ScholarlyRecord]: ...
+    def search(
+        self, query: str, *, limit: int = 10, force_refresh: bool = False
+    ) -> list[ScholarlyRecord]: ...
 
 
 def _normal_query(query: str) -> str:
@@ -172,7 +174,9 @@ class _RateLimiter:
 RequestFn = Callable[[str, Mapping[str, str], float], tuple[int, Mapping[str, str], bytes]]
 
 
-def _urllib_request(url: str, headers: Mapping[str, str], timeout: float) -> tuple[int, Mapping[str, str], bytes]:
+def _urllib_request(
+    url: str, headers: Mapping[str, str], timeout: float
+) -> tuple[int, Mapping[str, str], bytes]:
     request = urllib.request.Request(url, headers=dict(headers), method="GET")
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -232,8 +236,12 @@ class _CachedJSONProvider:
                 status, response_headers, body = self.request_fn(url, headers, self.timeout)
             except ScholarlyProviderError as exc:
                 last_error = ScholarlyProviderError(
-                    str(exc), provider=self.name, error_type=exc.error_type,
-                    status=exc.status, retryable=exc.retryable, details=exc.details,
+                    str(exc),
+                    provider=self.name,
+                    error_type=exc.error_type,
+                    status=exc.status,
+                    retryable=exc.retryable,
+                    details=exc.details,
                 )
                 if not exc.retryable or attempt >= self.max_retries:
                     raise last_error
@@ -241,9 +249,11 @@ class _CachedJSONProvider:
                 continue
             if status == 429 or status >= 500:
                 last_error = ScholarlyProviderError(
-                    f"{self.name} returned HTTP {status}", provider=self.name,
+                    f"{self.name} returned HTTP {status}",
+                    provider=self.name,
                     error_type="RATE_LIMITED" if status == 429 else "TEMPORARY_NETWORK_FAILURE",
-                    status=status, retryable=True,
+                    status=status,
+                    retryable=True,
                     details={"retry_after": response_headers.get("Retry-After")},
                 )
                 if attempt < self.max_retries:
@@ -253,32 +263,48 @@ class _CachedJSONProvider:
             if status in {401, 403}:
                 raise ScholarlyProviderError(
                     f"{self.name} rejected the public request (HTTP {status})",
-                    provider=self.name, error_type="AUTH_FAILURE", status=status,
+                    provider=self.name,
+                    error_type="AUTH_FAILURE",
+                    status=status,
                 )
             if status == 404:
                 raise ScholarlyProviderError(
-                    f"{self.name} endpoint was not found", provider=self.name,
-                    error_type="NOT_FOUND", status=status,
+                    f"{self.name} endpoint was not found",
+                    provider=self.name,
+                    error_type="NOT_FOUND",
+                    status=status,
                 )
             if status < 200 or status >= 300:
                 raise ScholarlyProviderError(
-                    f"{self.name} returned HTTP {status}", provider=self.name,
-                    error_type="PROVIDER_UNAVAILABLE", status=status,
+                    f"{self.name} returned HTTP {status}",
+                    provider=self.name,
+                    error_type="PROVIDER_UNAVAILABLE",
+                    status=status,
                 )
             try:
                 payload = json.loads(body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise ScholarlyProviderError(
-                    f"{self.name} returned malformed JSON", provider=self.name,
-                    error_type="MALFORMED_RESPONSE", status=status,
+                    f"{self.name} returned malformed JSON",
+                    provider=self.name,
+                    error_type="MALFORMED_RESPONSE",
+                    status=status,
                 ) from exc
             if not isinstance(payload, dict):
                 raise ScholarlyProviderError(
-                    f"{self.name} response is not an object", provider=self.name,
-                    error_type="MALFORMED_RESPONSE", status=status,
+                    f"{self.name} response is not an object",
+                    provider=self.name,
+                    error_type="MALFORMED_RESPONSE",
+                    status=status,
                 )
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps({"retrieved_at": utc_now(), "payload": payload}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            cache_path.write_text(
+                json.dumps(
+                    {"retrieved_at": utc_now(), "payload": payload}, ensure_ascii=False, indent=2
+                )
+                + "\n",
+                encoding="utf-8",
+            )
             return payload
         raise last_error or ScholarlyProviderError(
             "provider request failed", provider=self.name, error_type="PROVIDER_UNAVAILABLE"
@@ -291,7 +317,9 @@ class OpenAlexProvider(_CachedJSONProvider):
     name = "openalex"
     endpoint = "https://api.openalex.org/works"
 
-    def search(self, query: str, *, limit: int = 10, force_refresh: bool = False) -> list[ScholarlyRecord]:
+    def search(
+        self, query: str, *, limit: int = 10, force_refresh: bool = False
+    ) -> list[ScholarlyRecord]:
         query = _normal_query(query)
         if not query:
             raise ProjectError("scholarly query must not be empty")
@@ -303,7 +331,8 @@ class OpenAlexProvider(_CachedJSONProvider):
         results = payload.get("results")
         if not isinstance(results, list):
             raise ScholarlyProviderError(
-                "OpenAlex response has no results list", provider=self.name,
+                "OpenAlex response has no results list",
+                provider=self.name,
                 error_type="MALFORMED_RESPONSE",
             )
         records: list[ScholarlyRecord] = []
@@ -322,7 +351,11 @@ class OpenAlexProvider(_CachedJSONProvider):
                     author = authorship.get("author") or {}
                     if author.get("display_name"):
                         authors.append(str(author["display_name"]))
-            primary = item.get("primary_location") if isinstance(item.get("primary_location"), dict) else {}
+            primary = (
+                item.get("primary_location")
+                if isinstance(item.get("primary_location"), dict)
+                else {}
+            )
             source = primary.get("source") if isinstance(primary.get("source"), dict) else {}
             best_oa = item.get("open_access") if isinstance(item.get("open_access"), dict) else {}
             full_text_url = (
@@ -336,27 +369,44 @@ class OpenAlexProvider(_CachedJSONProvider):
                     continue
                 url = location.get("pdf_url") or location.get("landing_page_url")
                 if url and url != full_text_url:
-                    locations.append({"url": url, "version": location.get("version"), "is_oa": location.get("is_oa")})
-            source_type = "author_preprint" if arxiv else ("published_version" if doi else "abstract_or_metadata")
-            records.append(ScholarlyRecord(
-                source_id=source_id,
-                provider=self.name,
-                title=str(item.get("title") or "").strip(),
-                authors=authors,
-                year=int(item["publication_year"]) if str(item.get("publication_year") or "").isdigit() else None,
-                venue=str(source.get("display_name") or "").strip() or None,
-                doi=doi,
-                arxiv_id=arxiv,
-                stable_ids=[value for value in (doi, arxiv, source_id) if value],
-                abstract=_abstract_from_inverted(item.get("abstract_inverted_index")),
-                source_url=str(primary.get("landing_page_url") or item.get("doi") or source_id),
-                full_text_url=str(full_text_url) if full_text_url else None,
-                source_type=source_type,
-                retrieved_at=utc_now(),
-                query=query,
-                related_versions=locations,
-                provider_payload={"id": source_id, "cited_by_count": item.get("cited_by_count")},
-            ))
+                    locations.append(
+                        {
+                            "url": url,
+                            "version": location.get("version"),
+                            "is_oa": location.get("is_oa"),
+                        }
+                    )
+            source_type = (
+                "author_preprint"
+                if arxiv
+                else ("published_version" if doi else "abstract_or_metadata")
+            )
+            records.append(
+                ScholarlyRecord(
+                    source_id=source_id,
+                    provider=self.name,
+                    title=str(item.get("title") or "").strip(),
+                    authors=authors,
+                    year=int(item["publication_year"])
+                    if str(item.get("publication_year") or "").isdigit()
+                    else None,
+                    venue=str(source.get("display_name") or "").strip() or None,
+                    doi=doi,
+                    arxiv_id=arxiv,
+                    stable_ids=[value for value in (doi, arxiv, source_id) if value],
+                    abstract=_abstract_from_inverted(item.get("abstract_inverted_index")),
+                    source_url=str(primary.get("landing_page_url") or item.get("doi") or source_id),
+                    full_text_url=str(full_text_url) if full_text_url else None,
+                    source_type=source_type,
+                    retrieved_at=utc_now(),
+                    query=query,
+                    related_versions=locations,
+                    provider_payload={
+                        "id": source_id,
+                        "cited_by_count": item.get("cited_by_count"),
+                    },
+                )
+            )
         return records
 
 
@@ -366,7 +416,9 @@ class CrossrefProvider(_CachedJSONProvider):
     name = "crossref"
     endpoint = "https://api.crossref.org/works"
 
-    def search(self, query: str, *, limit: int = 10, force_refresh: bool = False) -> list[ScholarlyRecord]:
+    def search(
+        self, query: str, *, limit: int = 10, force_refresh: bool = False
+    ) -> list[ScholarlyRecord]:
         query = _normal_query(query)
         if not query:
             raise ProjectError("scholarly query must not be empty")
@@ -375,34 +427,64 @@ class CrossrefProvider(_CachedJSONProvider):
         payload = self._get_json(
             f"{self.endpoint}?{params}", query=query, limit=limit, force_refresh=force_refresh
         )
-        items = ((payload.get("message") or {}).get("items") if isinstance(payload.get("message"), dict) else None)
+        items = (
+            (payload.get("message") or {}).get("items")
+            if isinstance(payload.get("message"), dict)
+            else None
+        )
         if not isinstance(items, list):
-            raise ScholarlyProviderError("Crossref response has no items list", provider=self.name, error_type="MALFORMED_RESPONSE")
+            raise ScholarlyProviderError(
+                "Crossref response has no items list",
+                provider=self.name,
+                error_type="MALFORMED_RESPONSE",
+            )
         records = []
         for item in items:
             if not isinstance(item, dict):
                 continue
-            title = ((item.get("title") or [""])[0] if isinstance(item.get("title"), list) else item.get("title"))
+            title = (
+                (item.get("title") or [""])[0]
+                if isinstance(item.get("title"), list)
+                else item.get("title")
+            )
             doi = _strip_doi(item.get("DOI"))
             if not doi or not str(title or "").strip():
                 continue
             authors = []
             for author in item.get("author") or []:
                 if isinstance(author, dict):
-                    name = " ".join(str(author.get(key) or "").strip() for key in ("given", "family")).strip()
+                    name = " ".join(
+                        str(author.get(key) or "").strip() for key in ("given", "family")
+                    ).strip()
                     if name:
                         authors.append(name)
             issued = item.get("issued") if isinstance(item.get("issued"), dict) else {}
-            date_parts = issued.get("date-parts") if isinstance(issued.get("date-parts"), list) else []
+            date_parts = (
+                issued.get("date-parts") if isinstance(issued.get("date-parts"), list) else []
+            )
             year = date_parts[0][0] if date_parts and date_parts[0] else None
-            records.append(ScholarlyRecord(
-                source_id=f"doi:{doi}", provider=self.name, title=str(title).strip(), authors=authors,
-                year=int(year) if str(year or "").isdigit() else None,
-                venue=str((item.get("container-title") or [""])[0] if isinstance(item.get("container-title"), list) else item.get("container-title") or "").strip() or None,
-                doi=doi, stable_ids=[doi], source_url=str(item.get("URL") or f"https://doi.org/{doi}"),
-                source_type="published_version", retrieved_at=utc_now(), query=query,
-                provider_payload={"publisher": item.get("publisher"), "type": item.get("type")},
-            ))
+            records.append(
+                ScholarlyRecord(
+                    source_id=f"doi:{doi}",
+                    provider=self.name,
+                    title=str(title).strip(),
+                    authors=authors,
+                    year=int(year) if str(year or "").isdigit() else None,
+                    venue=str(
+                        (item.get("container-title") or [""])[0]
+                        if isinstance(item.get("container-title"), list)
+                        else item.get("container-title") or ""
+                    ).strip()
+                    or None,
+                    doi=doi,
+                    stable_ids=[doi],
+                    source_url=str(item.get("URL") or f"https://doi.org/{doi}"),
+                    source_type="published_version",
+                    retrieved_at=utc_now(),
+                    query=query,
+                    provider_payload={"publisher": item.get("publisher"), "type": item.get("type")},
+                )
+            )
         return records
 
 
@@ -429,18 +511,20 @@ class ScholarlySearchAdapter:
             records.extend(provider.search(query, limit=limit, force_refresh=force_refresh))
         merged: dict[str, ScholarlyRecord] = {}
         for record in records:
-            key = (record.doi or record.arxiv_id or "title:" + _normal_query(record.title).casefold())
+            key = record.doi or record.arxiv_id or "title:" + _normal_query(record.title).casefold()
             if key not in merged:
                 merged[key] = record
                 continue
             existing = merged[key]
             if record.provider != existing.provider:
-                existing.related_versions.append({
-                    "provider": record.provider,
-                    "source_id": record.source_id,
-                    "url": record.source_url,
-                    "version": record.source_type,
-                })
+                existing.related_versions.append(
+                    {
+                        "provider": record.provider,
+                        "source_id": record.source_id,
+                        "url": record.source_url,
+                        "version": record.source_type,
+                    }
+                )
             existing.related_versions.extend(record.related_versions)
             if not existing.abstract and record.abstract:
                 existing.abstract = record.abstract
@@ -469,15 +553,17 @@ class DocumentArtifact:
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
-        value["sha256"] = "sha256:" + value["sha256"] if not str(value["sha256"]).startswith("sha256:") else value["sha256"]
+        value["sha256"] = (
+            "sha256:" + value["sha256"]
+            if not str(value["sha256"]).startswith("sha256:")
+            else value["sha256"]
+        )
         if value.get("text_sha256") and not str(value["text_sha256"]).startswith("sha256:"):
             value["text_sha256"] = "sha256:" + value["text_sha256"]
         if value.get("extraction_artifact_sha256") and not str(
             value["extraction_artifact_sha256"]
         ).startswith("sha256:"):
-            value["extraction_artifact_sha256"] = (
-                "sha256:" + value["extraction_artifact_sha256"]
-            )
+            value["extraction_artifact_sha256"] = "sha256:" + value["extraction_artifact_sha256"]
         return value
 
 
@@ -510,7 +596,9 @@ class FullTextRetriever:
             source_key = source_id or source.source_id
         elif isinstance(source, Mapping):
             url = source.get("full_text_url") or source.get("source_url") or source.get("source")
-            source_key = source_id or str(source.get("source_id") or source.get("DOI_or_stable_identifier") or "source")
+            source_key = source_id or str(
+                source.get("source_id") or source.get("DOI_or_stable_identifier") or "source"
+            )
         else:
             url = str(source)
             source_key = source_id or url
@@ -525,22 +613,51 @@ class FullTextRetriever:
                 cached = json.loads(meta_path.read_text(encoding="utf-8"))
                 if isinstance(cached, dict) and Path(cached.get("local_path", "")).exists():
                     cached["cache_hit"] = True
-                    return DocumentArtifact(**{field: cached.get(field) for field in DocumentArtifact.__dataclass_fields__})
+                    return DocumentArtifact(
+                        **{
+                            field: cached.get(field)
+                            for field in DocumentArtifact.__dataclass_fields__
+                        }
+                    )
             except (OSError, json.JSONDecodeError, TypeError):
                 pass
         status, headers, body = self.request_fn(
             url,
-            {"Accept": "application/pdf,text/html,application/xhtml+xml;q=0.9,*/*;q=0.1", "User-Agent": "OpenProver-FullTextRetriever/1.0"},
+            {
+                "Accept": "application/pdf,text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+                "User-Agent": "OpenProver-FullTextRetriever/1.0",
+            },
             self.timeout,
         )
         if status == 429 or status >= 500:
-            raise ScholarlyProviderError(f"full-text endpoint returned HTTP {status}", provider="full_text", error_type="RATE_LIMITED" if status == 429 else "TEMPORARY_NETWORK_FAILURE", status=status, retryable=True)
+            raise ScholarlyProviderError(
+                f"full-text endpoint returned HTTP {status}",
+                provider="full_text",
+                error_type="RATE_LIMITED" if status == 429 else "TEMPORARY_NETWORK_FAILURE",
+                status=status,
+                retryable=True,
+            )
         if status in {401, 403}:
-            raise ScholarlyProviderError("full-text endpoint denied access", provider="full_text", error_type="AUTH_FAILURE", status=status)
+            raise ScholarlyProviderError(
+                "full-text endpoint denied access",
+                provider="full_text",
+                error_type="AUTH_FAILURE",
+                status=status,
+            )
         if status == 404:
-            raise ScholarlyProviderError("full-text endpoint was not found", provider="full_text", error_type="NOT_FOUND", status=status)
+            raise ScholarlyProviderError(
+                "full-text endpoint was not found",
+                provider="full_text",
+                error_type="NOT_FOUND",
+                status=status,
+            )
         if status < 200 or status >= 300:
-            raise ScholarlyProviderError(f"full-text endpoint returned HTTP {status}", provider="full_text", error_type="PROVIDER_UNAVAILABLE", status=status)
+            raise ScholarlyProviderError(
+                f"full-text endpoint returned HTTP {status}",
+                provider="full_text",
+                error_type="PROVIDER_UNAVAILABLE",
+                status=status,
+            )
         digest = hashlib.sha256(body).hexdigest()
         content_type = str(headers.get("Content-Type") or "").split(";", 1)[0].casefold()
         # A number of repository PDF URLs redirect to an HTML consent or
@@ -549,7 +666,9 @@ class FullTextRetriever:
         if content_type == "application/pdf" and not is_pdf:
             raise ScholarlyProviderError(
                 "full-text endpoint declared PDF but returned non-PDF bytes",
-                provider="full_text", error_type="MALFORMED_RESPONSE", status=status,
+                provider="full_text",
+                error_type="MALFORMED_RESPONSE",
+                status=status,
             )
         suffix = ".pdf" if is_pdf else ".html"
         artifact_path = self.cache_dir / "documents" / f"{digest}{suffix}"
@@ -579,11 +698,13 @@ class FullTextRetriever:
             source_digest = "sha256:" + digest
             text_digest_prefixed = "sha256:" + text_digest
             for item in extracts:
-                item.update({
-                    "source_artifact_sha256": source_digest,
-                    "text_artifact_sha256": text_digest_prefixed,
-                    "extractor_version": "openprover-theorem-span-v1",
-                })
+                item.update(
+                    {
+                        "source_artifact_sha256": source_digest,
+                        "text_artifact_sha256": text_digest_prefixed,
+                        "extractor_version": "openprover-theorem-span-v1",
+                    }
+                )
             extraction_payload = {
                 "schema_version": 1,
                 "source_id": str(source_key),
@@ -596,9 +717,7 @@ class FullTextRetriever:
                 "extractions": extracts,
             }
             extraction_bytes = (
-                json.dumps(
-                    extraction_payload, ensure_ascii=False, indent=2, sort_keys=True
-                ) + "\n"
+                json.dumps(extraction_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
             ).encode("utf-8")
             extraction_digest = hashlib.sha256(extraction_bytes).hexdigest()
             extraction_file = self.cache_dir / "extractions" / f"{extraction_digest}.json"
@@ -607,16 +726,25 @@ class FullTextRetriever:
                 extraction_file.write_bytes(extraction_bytes)
             extraction_path = str(extraction_file)
         artifact = DocumentArtifact(
-            source_id=str(source_key), requested_url=url, local_path=str(artifact_path),
+            source_id=str(source_key),
+            requested_url=url,
+            local_path=str(artifact_path),
             media_type="application/pdf" if is_pdf else (content_type or "text/html"),
-            sha256=digest, byte_count=len(body), retrieved_at=utc_now(),
-            text_path=text_path, text_sha256=text_digest, extraction_method=method,
-            extracted_text=text, theorem_extracts=extracts,
+            sha256=digest,
+            byte_count=len(body),
+            retrieved_at=utc_now(),
+            text_path=text_path,
+            text_sha256=text_digest,
+            extraction_method=method,
+            extracted_text=text,
+            theorem_extracts=extracts,
             extraction_artifact_path=extraction_path,
             extraction_artifact_sha256=extraction_digest,
         )
         meta_path.parent.mkdir(parents=True, exist_ok=True)
-        meta_path.write_text(json.dumps(artifact.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        meta_path.write_text(
+            json.dumps(artifact.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
         return artifact
 
     def _extract_text(self, path: Path, body: bytes, is_pdf: bool) -> tuple[str | None, str | None]:
@@ -627,11 +755,15 @@ class FullTextRetriever:
                 try:
                     completed = subprocess.run(
                         [self.pdftotext_path, "-layout", str(path), str(output_path)],
-                        capture_output=True, text=True, timeout=self.timeout,
+                        capture_output=True,
+                        text=True,
+                        timeout=self.timeout,
                         check=False,
                     )
                     if completed.returncode == 0 and output_path.exists():
-                        return output_path.read_text(encoding="utf-8", errors="replace"), "pdftotext"
+                        return output_path.read_text(
+                            encoding="utf-8", errors="replace"
+                        ), "pdftotext"
                 finally:
                     output_path.unlink(missing_ok=True)
             return None, "pdf_unparsed"
@@ -680,23 +812,24 @@ class FullTextRetriever:
             statement = re.sub(r"\s+", " ", raw_statement).strip()
             page = text[: match.start()].count("\f") + 1
             normalized = " ".join(statement.split())
-            extracts.append({
-                "extraction_id": f"span-{span_start}-{span_end}",
-                "label": label,
-                "theorem_label": label,
-                "statement": statement,
-                "raw_extracted_text": raw_statement,
-                "normalized_extracted_text": normalized,
-                "extracted_statement_sha256": "sha256:" + hashlib.sha256(
-                    normalized.encode("utf-8")
-                ).hexdigest(),
-                "location": f"page {page}",
-                "page": page,
-                "section": None,
-                "char_start": match.start(),
-                "span_start": span_start,
-                "span_end": span_end,
-            })
+            extracts.append(
+                {
+                    "extraction_id": f"span-{span_start}-{span_end}",
+                    "label": label,
+                    "theorem_label": label,
+                    "statement": statement,
+                    "raw_extracted_text": raw_statement,
+                    "normalized_extracted_text": normalized,
+                    "extracted_statement_sha256": "sha256:"
+                    + hashlib.sha256(normalized.encode("utf-8")).hexdigest(),
+                    "location": f"page {page}",
+                    "page": page,
+                    "section": None,
+                    "char_start": match.start(),
+                    "span_start": span_start,
+                    "span_end": span_end,
+                }
+            )
         return extracts
 
 

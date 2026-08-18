@@ -14,9 +14,14 @@ except ModuleNotFoundError:
 # ── Action types ────────────────────────────────────────────
 
 ACTIONS = [
-    "submit_proof", "submit_lean_proof", "read_items", "write_items",
-    "spawn", "literature_search",
-    "read_theorem", "write_whiteboard",
+    "submit_proof",
+    "submit_lean_proof",
+    "read_items",
+    "write_items",
+    "spawn",
+    "literature_search",
+    "read_theorem",
+    "write_whiteboard",
 ]
 ACTIONS_NO_SEARCH = [a for a in ACTIONS if a != "literature_search"]
 
@@ -28,8 +33,7 @@ _TOML_OPEN_TAG = "<OPENPROVER_ACTION>"
 _TOML_CLOSE_TAG = "</OPENPROVER_ACTION>"
 
 
-def _build_actions(*, lean_mode: str, has_lean: bool,
-                   isolation: bool) -> str:
+def _build_actions(*, lean_mode: str, has_lean: bool, isolation: bool) -> str:
     """Build the actions list section of the system prompt."""
     actions = (
         "- **spawn**: Send tasks to workers (they do the actual math / verification / exploration). Workers are pure reasoning - they only see the context you provide to them.\n"
@@ -61,22 +65,19 @@ def _build_actions(*, lean_mode: str, has_lean: bool,
             "Auto-verified with Lean. **If verification succeeds, the session ends.**\n"
         )
     if not isolation:
-        actions += (
-            "- **literature_search**: Search the web for relevant mathematical literature. Spawns one web-enabled worker.\n"
-        )
+        actions += "- **literature_search**: Search the web for relevant mathematical literature. Spawns one web-enabled worker.\n"
     return actions
 
 
-def _build_principles(*, lean_mode: str, has_lean: bool,
-                      isolation: bool, lean_items: bool) -> str:
+def _build_principles(*, lean_mode: str, has_lean: bool, isolation: bool, lean_items: bool) -> str:
     """Build the principles section of the system prompt."""
     principles = (
         "- Delegate ALL mathematical work to workers — including analysis, exploration, case-checking, and brainstorming. Use parallel workers when possible.\n"
         "- Some problems require finding an answer before proving it. Some problems are easy — don't overcomplicate.\n"
-        "- **Stay constructive.** Never call a problem \"very hard\" or \"intractable\" — focus on what to try next. "
+        '- **Stay constructive.** Never call a problem "very hard" or "intractable" — focus on what to try next. '
         "If an approach failed, record why and pivot. Every competition problem has a solution.\n"
         "- **Think first, then write task descriptions.** Do all reasoning in your thinking BEFORE the OPENPROVER_ACTION block. "
-        "Task descriptions must be clean, self-contained instructions — no deliberation, no \"I think maybe...\". "
+        'Task descriptions must be clean, self-contained instructions — no deliberation, no "I think maybe...". '
         "Include all context workers need, but keep it crisp.\n"
         "- **Give workers minimal, sufficient input.** State what you need answered, provide context they can't derive, and let them work. "
         "Don't over-specify strategies or micromanage.\n"
@@ -118,7 +119,7 @@ def _build_principles(*, lean_mode: str, has_lean: bool,
         )
     if lean_items:
         principles += (
-            "- Use write_items with format=\"lean\" to develop and test Lean code. "
+            '- Use write_items with format="lean" to develop and test Lean code. '
             "Lean items must be **complete, standalone .lean files** (including `import Mathlib` and all necessary imports). "
             "They are auto-verified by `lake env lean`. Items that fail verification are NOT saved.\n"
         )
@@ -146,7 +147,7 @@ def _build_principles(*, lean_mode: str, has_lean: bool,
             "The session ends only when both are submitted (submit_proof for informal, submit_lean_proof for formal).\n"
             "- After you have a proof in English, use read_theorem to see the formal theorem statement in Lean.\n"
             "- Worker outputs are automatically verified. Before submitting, check that the verifier gave VERDICT: CORRECT.\n"
-            "- **Lean workflow**: Develop the complete Lean proof as a lean repo item via write_items with format=\"lean\" - "
+            '- **Lean workflow**: Develop the complete Lean proof as a lean repo item via write_items with format="lean" - '
             "this must be a standalone .lean file with imports, and is auto-verified on write. "
             "Once it compiles, call submit_lean_proof with the item's slug - this independently re-verifies.\n"
             "- **Decompose formalization into small lemmas.** Never ask a single worker to formalize the entire proof at once. "
@@ -160,7 +161,7 @@ def _build_principles(*, lean_mode: str, has_lean: bool,
         principles += (
             "- An informal proof (PROOF.md) is already provided. Your only goal is to produce PROOF.lean.\n"
             "- Use read_theorem to view the informal proof and Lean theorem statement.\n"
-            "- **Lean workflow**: Develop the complete Lean proof as a lean repo item via write_items with format=\"lean\" - "
+            '- **Lean workflow**: Develop the complete Lean proof as a lean repo item via write_items with format="lean" - '
             "this must be a standalone .lean file with imports, and is auto-verified on write. "
             "Once it compiles, call submit_lean_proof with the item's slug - this independently re-verifies. "
             "The session ends when verification succeeds.\n"
@@ -179,8 +180,7 @@ def _build_principles(*, lean_mode: str, has_lean: bool,
     return principles
 
 
-def _build_toml_fields(*, lean_mode: str, has_lean: bool,
-                       isolation: bool, lean_items: bool) -> str:
+def _build_toml_fields(*, lean_mode: str, has_lean: bool, isolation: bool, lean_items: bool) -> str:
     """Build the TOML fields reference section."""
     fields = ""
     # submit_proof / submit_lean_proof field docs (mode-dependent)
@@ -212,15 +212,17 @@ def _build_toml_fields(*, lean_mode: str, has_lean: bool,
         f'slug = "another-item"\n'
         "# omit content to delete\n"
         f"{_TOML_CLOSE_TAG}\n\n"
-        "Slugs can contain `/` for subdirectories, e.g. `\"attempts/induction-v1\"`, `\"lemmas/helper\"`.\n\n"
-        f"**spawn**: one or more `[[tasks]]` sections, each with `summary = \"...\"` (clear, human-readable label explaining the worker's purpose - shown in the UI) and `description = {_TQ}...{_TQ}` (full task)\n"
+        'Slugs can contain `/` for subdirectories, e.g. `"attempts/induction-v1"`, `"lemmas/helper"`.\n\n'
+        f'**spawn**: one or more `[[tasks]]` sections, each with `summary = "..."` (clear, human-readable label explaining the worker\'s purpose - shown in the UI) and `description = {_TQ}...{_TQ}` (full task)\n'
         f"**write_whiteboard**: `whiteboard = {_TQ}...{_TQ}` (complete replacement of current whiteboard)\n"
     )
     if not isolation:
-        fields += f'**literature_search**: `search_query = "..."` and `search_context = {_TQ}...{_TQ}`\n'
+        fields += (
+            f'**literature_search**: `search_query = "..."` and `search_context = {_TQ}...{_TQ}`\n'
+        )
     if lean_items:
         fields += (
-            f"\n**write_items** (lean format - auto-verified): add `format = \"lean\"` to the item. "
+            f'\n**write_items** (lean format - auto-verified): add `format = "lean"` to the item. '
             f"Content must be a **complete, standalone Lean file** (with `import Mathlib` and all needed imports). "
             f"Include natural language descriptions as `--` comments. The first comment line is the summary.\n"
             f"{_TOML_OPEN_TAG}\n"
@@ -245,9 +247,9 @@ def _build_toml_fields(*, lean_mode: str, has_lean: bool,
         )
     if has_lean:
         fields += (
-            f"\n**submit_lean_proof**: `lean_proof_slug` must reference a **lean** repo item "
-            f"(written with format=\"lean\"). The item is a complete, standalone .lean file "
-            f"that is independently re-verified on submission.\n"
+            "\n**submit_lean_proof**: `lean_proof_slug` must reference a **lean** repo item "
+            '(written with format="lean"). The item is a complete, standalone .lean file '
+            "that is independently re-verified on submission.\n"
         )
     return fields
 
@@ -265,7 +267,7 @@ def _build_repo_items_section(*, lean_items: bool) -> str:
     )
     if lean_items:
         section += (
-            "Lean items (format=\"lean\") are `.lean` files. The first `-- ` comment line is the summary:\n"
+            'Lean items (format="lean") are `.lean` files. The first `-- ` comment line is the summary:\n'
             "```lean\n"
             "-- Summary: One sentence.\n"
             "\n"
@@ -290,7 +292,7 @@ def _build_submit_proof_section(*, lean_mode: str, has_lean: bool) -> str:
             "## submit_lean_proof\n"
             "\n"
             "submit_lean_proof takes `lean_proof_slug` pointing to a **lean** repo item "
-            "(written with write_items format=\"lean\"). The item must be a complete, standalone .lean file. "
+            '(written with write_items format="lean"). The item must be a complete, standalone .lean file. '
             "It is independently re-verified on submission. "
             "The session ends when verification succeeds.\n"
         )
@@ -311,7 +313,7 @@ def _build_submit_proof_section(*, lean_mode: str, has_lean: bool) -> str:
             "## submit_lean_proof\n"
             "\n"
             "submit_lean_proof takes `lean_proof_slug` pointing to a **lean** repo item "
-            "(written with write_items format=\"lean\"). The item must be a complete, standalone .lean file. "
+            '(written with write_items format="lean"). The item must be a complete, standalone .lean file. '
             "It is independently re-verified on submission. "
             "The session ends when both informal and formal proofs are accepted.\n"
         )
@@ -332,28 +334,34 @@ def _build_submit_proof_section(*, lean_mode: str, has_lean: bool) -> str:
     return section
 
 
-def planner_system_prompt(*, isolation: bool = False,
-                          lean_mode: str = "prove",
-                          lean_items: bool = False) -> str:
+def planner_system_prompt(
+    *, isolation: bool = False, lean_mode: str = "prove", lean_items: bool = False
+) -> str:
     """Build the planner system prompt, conditionally omitting actions."""
     has_lean = lean_mode in ("prove_and_formalize", "formalize_only")
     available_actions = ACTIONS if not isolation else ACTIONS_NO_SEARCH
 
     actions = _build_actions(
-        lean_mode=lean_mode, has_lean=has_lean,
+        lean_mode=lean_mode,
+        has_lean=has_lean,
         isolation=isolation,
     )
     principles = _build_principles(
-        lean_mode=lean_mode, has_lean=has_lean,
-        isolation=isolation, lean_items=lean_items,
+        lean_mode=lean_mode,
+        has_lean=has_lean,
+        isolation=isolation,
+        lean_items=lean_items,
     )
     toml_fields = _build_toml_fields(
-        lean_mode=lean_mode, has_lean=has_lean, isolation=isolation,
+        lean_mode=lean_mode,
+        has_lean=has_lean,
+        isolation=isolation,
         lean_items=lean_items,
     )
     repo_items = _build_repo_items_section(lean_items=lean_items)
     submit_proof_section = _build_submit_proof_section(
-        lean_mode=lean_mode, has_lean=has_lean,
+        lean_mode=lean_mode,
+        has_lean=has_lean,
     )
 
     return (
@@ -363,7 +371,7 @@ def planner_system_prompt(*, isolation: bool = False,
         "\n"
         "You are the PLANNER. You decide WHAT to do and workers do the DOING. "
         "Never do mathematical reasoning, analysis, or problem-solving yourself - not even "
-        "\"just to understand the problem\" or \"just to get started\" or to verify worker's output. "
+        '"just to understand the problem" or "just to get started" or to verify worker\'s output. '
         "This constraint applies to your thinking as well as your output: if you notice yourself "
         "working through mathematical details in your reasoning, stop immediately and spawn a worker. "
         "If you need to understand the problem structure, explore special cases, identify useful lemmas, "
@@ -428,9 +436,9 @@ def planner_system_prompt(*, isolation: bool = False,
         f"{_TOML_OPEN_TAG}\n"
         'action = "write_whiteboard"\n'
         'summary = "Update plan after worker results"\n'
-        f'whiteboard = {_TQ}\n'
+        f"whiteboard = {_TQ}\n"
         "...\n"
-        f'{_TQ}\n'
+        f"{_TQ}\n"
         f"{_TOML_CLOSE_TAG}\n"
         "\n"
         f"{_TOML_OPEN_TAG}\n"
@@ -438,13 +446,13 @@ def planner_system_prompt(*, isolation: bool = False,
         "\n"
         "[[tasks]]\n"
         'summary = "Prove Case 1: convex pentagon"\n'
-        f'description = {_TQ}\n'
+        f"description = {_TQ}\n"
         "Prove that if 5 points in the plane have a convex hull with 5 vertices,\n"
         "then any 4 of them form a convex quadrilateral.\n"
         "\n"
         "The informal proof is in [[proofs/informal-main]] — see Case 1.\n"
         "Use the helper lemma from [[lemmas/extreme-point-not-in-hull]].\n"
-        f'{_TQ}\n'
+        f"{_TQ}\n"
         f"{_TOML_CLOSE_TAG}\n"
         "\n"
         f"Valid actions: {', '.join(available_actions)}\n"
@@ -453,6 +461,7 @@ def planner_system_prompt(*, isolation: bool = False,
         "\n"
         f"{toml_fields}"
     )
+
 
 def worker_system_prompt(*, lean_worker_tools: bool = False) -> str:
     """Build worker system prompt, optionally documenting tool actions."""
@@ -478,7 +487,7 @@ def worker_system_prompt(*, lean_worker_tools: bool = False) -> str:
         "Write in concise mathematical style. Use $inline$ and $$display$$ LaTeX.\n"
         "\n"
         "IMPORTANT: You are a single worker. Do NOT attempt to spawn subagents, delegate to other workers, "
-        "or \"launch agents in parallel\". You do all the work yourself, directly in your response.\n"
+        'or "launch agents in parallel". You do all the work yourself, directly in your response.\n'
         "\n"
         "IMPORTANT: You have NO web access, NO search capability, and NO access to external databases or papers. "
         "Do not attempt literature searches or cite specific papers — you will hallucinate references. "
@@ -486,7 +495,7 @@ def worker_system_prompt(*, lean_worker_tools: bool = False) -> str:
         "\n"
         "IMPORTANT: All reasoning must happen in your thinking trace, not in your output. "
         "When writing your response, write the final answer directly — do not re-reason, backtrack, "
-        "hedge with \"let me reconsider\", or narrate your thought process. "
+        'hedge with "let me reconsider", or narrate your thought process. '
         "Your thinking budget is for exploration; your output is for results.\n"
     )
     if lean_worker_tools:
@@ -601,10 +610,11 @@ def _truncate_keep_end(text: str, limit: int) -> str:
     """Truncate from the start, keeping the end (where the TOML block is)."""
     if len(text) <= limit:
         return text
-    return "...\n" + text[-(limit - 4):]
+    return "...\n" + text[-(limit - 4) :]
 
 
 # ── Prompt formatters ───────────────────────────────────────
+
 
 def format_planner_prompt(
     whiteboard: str,
@@ -630,11 +640,15 @@ def format_planner_prompt(
         parts.append(f"\n\n{heading('THEOREM')}\n\n{theorem_text}")
 
     # Status indicators
-    status_lines = [f"- Theorem statement: already present"]
+    status_lines = ["- Theorem statement: already present"]
     if has_lean_theorem:
-        status_lines.append(f"- Formal Lean statement of theorem: already present")
-        status_lines.append(f"- Proof in natural language: {'already present' if has_proof_md else 'missing'}")
-        status_lines.append(f"- Formal Lean proof (verified): {'already present' if has_proof_lean else 'missing'}")
+        status_lines.append("- Formal Lean statement of theorem: already present")
+        status_lines.append(
+            f"- Proof in natural language: {'already present' if has_proof_md else 'missing'}"
+        )
+        status_lines.append(
+            f"- Formal Lean proof (verified): {'already present' if has_proof_lean else 'missing'}"
+        )
     else:
         status_lines.append(f"- Proof: {'already present' if has_proof_md else 'missing'}")
     parts.append(f"\n\n{heading('STATUS')}\n\n" + "\n".join(status_lines))
@@ -654,14 +668,22 @@ def format_planner_prompt(
             planner = entry.get("planner", "")
             if planner:
                 planner = _truncate_keep_end(planner, planner_limit)
-                parts.append(f"\n\n# Planner output (step {step})\n\n<planner_output>\n{planner}\n</planner_output>")
+                parts.append(
+                    f"\n\n# Planner output (step {step})\n\n<planner_output>\n{planner}\n</planner_output>"
+                )
 
             # Support both new list format ("outputs") and legacy string ("output")
             outputs = entry.get("outputs")
             if outputs is None:
                 legacy = entry.get("output", "")
                 if legacy:
-                    outputs = [{"action": entry.get("action", ""), "summary": entry.get("summary", ""), "output": legacy}]
+                    outputs = [
+                        {
+                            "action": entry.get("action", ""),
+                            "summary": entry.get("summary", ""),
+                            "output": legacy,
+                        }
+                    ]
                 else:
                     outputs = []
 
@@ -863,6 +885,7 @@ def format_discussion_prompt(
 
 # ── Planner retry ──────────────────────────────────────────
 
+
 def format_planner_retry(
     original_prompt: str,
     raw_output: str,
@@ -905,8 +928,10 @@ def format_planner_truncated(
 
 # ── TOML parser ─────────────────────────────────────────────
 
+
 class ParseError:
     """Represents a parse failure with a specific error message."""
+
     def __init__(self, message: str):
         self.message = message
 
@@ -953,10 +978,7 @@ def parse_planner_toml(text: str) -> list[dict] | ParseError | None:
                 f"Valid actions: {', '.join(ACTIONS)}."
             )
         if action not in ACTIONS:
-            return ParseError(
-                f'Unknown action: "{action}". '
-                f"Valid actions: {', '.join(ACTIONS)}."
-            )
+            return ParseError(f'Unknown action: "{action}". Valid actions: {", ".join(ACTIONS)}.')
         if action == "spawn":
             # Normalize tasks to a list of dicts. The model can write
             # `tasks = ["foo", "bar"]` (parsed as a list of strings) or
@@ -965,8 +987,7 @@ def parse_planner_toml(text: str) -> list[dict] | ParseError | None:
             raw_tasks = parsed.get("tasks", [])
             if isinstance(raw_tasks, list):
                 parsed["tasks"] = [
-                    t if isinstance(t, dict) else {"description": str(t)}
-                    for t in raw_tasks
+                    t if isinstance(t, dict) else {"description": str(t)} for t in raw_tasks
                 ]
             spawn_count += 1
             if spawn_count > 1:
@@ -990,8 +1011,7 @@ def parse_planner_toml(text: str) -> list[dict] | ParseError | None:
             raw_items = parsed.get("items", [])
             if isinstance(raw_items, list):
                 parsed["items"] = [
-                    it if isinstance(it, dict) else {"slug": str(it)}
-                    for it in raw_items
+                    it if isinstance(it, dict) else {"slug": str(it)} for it in raw_items
                 ]
 
         plans.append(parsed)
@@ -1020,18 +1040,18 @@ def _parse_toml_minimal(text: str) -> dict | None:
     array_tables: dict[str, list[dict]] = {"tasks": [], "items": []}
     current_table: dict | None = None
 
-    lines = text.split('\n')
+    lines = text.split("\n")
     i = 0
     while i < len(lines):
         line = lines[i].strip()
 
         # Skip empty lines and comments
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             i += 1
             continue
 
         # [[tasks]] or [[items]] - start a new table entry
-        if line in ('[[tasks]]', '[[items]]'):
+        if line in ("[[tasks]]", "[[items]]"):
             table_name = line[2:-2]
             current_table = {}
             array_tables[table_name].append(current_table)
@@ -1039,7 +1059,7 @@ def _parse_toml_minimal(text: str) -> dict | None:
             continue
 
         # key = value
-        m = re.match(r'(\w+)\s*=\s*(.*)', line)
+        m = re.match(r"(\w+)\s*=\s*(.*)", line)
         if not m:
             i += 1
             continue
@@ -1059,7 +1079,7 @@ def _parse_toml_minimal(text: str) -> dict | None:
                     break
                 content_parts.append(lines[i])
                 i += 1
-            target[key] = '\n'.join(content_parts).strip()
+            target[key] = "\n".join(content_parts).strip()
             i += 1
             continue
 
@@ -1070,9 +1090,9 @@ def _parse_toml_minimal(text: str) -> dict | None:
             continue
 
         # Array
-        if rest.startswith('['):
+        if rest.startswith("["):
             arr_text = rest
-            while arr_text.count('[') > arr_text.count(']') and i + 1 < len(lines):
+            while arr_text.count("[") > arr_text.count("]") and i + 1 < len(lines):
                 i += 1
                 arr_text += lines[i].strip()
             items = re.findall(r'"([^"]*)"', arr_text)
@@ -1081,8 +1101,8 @@ def _parse_toml_minimal(text: str) -> dict | None:
             continue
 
         # Boolean
-        if rest in ('true', 'false'):
-            target[key] = rest == 'true'
+        if rest in ("true", "false"):
+            target[key] = rest == "true"
             i += 1
             continue
 

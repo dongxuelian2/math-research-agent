@@ -4,7 +4,13 @@ import asyncio
 import logging
 import time
 
-from .core import LeanWorkDir, lean_has_errors, merge_lean_imports, run_lean_check, strip_code_fences
+from .core import (
+    LeanWorkDir,
+    lean_has_errors,
+    merge_lean_imports,
+    run_lean_check,
+    strip_code_fences,
+)
 
 logger = logging.getLogger("openprover.lean")
 
@@ -143,12 +149,13 @@ def _tool_lean_store(
 
     # Reject banned constructs before compiling
     import re as _re
+
     for pattern, label in [
-        (r'\bsorry\b', "sorry"),
-        (r'^\s*axiom\b', "axiom"),
-        (r'^\s*unsafe\b', "unsafe"),
-        (r'^\s*set_option\b', "set_option"),
-        (r'\bnative_decide\b', "native_decide"),
+        (r"\bsorry\b", "sorry"),
+        (r"^\s*axiom\b", "axiom"),
+        (r"^\s*unsafe\b", "unsafe"),
+        (r"^\s*set_option\b", "set_option"),
+        (r"\bnative_decide\b", "native_decide"),
     ]:
         if _re.search(pattern, code, _re.MULTILINE):
             return (f"Store rejected: code contains banned construct: {label}", "error")
@@ -187,7 +194,9 @@ def _log_empty_search_warning(worker_id: str, query: str) -> None:
         logger.warning(
             "[%s] lean_search returned 0 results for %d consecutive queries "
             "(last: %r) — the search database may be corrupt or incomplete",
-            worker_id, count, query,
+            worker_id,
+            count,
+            query,
         )
 
 
@@ -198,6 +207,7 @@ def _tool_lean_search(
 ) -> tuple[str, str]:
     """Search Mathlib declarations."""
     import torch
+
     query = args.get("query", "")
     if not query:
         return ("No query provided", "error")
@@ -209,25 +219,32 @@ def _tool_lean_search(
         t0 = time.time()
         response = asyncio.run(
             lean_explore_service.search(
-                query, limit=10, rerank_top=rerank,
+                query,
+                limit=10,
+                rerank_top=rerank,
                 packages=["Mathlib", "Batteries", "Init", "Lean", "Std"],
             )
         )
         elapsed = time.time() - t0
         results = response.results
-        logger.info("[%s] lean_search query=%r returned %d results in %.1fs",
-                    worker_id, query, len(results), elapsed)
+        logger.info(
+            "[%s] lean_search query=%r returned %d results in %.1fs",
+            worker_id,
+            query,
+            len(results),
+            elapsed,
+        )
         if not results:
             _log_empty_search_warning(worker_id, query)
             return ("No results found", "ok")
         _empty_search_counts.pop(worker_id, None)
         parts = []
         for r in results:
-            name = getattr(r, 'name', '')
-            module = getattr(r, 'module', '') or ''
-            source = getattr(r, 'source_text', '') or ''
-            doc = getattr(r, 'docstring', '') or ''
-            info = getattr(r, 'informalization', '') or ''
+            name = getattr(r, "name", "")
+            module = getattr(r, "module", "") or ""
+            source = getattr(r, "source_text", "") or ""
+            doc = getattr(r, "docstring", "") or ""
+            info = getattr(r, "informalization", "") or ""
             header = f"**{name}**"
             if module:
                 header += f"  ({module})"

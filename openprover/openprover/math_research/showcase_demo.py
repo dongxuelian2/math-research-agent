@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .audit_protocol import AuditResult
 from .project import ProjectStore, utc_now
 from .state_machine import AuditGate
 from .schemas import AuditResultSchema
@@ -46,20 +45,22 @@ def _audit(
     criteria: dict[str, bool] | None = None,
     summary: str = "",
 ) -> dict[str, Any]:
-    value = AuditResultSchema.model_validate({
-        "schema_version": 3,
-        "role": role,
-        "domain_verdict": verdict,
-        "execution_status": "OK",
-        "findings": findings or [],
-        "failure_reasons": failure_reasons or [],
-        "cross_audit_notes": [],
-        "computational_evidence": [],
-        "summary": summary,
-        "criteria": criteria or {},
-        "authority_uses": [],
-        "execution_error": "",
-    })
+    value = AuditResultSchema.model_validate(
+        {
+            "schema_version": 3,
+            "role": role,
+            "domain_verdict": verdict,
+            "execution_status": "OK",
+            "findings": findings or [],
+            "failure_reasons": failure_reasons or [],
+            "cross_audit_notes": [],
+            "computational_evidence": [],
+            "summary": summary,
+            "criteria": criteria or {},
+            "authority_uses": [],
+            "execution_error": "",
+        }
+    )
     return value.model_dump(mode="json")
 
 
@@ -134,15 +135,73 @@ def _event_stream() -> list[dict[str, Any]]:
     now = utc_now()
     return [
         {"at": now, "type": "RUN_STARTED", "run_id": "run-01-hidden-defect", "status": "RUNNING"},
-        {"at": now, "type": "AGENT_STARTED", "run_id": "run-01-hidden-defect", "role": "planner", "tier": "strategic", "model": "gemini-3.1-pro-preview"},
-        {"at": now, "type": "AGENT_STARTED", "run_id": "run-01-hidden-defect", "role": "constructive", "tier": "research", "model": "gemini-3.1-pro-preview"},
-        {"at": now, "type": "AGENT_STARTED", "run_id": "run-01-hidden-defect", "role": "counterexample_hunter", "tier": "research", "model": "gemini-3.1-pro-preview"},
-        {"at": now, "type": "AUDIT_FAIL", "run_id": "run-01-hidden-defect", "role": "counterexample_hunter", "finding": "n=41 gives 41^2", "category": "COUNTEREXAMPLE"},
-        {"at": now, "type": "AUDIT_FAIL", "run_id": "run-01-hidden-defect", "role": "dependency_auditor", "finding": "unproved universal lemma", "category": "DEPENDENCY_GAP"},
-        {"at": now, "type": "FAILED_ROUTE", "run_id": "run-01-hidden-defect", "route_id": "route-unbounded-primality", "status": "FAILED_ROUTE"},
-        {"at": now, "type": "REPAIR_STARTED", "run_id": "run-02-repair", "parent_run_id": "run-01-hidden-defect", "role": "planner", "model": "gemini-3.1-pro-preview"},
-        {"at": now, "type": "REPAIR_APPLIED", "run_id": "run-02-repair", "change": "restore 0 <= n <= 39 and attach finite certificate"},
-        {"at": now, "type": "AUDIT_PASS", "run_id": "run-02-repair", "role": "counterexample_hunter"},
+        {
+            "at": now,
+            "type": "AGENT_STARTED",
+            "run_id": "run-01-hidden-defect",
+            "role": "planner",
+            "tier": "strategic",
+            "model": "gemini-3.1-pro-preview",
+        },
+        {
+            "at": now,
+            "type": "AGENT_STARTED",
+            "run_id": "run-01-hidden-defect",
+            "role": "constructive",
+            "tier": "research",
+            "model": "gemini-3.1-pro-preview",
+        },
+        {
+            "at": now,
+            "type": "AGENT_STARTED",
+            "run_id": "run-01-hidden-defect",
+            "role": "counterexample_hunter",
+            "tier": "research",
+            "model": "gemini-3.1-pro-preview",
+        },
+        {
+            "at": now,
+            "type": "AUDIT_FAIL",
+            "run_id": "run-01-hidden-defect",
+            "role": "counterexample_hunter",
+            "finding": "n=41 gives 41^2",
+            "category": "COUNTEREXAMPLE",
+        },
+        {
+            "at": now,
+            "type": "AUDIT_FAIL",
+            "run_id": "run-01-hidden-defect",
+            "role": "dependency_auditor",
+            "finding": "unproved universal lemma",
+            "category": "DEPENDENCY_GAP",
+        },
+        {
+            "at": now,
+            "type": "FAILED_ROUTE",
+            "run_id": "run-01-hidden-defect",
+            "route_id": "route-unbounded-primality",
+            "status": "FAILED_ROUTE",
+        },
+        {
+            "at": now,
+            "type": "REPAIR_STARTED",
+            "run_id": "run-02-repair",
+            "parent_run_id": "run-01-hidden-defect",
+            "role": "planner",
+            "model": "gemini-3.1-pro-preview",
+        },
+        {
+            "at": now,
+            "type": "REPAIR_APPLIED",
+            "run_id": "run-02-repair",
+            "change": "restore 0 <= n <= 39 and attach finite certificate",
+        },
+        {
+            "at": now,
+            "type": "AUDIT_PASS",
+            "run_id": "run-02-repair",
+            "role": "counterexample_hunter",
+        },
         {"at": now, "type": "AUDIT_PASS", "run_id": "run-02-repair", "role": "dependency_auditor"},
         {"at": now, "type": "AUDIT_PASS", "run_id": "run-02-repair", "role": "final_proof_auditor"},
         {"at": now, "type": "PROVED", "run_id": "run-02-repair", "status": "PROVED"},
@@ -164,39 +223,57 @@ def _write_run(
 ) -> None:
     run_dir = root / "runs" / run_id
     _write_text(run_dir / "CANDIDATE_PROOF.md", candidate)
-    _write_json(run_dir / "state.json", {
-        "schema_version": 3,
-        "run_id": run_id,
-        "target_id": THEOREM_ID,
-        "status": status,
-        "phase": "COMPLETE",
-        "parent_run_id": parent_run_id,
-        "route": route,
-        "created_at": utc_now(),
-        "completed_at": utc_now(),
-        "audit_gate": gate,
-    })
+    _write_json(
+        run_dir / "state.json",
+        {
+            "schema_version": 3,
+            "run_id": run_id,
+            "target_id": THEOREM_ID,
+            "status": status,
+            "phase": "COMPLETE",
+            "parent_run_id": parent_run_id,
+            "route": route,
+            "created_at": utc_now(),
+            "completed_at": utc_now(),
+            "audit_gate": gate,
+        },
+    )
     for role, result in audits.items():
         _write_json(run_dir / "audits" / f"{role}.json", result)
     _write_json(run_dir / "audits" / "gate.json", gate)
     _write_json(run_dir / "FAILURE_MAP.json", failure_map)
     _write_json(run_dir / "usage.json", usage)
-    _write_json(run_dir / "pipeline.json", {
-        "schema_version": 3,
-        "nodes": [
-            {"id": "planner", "role": "Planner", "status": "PASS"},
-            {"id": "constructive", "role": "Constructive Worker", "status": "PASS"},
-            {"id": "counterexample", "role": "Counterexample Hunter", "status": "PASS" if status == "PROVED" else "FAIL"},
-            {"id": "dependency", "role": "Dependency Auditor", "status": "PASS" if status == "PROVED" else "FAIL"},
-            {"id": "final", "role": "Final Proof Auditor", "status": "PASS" if status == "PROVED" else "BLOCKED"},
-        ],
-        "edges": [
-            ["planner", "constructive"],
-            ["constructive", "counterexample"],
-            ["counterexample", "dependency"],
-            ["dependency", "final"],
-        ],
-    })
+    _write_json(
+        run_dir / "pipeline.json",
+        {
+            "schema_version": 3,
+            "nodes": [
+                {"id": "planner", "role": "Planner", "status": "PASS"},
+                {"id": "constructive", "role": "Constructive Worker", "status": "PASS"},
+                {
+                    "id": "counterexample",
+                    "role": "Counterexample Hunter",
+                    "status": "PASS" if status == "PROVED" else "FAIL",
+                },
+                {
+                    "id": "dependency",
+                    "role": "Dependency Auditor",
+                    "status": "PASS" if status == "PROVED" else "FAIL",
+                },
+                {
+                    "id": "final",
+                    "role": "Final Proof Auditor",
+                    "status": "PASS" if status == "PROVED" else "BLOCKED",
+                },
+            ],
+            "edges": [
+                ["planner", "constructive"],
+                ["constructive", "counterexample"],
+                ["counterexample", "dependency"],
+                ["dependency", "final"],
+            ],
+        },
+    )
 
 
 def run_showcase(project_root: str | Path) -> dict[str, Any]:
@@ -220,9 +297,15 @@ def run_showcase(project_root: str | Path) -> dict[str, Any]:
         claim_type="implication",
     )
     store.set_current_target(THEOREM_ID)
-    store.transition(THEOREM_ID, "IN_RESEARCH", actor="MasterPlanner", reason="showcase route started")
-    store.transition(THEOREM_ID, "CANDIDATE_PROOF", actor="MasterPlanner", reason="candidate assembled")
-    store.transition(THEOREM_ID, "AUDITING", actor="MasterPlanner", reason="candidate sent to independent gate")
+    store.transition(
+        THEOREM_ID, "IN_RESEARCH", actor="MasterPlanner", reason="showcase route started"
+    )
+    store.transition(
+        THEOREM_ID, "CANDIDATE_PROOF", actor="MasterPlanner", reason="candidate assembled"
+    )
+    store.transition(
+        THEOREM_ID, "AUDITING", actor="MasterPlanner", reason="candidate sent to independent gate"
+    )
 
     failed_reasons = [
         "Counterexample Hunter: n=41 gives 41^2, so the universal claim is false.",
@@ -230,24 +313,29 @@ def run_showcase(project_root: str | Path) -> dict[str, Any]:
     ]
     first_audits = {
         "counterexample_hunter": _audit(
-            "counterexample_hunter", "FAIL",
+            "counterexample_hunter",
+            "FAIL",
             findings=["n=41 gives 41^2, which is composite."],
             failure_reasons=[failed_reasons[0]],
         ),
         "dependency_auditor": _audit(
-            "dependency_auditor", "FAIL",
+            "dependency_auditor",
+            "FAIL",
             failure_reasons=[failed_reasons[1]],
         ),
         "exhaustiveness_auditor": _audit(
-            "exhaustiveness_auditor", "FAIL",
+            "exhaustiveness_auditor",
+            "FAIL",
             failure_reasons=["The candidate has no stated upper boundary."],
         ),
         "boundary_auditor": _audit(
-            "boundary_auditor", "FAIL",
+            "boundary_auditor",
+            "FAIL",
             failure_reasons=["The hidden boundary n=41 is not checked."],
         ),
         "final_proof_auditor": _audit(
-            "final_proof_auditor", "FAIL",
+            "final_proof_auditor",
+            "FAIL",
             failure_reasons=failed_reasons,
             criteria={"forward_implication": False},
             summary="The candidate is persuasive but not admissible.",
@@ -300,10 +388,27 @@ def run_showcase(project_root: str | Path) -> dict[str, Any]:
         theorem_ids=[THEOREM_ID],
         tags=["showcase", "counterexample", "repairable"],
     )
-    store.transition(THEOREM_ID, "REJECTED", actor="Archivist", reason="independent audit gate rejected candidate")
-    store.transition(THEOREM_ID, "IN_RESEARCH", actor="MasterPlanner", reason="FAILED_ROUTE launched bounded repair")
-    store.transition(THEOREM_ID, "CANDIDATE_PROOF", actor="MasterPlanner", reason="repaired candidate assembled")
-    store.transition(THEOREM_ID, "AUDITING", actor="MasterPlanner", reason="repaired candidate sent to independent gate")
+    store.transition(
+        THEOREM_ID,
+        "REJECTED",
+        actor="Archivist",
+        reason="independent audit gate rejected candidate",
+    )
+    store.transition(
+        THEOREM_ID,
+        "IN_RESEARCH",
+        actor="MasterPlanner",
+        reason="FAILED_ROUTE launched bounded repair",
+    )
+    store.transition(
+        THEOREM_ID, "CANDIDATE_PROOF", actor="MasterPlanner", reason="repaired candidate assembled"
+    )
+    store.transition(
+        THEOREM_ID,
+        "AUDITING",
+        actor="MasterPlanner",
+        reason="repaired candidate sent to independent gate",
+    )
 
     repaired_criteria = {
         "forward_implication": True,
@@ -318,14 +423,18 @@ def run_showcase(project_root: str | Path) -> dict[str, Any]:
     }
     second_audits = {
         role: _audit(
-            role, "PASS",
+            role,
+            "PASS",
             findings=["Repaired bounded claim is internally consistent."],
             criteria=repaired_criteria if role == "final_proof_auditor" else {},
             summary="The repaired candidate passes this independent gate.",
         )
         for role in (
-            "counterexample_hunter", "dependency_auditor",
-            "exhaustiveness_auditor", "boundary_auditor", "final_proof_auditor",
+            "counterexample_hunter",
+            "dependency_auditor",
+            "exhaustiveness_auditor",
+            "boundary_auditor",
+            "final_proof_auditor",
         )
     }
     second_gate = _gate(passed=True)
@@ -371,53 +480,95 @@ def run_showcase(project_root: str | Path) -> dict[str, Any]:
         ),
         audit_status="PASS",
     )
-    _write_json(root / "formal_status.json", {
-        "schema_version": 3,
-        "status": "PENDING_FORMALIZATION",
-        "agent": "formalization_agent",
-        "tool": "lean_verify",
-        "certificate": "",
-        "note": "The natural-language gate is complete; the optional Lean lane is visible but not claimed as run by the local replay.",
-    })
-    _write_json(root / "provenance.json", {
-        "schema_version": 3,
-        "entries": [_provenance(source, "bounded theorem statement")],
-    })
-    events = _event_stream()
-    _write_text(root / "events.jsonl", "\n".join(json.dumps(event, ensure_ascii=False) for event in events))
-    _write_json(root / "observatory.json", {
-        "schema_version": 3,
-        "title": "Hidden defect → autonomous repair",
-        "headline": "A persuasive proof is rejected, repaired, and re-audited.",
-        "target_id": THEOREM_ID,
-        "dag": {
-            "nodes": [
-                {"id": "theorem", "label": "Bounded Euler polynomial", "kind": "theorem", "status": "PROVED"},
-                {"id": "candidate-1", "label": "Persuasive universal candidate", "kind": "candidate", "status": "REJECTED"},
-                {"id": "counterexample", "label": "n = 41 → 41²", "kind": "counterexample", "status": "FOUND"},
-                {"id": "failure-map", "label": "FAILED_ROUTE", "kind": "failure", "status": "STORED"},
-                {"id": "candidate-2", "label": "Bounded finite-certificate repair", "kind": "candidate", "status": "PROVED"},
-            ],
-            "edges": [
-                ["candidate-1", "counterexample"],
-                ["counterexample", "failure-map"],
-                ["failure-map", "candidate-2"],
-                ["candidate-2", "theorem"],
-            ],
+    _write_json(
+        root / "formal_status.json",
+        {
+            "schema_version": 3,
+            "status": "PENDING_FORMALIZATION",
+            "agent": "formalization_agent",
+            "tool": "lean_verify",
+            "certificate": "",
+            "note": "The natural-language gate is complete; the optional Lean lane is visible but not claimed as run by the local replay.",
         },
-        "provenance": {"sha256": "see provenance.json", "registry": "showcase-foundation-registry-v1"},
-        "formal": {"status": "PENDING_FORMALIZATION", "tool": "lean_verify"},
-    })
-    _write_json(root / "campaigns" / "showcase" / "campaign.json", {
-        "schema_version": 3,
-        "campaign_id": "showcase",
-        "target_id": THEOREM_ID,
-        "status": "PROVED",
-        "runs": ["run-01-hidden-defect", "run-02-repair"],
-        "failed_route": "route-unbounded-primality",
-        "parent_run_id": "run-01-hidden-defect",
-        "successor_run_id": "run-02-repair",
-    })
+    )
+    _write_json(
+        root / "provenance.json",
+        {
+            "schema_version": 3,
+            "entries": [_provenance(source, "bounded theorem statement")],
+        },
+    )
+    events = _event_stream()
+    _write_text(
+        root / "events.jsonl", "\n".join(json.dumps(event, ensure_ascii=False) for event in events)
+    )
+    _write_json(
+        root / "observatory.json",
+        {
+            "schema_version": 3,
+            "title": "Hidden defect → autonomous repair",
+            "headline": "A persuasive proof is rejected, repaired, and re-audited.",
+            "target_id": THEOREM_ID,
+            "dag": {
+                "nodes": [
+                    {
+                        "id": "theorem",
+                        "label": "Bounded Euler polynomial",
+                        "kind": "theorem",
+                        "status": "PROVED",
+                    },
+                    {
+                        "id": "candidate-1",
+                        "label": "Persuasive universal candidate",
+                        "kind": "candidate",
+                        "status": "REJECTED",
+                    },
+                    {
+                        "id": "counterexample",
+                        "label": "n = 41 → 41²",
+                        "kind": "counterexample",
+                        "status": "FOUND",
+                    },
+                    {
+                        "id": "failure-map",
+                        "label": "FAILED_ROUTE",
+                        "kind": "failure",
+                        "status": "STORED",
+                    },
+                    {
+                        "id": "candidate-2",
+                        "label": "Bounded finite-certificate repair",
+                        "kind": "candidate",
+                        "status": "PROVED",
+                    },
+                ],
+                "edges": [
+                    ["candidate-1", "counterexample"],
+                    ["counterexample", "failure-map"],
+                    ["failure-map", "candidate-2"],
+                    ["candidate-2", "theorem"],
+                ],
+            },
+            "provenance": {
+                "sha256": "see provenance.json",
+                "registry": "showcase-foundation-registry-v1",
+            },
+            "formal": {"status": "PENDING_FORMALIZATION", "tool": "lean_verify"},
+        },
+    )
+    _write_json(
+        root / "campaigns" / "showcase" / "campaign.json",
+        {
+            "schema_version": 3,
+            "campaign_id": "showcase",
+            "target_id": THEOREM_ID,
+            "status": "PROVED",
+            "runs": ["run-01-hidden-defect", "run-02-repair"],
+            "failed_route": "route-unbounded-primality",
+            "parent_run_id": "run-01-hidden-defect",
+            "successor_run_id": "run-02-repair",
+        },
+    )
     report = """# Research Observatory Showcase
 
 The first candidate looked convincing but was false at `n=41`: `41²` is
@@ -446,7 +597,9 @@ gate.
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Create the deterministic Research Observatory replay")
+    parser = argparse.ArgumentParser(
+        description="Create the deterministic Research Observatory replay"
+    )
     parser.add_argument("--project", required=True)
     args = parser.parse_args(argv)
     print(json.dumps(run_showcase(args.project), ensure_ascii=False, indent=2))

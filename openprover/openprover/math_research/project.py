@@ -53,13 +53,12 @@ class ProjectStore:
         self.root = Path(root).resolve()
         self.project_file = self.root / "project.json"
         if not self.project_file.exists():
-            raise ProjectError(
-                f"Not a math research project: {self.root} (project.json missing)"
-            )
+            raise ProjectError(f"Not a math research project: {self.root} (project.json missing)")
 
     @classmethod
-    def initialize(cls, root: str | Path, name: str, *,
-                   project_id: str | None = None, demo: bool = False) -> "ProjectStore":
+    def initialize(
+        cls, root: str | Path, name: str, *, project_id: str | None = None, demo: bool = False
+    ) -> "ProjectStore":
         root = Path(root).resolve()
         root.mkdir(parents=True, exist_ok=True)
         project_file = root / "project.json"
@@ -68,49 +67,73 @@ class ProjectStore:
         project_id = project_id or cls.make_id(name)
         cls.validate_id(project_id)
         for rel in (
-            "theorems", "campaigns", "reports", "runs", "sources", "inbox",
-            "evidence", "certificates", "steering", "logs", "premises",
+            "theorems",
+            "campaigns",
+            "reports",
+            "runs",
+            "sources",
+            "inbox",
+            "evidence",
+            "certificates",
+            "steering",
+            "logs",
+            "premises",
             "semantics",
         ):
             (root / rel).mkdir(parents=True, exist_ok=True)
         now = utc_now()
-        _write_json(project_file, {
-            "schema_version": SCHEMA_VERSION,
-            "id": project_id,
-            "name": name,
-            "description": "",
-            "current_target": None,
-            "demo": bool(demo),
-            "created_at": now,
-            "last_updated": now,
-            "frozen_branches": [],
-            "prohibited_routes": [],
-            "allowed_scope": [],
-            "branches": {},
-        })
-        _write_json(root / "index.json", {
-            "schema_version": SCHEMA_VERSION,
-            "generated_at": now,
-            "theorems": [],
-        })
-        _write_json(root / "failed_routes.json", {
-            "schema_version": SCHEMA_VERSION,
-            "routes": [],
-        })
-        _write_json(root / "premise_index.json", {
-            "schema_version": SCHEMA_VERSION,
-            "generated_at": now,
-            "premises": [],
-        })
-        _write_json(root / "steering" / "directives.json", {
-            "freeze_branches": [],
-            "prohibit_routes": [],
-            "allowed_scope": [],
-            "added_lemmas": [],
-            "stop_workers": [],
-            "reaudit_requested": False,
-            "last_updated": now,
-        })
+        _write_json(
+            project_file,
+            {
+                "schema_version": SCHEMA_VERSION,
+                "id": project_id,
+                "name": name,
+                "description": "",
+                "current_target": None,
+                "demo": bool(demo),
+                "created_at": now,
+                "last_updated": now,
+                "frozen_branches": [],
+                "prohibited_routes": [],
+                "allowed_scope": [],
+                "branches": {},
+            },
+        )
+        _write_json(
+            root / "index.json",
+            {
+                "schema_version": SCHEMA_VERSION,
+                "generated_at": now,
+                "theorems": [],
+            },
+        )
+        _write_json(
+            root / "failed_routes.json",
+            {
+                "schema_version": SCHEMA_VERSION,
+                "routes": [],
+            },
+        )
+        _write_json(
+            root / "premise_index.json",
+            {
+                "schema_version": SCHEMA_VERSION,
+                "generated_at": now,
+                "premises": [],
+            },
+        )
+        _write_json(
+            root / "steering" / "directives.json",
+            {
+                "freeze_branches": [],
+                "prohibit_routes": [],
+                "allowed_scope": [],
+                "added_lemmas": [],
+                "stop_workers": [],
+                "reaudit_requested": False,
+                "last_updated": now,
+            },
+        )
         return cls(root)
 
     @staticmethod
@@ -128,9 +151,7 @@ class ProjectStore:
     def load_project(self) -> dict:
         data = _read_json(self.project_file)
         if data.get("schema_version") != SCHEMA_VERSION:
-            raise ProjectError(
-                f"Unsupported project schema: {data.get('schema_version')}"
-            )
+            raise ProjectError(f"Unsupported project schema: {data.get('schema_version')}")
         return data
 
     def save_project(self, data: dict) -> None:
@@ -177,9 +198,7 @@ class ProjectStore:
                 raise ProjectError(f"Premise {premise_id} has invalid provenance")
             source_path = self.safe_source_path(source)
             if source_path is None or not source_path.is_file():
-                raise ProjectError(
-                    f"Premise {premise_id} provenance source is missing: {source}"
-                )
+                raise ProjectError(f"Premise {premise_id} provenance source is missing: {source}")
         return premise
 
     def list_premises(self) -> list[dict]:
@@ -191,9 +210,17 @@ class ProjectStore:
             items.append(self.load_premise(path.stem))
         return items
 
-    def add_premise(self, premise_id: str, title: str, statement: str, *,
-                    node_type: str = "PROJECT_PREMISE", active: bool = True,
-                    source_file: str, provenance: list[dict]) -> dict:
+    def add_premise(
+        self,
+        premise_id: str,
+        title: str,
+        statement: str,
+        *,
+        node_type: str = "PROJECT_PREMISE",
+        active: bool = True,
+        source_file: str,
+        provenance: list[dict],
+    ) -> dict:
         self.validate_id(premise_id)
         if node_type not in PREMISE_NODE_TYPES:
             raise ProjectError(f"Unknown premise node_type: {node_type}")
@@ -264,8 +291,9 @@ class ProjectStore:
             return {"kind": "PREMISE", "record": self.load_premise(dependency_id)}
         raise ProjectError(f"Unknown dependency: {dependency_id}")
 
-    def validate_proved_dependency(self, dependency_id: str, *,
-                                   approved_theorem_ids: set[str] | None = None) -> dict:
+    def validate_proved_dependency(
+        self, dependency_id: str, *, approved_theorem_ids: set[str] | None = None
+    ) -> dict:
         resolved = self.resolve_dependency(dependency_id)
         if resolved["kind"] == "PREMISE":
             return resolved
@@ -277,13 +305,21 @@ class ProjectStore:
             )
         return resolved
 
-    def add_theorem(self, theorem_id: str, title: str, statement: str, *,
-                    status: str = "OPEN", source_file: str = "",
-                    dependencies: list[str] | None = None,
-                    tags: list[str] | None = None, branch: str = "main",
-                    proof_type: str = "NATURAL_LANGUAGE",
-                    claim_type: str = "implication",
-                    notation_scope: str = "") -> dict:
+    def add_theorem(
+        self,
+        theorem_id: str,
+        title: str,
+        statement: str,
+        *,
+        status: str = "OPEN",
+        source_file: str = "",
+        dependencies: list[str] | None = None,
+        tags: list[str] | None = None,
+        branch: str = "main",
+        proof_type: str = "NATURAL_LANGUAGE",
+        claim_type: str = "implication",
+        notation_scope: str = "",
+    ) -> dict:
         self.validate_id(theorem_id)
         if status not in THEOREM_STATUSES:
             raise ProjectError(f"Unknown theorem status: {status}")
@@ -295,9 +331,7 @@ class ProjectStore:
             try:
                 self.resolve_dependency(dependency)
             except ProjectError as exc:
-                raise ProjectError(
-                    f"Unknown dependency for {theorem_id}: {dependency}"
-                ) from exc
+                raise ProjectError(f"Unknown dependency for {theorem_id}: {dependency}") from exc
         now = utc_now()
         theorem = {
             "schema_version": SCHEMA_VERSION,
@@ -316,13 +350,15 @@ class ProjectStore:
             "audit_status": "NOT_AUDITED",
             "created_at": now,
             "last_updated": now,
-            "status_history": [{
-                "from": None,
-                "to": status,
-                "actor": "Human" if status != "UNCLASSIFIED" else "Importer",
-                "reason": "Theorem record created",
-                "at": now,
-            }],
+            "status_history": [
+                {
+                    "from": None,
+                    "to": status,
+                    "actor": "Human" if status != "UNCLASSIFIED" else "Importer",
+                    "reason": "Theorem record created",
+                    "at": now,
+                }
+            ],
         }
         _write_json(path, theorem)
         self.rebuild_index()
@@ -335,9 +371,16 @@ class ProjectStore:
         _write_json(self.theorem_path(theorem_id), theorem)
         self.rebuild_index(update_theorem_files=False)
 
-    def transition(self, theorem_id: str, new_status: str, *, actor: str,
-                   reason: str, gate: AuditGate | None = None,
-                   audit_status: str | None = None) -> dict:
+    def transition(
+        self,
+        theorem_id: str,
+        new_status: str,
+        *,
+        actor: str,
+        reason: str,
+        gate: AuditGate | None = None,
+        audit_status: str | None = None,
+    ) -> dict:
         theorem = self.load_theorem(theorem_id)
         current = theorem["status"]
         validate_transition(current, new_status, actor=actor, gate=gate)
@@ -349,13 +392,15 @@ class ProjectStore:
         theorem["status"] = new_status
         if audit_status is not None:
             theorem["audit_status"] = audit_status
-        theorem.setdefault("status_history", []).append({
-            "from": current,
-            "to": new_status,
-            "actor": actor,
-            "reason": reason,
-            "at": now,
-        })
+        theorem.setdefault("status_history", []).append(
+            {
+                "from": current,
+                "to": new_status,
+                "actor": actor,
+                "reason": reason,
+                "at": now,
+            }
+        )
         theorem["last_updated"] = now
         _write_json(self.theorem_path(theorem_id), theorem)
         self.rebuild_index()
@@ -382,14 +427,24 @@ class ProjectStore:
                     _write_json(self.theorem_path(theorem["id"]), theorem)
         entries = []
         for theorem in theorems:
-            entries.append({
-                key: theorem.get(key)
-                for key in (
-                    "id", "title", "status", "source_file", "dependencies",
-                    "tags", "branch", "proof_type", "audit_status", "last_updated",
-                    "notation_scope",
-                )
-            })
+            entries.append(
+                {
+                    key: theorem.get(key)
+                    for key in (
+                        "id",
+                        "title",
+                        "status",
+                        "source_file",
+                        "dependencies",
+                        "tags",
+                        "branch",
+                        "proof_type",
+                        "audit_status",
+                        "last_updated",
+                        "notation_scope",
+                    )
+                }
+            )
         index = {
             "schema_version": SCHEMA_VERSION,
             "generated_at": utc_now(),
@@ -408,10 +463,19 @@ class ProjectStore:
             raise ProjectError(f"source_file escapes project root: {relative}") from exc
         return candidate
 
-    def record_failed_route(self, *, route_id: str, strategy: str, target: str,
-                            obtained: str, failure_point: str,
-                            insufficiency: str, recovery_conditions: str,
-                            theorem_ids: list[str], tags: list[str] | None = None) -> dict:
+    def record_failed_route(
+        self,
+        *,
+        route_id: str,
+        strategy: str,
+        target: str,
+        obtained: str,
+        failure_point: str,
+        insufficiency: str,
+        recovery_conditions: str,
+        theorem_ids: list[str],
+        tags: list[str] | None = None,
+    ) -> dict:
         self.validate_id(route_id)
         self.load_theorem(target)
         for theorem_id in theorem_ids:
@@ -441,20 +505,32 @@ class ProjectStore:
         data = _read_json(self.root / "failed_routes.json", {"routes": []})
         relevant = []
         for route in data.get("routes", []):
-            if theorem_ids.intersection(route.get("theorem_ids", [])) or tags.intersection(route.get("tags", [])):
+            if theorem_ids.intersection(route.get("theorem_ids", [])) or tags.intersection(
+                route.get("tags", [])
+            ):
                 relevant.append(route)
         return relevant
 
-    def update_steering(self, *, freeze_branch: str | None = None,
-                        unfreeze_branch: str | None = None,
-                        prohibit_route: str | None = None,
-                        allow_scope: str | None = None,
-                        add_lemma: str | None = None,
-                        stop_worker: str | None = None,
-                        reauditing: bool = False) -> dict:
+    def update_steering(
+        self,
+        *,
+        freeze_branch: str | None = None,
+        unfreeze_branch: str | None = None,
+        prohibit_route: str | None = None,
+        allow_scope: str | None = None,
+        add_lemma: str | None = None,
+        stop_worker: str | None = None,
+        reauditing: bool = False,
+    ) -> dict:
         path = self.root / "steering" / "directives.json"
         data = _read_json(path, {})
-        for key in ("freeze_branches", "prohibit_routes", "allowed_scope", "added_lemmas", "stop_workers"):
+        for key in (
+            "freeze_branches",
+            "prohibit_routes",
+            "allowed_scope",
+            "added_lemmas",
+            "stop_workers",
+        ):
             data.setdefault(key, [])
         if freeze_branch and freeze_branch not in data["freeze_branches"]:
             data["freeze_branches"].append(freeze_branch)
@@ -516,18 +592,23 @@ class ProjectStore:
                 proof_type="UNKNOWN",
                 claim_type="unclassified",
             )
-            candidates.append({
-                "id": theorem["id"],
-                "title": theorem["title"],
-                "source_file": relative,
-                "status": "UNCLASSIFIED",
-                "note": "Filename and wording were not used to infer proof status.",
-            })
-        _write_json(self.root / "migration_candidates.json", {
-            "schema_version": SCHEMA_VERSION,
-            "generated_at": utc_now(),
-            "candidates": candidates,
-        })
+            candidates.append(
+                {
+                    "id": theorem["id"],
+                    "title": theorem["title"],
+                    "source_file": relative,
+                    "status": "UNCLASSIFIED",
+                    "note": "Filename and wording were not used to infer proof status.",
+                }
+            )
+        _write_json(
+            self.root / "migration_candidates.json",
+            {
+                "schema_version": SCHEMA_VERSION,
+                "generated_at": utc_now(),
+                "candidates": candidates,
+            },
+        )
         return candidates
 
     def consume_reaudit_request(self) -> bool:

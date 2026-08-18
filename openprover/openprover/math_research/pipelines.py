@@ -19,7 +19,6 @@ from .pipeline_primitives import (
     AtomicResourceBudget,
     DISPATCHABLE_TASK_STATUSES,
     LITERATURE_VERDICTS,
-    OBLIGATION_STATUSES,
     PIPELINES,
     QUEUE_NAMES,
     TERMINAL_TASK_STATUSES,
@@ -51,7 +50,9 @@ class AsyncDAGScheduler:
         if not limits and isinstance(self.config.get("budget"), dict):
             budget_cfg = self.config["budget"]
             limits = {
-                "provider_calls": budget_cfg.get("max_provider_calls", budget_cfg.get("provider_calls", 10**9)),
+                "provider_calls": budget_cfg.get(
+                    "max_provider_calls", budget_cfg.get("provider_calls", 10**9)
+                ),
                 "input_tokens": budget_cfg.get("max_input_tokens", 10**9),
                 "output_tokens": budget_cfg.get("max_output_tokens", 10**9),
                 "reasoning_tokens": budget_cfg.get("max_reasoning_tokens", 10**9),
@@ -65,7 +66,8 @@ class AsyncDAGScheduler:
             unknown_usage_policy=str(
                 self.config.get("resource_estimates", {}).get(
                     "unknown_usage_policy", "reserved_as_committed"
-                ) if isinstance(self.config.get("resource_estimates"), dict)
+                )
+                if isinstance(self.config.get("resource_estimates"), dict)
                 else "reserved_as_committed"
             ),
         )
@@ -89,10 +91,15 @@ class AsyncDAGScheduler:
                         if task_id in task_ids:
                             task_ids.remove(task_id)
                         continue
-                    cached = task.get("payload", {}).get("result_cache") or task.get("payload", {}).get("artifact_path")
+                    cached = task.get("payload", {}).get("result_cache") or task.get(
+                        "payload", {}
+                    ).get("artifact_path")
                     task["status"] = (
-                        "NEEDS_RECONCILIATION" if pipeline == "literature" and cached
-                        else "RETRY_READY" if pipeline in {"proof", "verification"} else "READY"
+                        "NEEDS_RECONCILIATION"
+                        if pipeline == "literature" and cached
+                        else "RETRY_READY"
+                        if pipeline in {"proof", "verification"}
+                        else "READY"
                     )
                     task["orphaned_from"] = "ACTIVE"
                     task["orphan_status"] = "ORPHANED_AFTER_RESTART"
@@ -107,9 +114,13 @@ class AsyncDAGScheduler:
                         queue.append(task_id)
                     recovered.append(copy.deepcopy(task))
             if recovered:
-                self._event("ORPHAN_TASKS_RECONCILED", "<campaign>", {
-                    "task_ids": [task["task_id"] for task in recovered],
-                })
+                self._event(
+                    "ORPHAN_TASKS_RECONCILED",
+                    "<campaign>",
+                    {
+                        "task_ids": [task["task_id"] for task in recovered],
+                    },
+                )
         return recovered
 
     def add_obligation(
@@ -141,12 +152,19 @@ class AsyncDAGScheduler:
                 raise ProjectError(f"Obligation already exists: {obligation_id}")
             dependencies = list(dict.fromkeys(dependencies or []))
             missing = [
-                item for item in dependencies
+                item
+                for item in dependencies
                 if self.state["obligations"].get(item, {}).get("status") != "CLOSED"
             ]
-            parent = self.state["obligations"].get(parent_obligation_id) if parent_obligation_id else None
+            parent = (
+                self.state["obligations"].get(parent_obligation_id)
+                if parent_obligation_id
+                else None
+            )
             tier_order = {"routine": 0, "research": 1, "strategic": 2}
-            inherited = (parent or {}).get("minimum_inherited_tier") or (parent or {}).get("current_tier")
+            inherited = (parent or {}).get("minimum_inherited_tier") or (parent or {}).get(
+                "current_tier"
+            )
             inherited = inherited if inherited in tier_order else "routine"
             requested_tier = current_tier if current_tier in tier_order else inherited
             minimum = minimum_inherited_tier if minimum_inherited_tier in tier_order else inherited
@@ -176,9 +194,14 @@ class AsyncDAGScheduler:
                 "context": copy.deepcopy(context or {}),
                 "literature_first": bool(literature_first),
                 "dual_track": bool(dual_track),
-                "status": "BLOCKED_DEPENDENCY" if missing else (
-                    "DUAL_TRACK" if dual_track else
-                    "LITERATURE_READY" if literature_first else "PROOF_READY"
+                "status": "BLOCKED_DEPENDENCY"
+                if missing
+                else (
+                    "DUAL_TRACK"
+                    if dual_track
+                    else "LITERATURE_READY"
+                    if literature_first
+                    else "PROOF_READY"
                 ),
                 "created_at": utc_now(),
                 "updated_at": utc_now(),
@@ -186,9 +209,9 @@ class AsyncDAGScheduler:
             self.state["obligations"][obligation_id] = obligation
             for dependency in dependencies:
                 if dependency in self.state["obligations"]:
-                    self.state["obligations"][dependency].setdefault(
-                        "dependents", []
-                    ).append(obligation_id)
+                    self.state["obligations"][dependency].setdefault("dependents", []).append(
+                        obligation_id
+                    )
             if missing:
                 self.state["queues"]["BLOCKED_QUEUE"].append(obligation_id)
                 self._event("OBLIGATION_BLOCKED", obligation_id, {"dependencies": missing})
@@ -199,14 +222,16 @@ class AsyncDAGScheduler:
 
     def add_literature_request(self, request: dict) -> dict:
         required = {
-            "obligation_id", "requested_statement", "why_needed",
-            "blocking_or_nonblocking", "expected_impact", "search_hints",
+            "obligation_id",
+            "requested_statement",
+            "why_needed",
+            "blocking_or_nonblocking",
+            "expected_impact",
+            "search_hints",
         }
         missing = required - set(request)
         if missing:
-            raise ProjectError(
-                "LITERATURE_REQUEST missing fields: " + ", ".join(sorted(missing))
-            )
+            raise ProjectError("LITERATURE_REQUEST missing fields: " + ", ".join(sorted(missing)))
         obligation_id = str(request["obligation_id"])
         with self._lock:
             obligation = self._obligation(obligation_id)
@@ -217,9 +242,7 @@ class AsyncDAGScheduler:
                 return copy.deepcopy(obligation)
             obligation["literature_request_hash"] = request_hash
             request_value = copy.deepcopy(request)
-            request_value.setdefault(
-                "literature_request_id", f"litreq-{request_hash[:16]}"
-            )
+            request_value.setdefault("literature_request_id", f"litreq-{request_hash[:16]}")
             obligation["literature_request"] = request_value
             blocking = request.get("blocking_or_nonblocking") == "blocking"
             obligation["literature_status"] = "READY"
@@ -229,7 +252,9 @@ class AsyncDAGScheduler:
             if obligation["status"] not in {"CLOSED", "BLOCKED_DEPENDENCY"} and blocking:
                 obligation["status"] = "LITERATURE_READY"
                 self.create_task(
-                    "literature", obligation_id, role="literature_lead",
+                    "literature",
+                    obligation_id,
+                    role="literature_lead",
                     payload={"request": copy.deepcopy(request_value)},
                     priority=obligation["priority"],
                 )
@@ -237,7 +262,9 @@ class AsyncDAGScheduler:
                 # A nonblocking request gets its own literature task while the
                 # proof status and sibling paths remain runnable.
                 self.create_task(
-                    "literature", obligation_id, role="literature_lead",
+                    "literature",
+                    obligation_id,
+                    role="literature_lead",
                     payload={"request": copy.deepcopy(request_value)},
                     priority=obligation["priority"],
                 )
@@ -333,7 +360,9 @@ class AsyncDAGScheduler:
                 return copy.deepcopy(task)
             if task["status"] not in {"ACTIVE", "CANCEL_REQUESTED"}:
                 raise ProjectError(f"Task is not ACTIVE: {task_id}")
-            task["status"] = "COMPLETED_BEFORE_CANCEL" if task["status"] == "CANCEL_REQUESTED" else "COMPLETE"
+            task["status"] = (
+                "COMPLETED_BEFORE_CANCEL" if task["status"] == "CANCEL_REQUESTED" else "COMPLETE"
+            )
             task["completed_at"] = utc_now()
             task["result"] = result
             active = self.state["active"][task["pipeline"]]
@@ -361,9 +390,9 @@ class AsyncDAGScheduler:
             if task_id in self.state["active"].get(task["pipeline"], []):
                 self.state["active"][task["pipeline"]].remove(task_id)
             obligation = self._obligation(task["obligation_id"])
-            obligation.setdefault("failure_counters", {})[failure_kind] = int(
-                obligation.setdefault("failure_counters", {}).get(failure_kind, 0)
-            ) + 1
+            obligation.setdefault("failure_counters", {})[failure_kind] = (
+                int(obligation.setdefault("failure_counters", {}).get(failure_kind, 0)) + 1
+            )
             obligation["status"] = {
                 "proof": "PROOF_READY",
                 "literature": "LITERATURE_PENDING",
@@ -387,9 +416,15 @@ class AsyncDAGScheduler:
             ):
                 if task_id in collection:
                     collection.remove(task_id)
-            self._event("TASK_CANCELLED", task["obligation_id"], {
-                "task_id": task_id, "reason": reason, "redirect": redirect,
-            })
+            self._event(
+                "TASK_CANCELLED",
+                task["obligation_id"],
+                {
+                    "task_id": task_id,
+                    "reason": reason,
+                    "redirect": redirect,
+                },
+            )
             self._save()
             return copy.deepcopy(task)
 
@@ -406,9 +441,14 @@ class AsyncDAGScheduler:
                 task["status"] = "CANCEL_REQUESTED"
             task["cancellation_reason"] = reason
             task["redirect_on_cancel"] = bool(redirect)
-            self._event("TASK_CANCEL_REQUESTED", task["obligation_id"], {
-                "task_id": task_id, "reason": reason,
-            })
+            self._event(
+                "TASK_CANCEL_REQUESTED",
+                task["obligation_id"],
+                {
+                    "task_id": task_id,
+                    "reason": reason,
+                },
+            )
             self._save()
             if task["status"] == "CANCELLED_BEFORE_START":
                 return copy.deepcopy(task)
@@ -425,10 +465,15 @@ class AsyncDAGScheduler:
             task["status"] = "REDIRECTED" if task.get("redirect_on_cancel") else "INTERRUPTED"
             task["completed_at"] = utc_now()
             task["interruption_detail"] = detail
-            for collection in (self.state["queues"][QUEUE_NAMES[task["pipeline"]]], self.state["active"][task["pipeline"]]):
+            for collection in (
+                self.state["queues"][QUEUE_NAMES[task["pipeline"]]],
+                self.state["active"][task["pipeline"]],
+            ):
                 if task_id in collection:
                     collection.remove(task_id)
-            self._event("TASK_INTERRUPTED", task["obligation_id"], {"task_id": task_id, "detail": detail})
+            self._event(
+                "TASK_INTERRUPTED", task["obligation_id"], {"task_id": task_id, "detail": detail}
+            )
             self._save()
             return copy.deepcopy(task)
 
@@ -437,20 +482,31 @@ class AsyncDAGScheduler:
         result = result if isinstance(result, dict) else {}
         usage = (
             result.get("usage")
-            or (result.get("provider") if isinstance(result.get("provider"), dict) else {}).get("usage")
+            or (result.get("provider") if isinstance(result.get("provider"), dict) else {}).get(
+                "usage"
+            )
             or result.get("routing", {}).get("usage")
             or {}
         )
-        normalized = {key: int(usage.get(key, 0) or 0) for key in AtomicResourceBudget.FIELDS if key != "provider_calls"}
+        normalized = {
+            key: int(usage.get(key, 0) or 0)
+            for key in AtomicResourceBudget.FIELDS
+            if key != "provider_calls"
+        }
         with self._lock:
             by_pipeline = self.state.setdefault("usage_by_pipeline", {})
-            pipeline = by_pipeline.setdefault(task.get("pipeline", "unknown"), {key: 0 for key in AtomicResourceBudget.FIELDS})
+            pipeline = by_pipeline.setdefault(
+                task.get("pipeline", "unknown"), {key: 0 for key in AtomicResourceBudget.FIELDS}
+            )
             pipeline["provider_calls"] = int(pipeline.get("provider_calls", 0)) + 1
             for key, value in normalized.items():
                 pipeline[key] = int(pipeline.get(key, 0)) + value
             by_route = self.state.setdefault("usage_by_route", {})
             routing = result.get("routing", {}) if isinstance(result.get("routing"), dict) else {}
-            route_key = "|".join(str(routing.get(key) or task.get(key) or "unknown") for key in ("tier", "role", "model", "provider"))
+            route_key = "|".join(
+                str(routing.get(key) or task.get(key) or "unknown")
+                for key in ("tier", "role", "model", "provider")
+            )
             bucket = by_route.setdefault(route_key, {key: 0 for key in AtomicResourceBudget.FIELDS})
             bucket["provider_calls"] = int(bucket.get("provider_calls", 0)) + 1
             for key, value in normalized.items():
@@ -458,18 +514,26 @@ class AsyncDAGScheduler:
             self._save()
 
     def reconcile_resource_usage(
-        self, task_id: str, reservation: dict, result: dict | None,
-        *, interrupted: bool = False,
+        self,
+        task_id: str,
+        reservation: dict,
+        result: dict | None,
+        *,
+        interrupted: bool = False,
     ) -> dict:
         result = result if isinstance(result, dict) else {}
         usage = (
             result.get("usage")
-            or (result.get("provider") if isinstance(result.get("provider"), dict) else {}).get("usage")
+            or (result.get("provider") if isinstance(result.get("provider"), dict) else {}).get(
+                "usage"
+            )
             or result.get("routing", {}).get("usage")
         )
-        usage_known = isinstance(usage, dict) and all(
-            key in usage for key in AtomicResourceBudget.TOKEN_FIELDS
-        ) and not interrupted
+        usage_known = (
+            isinstance(usage, dict)
+            and all(key in usage for key in AtomicResourceBudget.TOKEN_FIELDS)
+            and not interrupted
+        )
         actual = copy.deepcopy(usage or {})
         actual["provider_calls"] = 1
         reconciliation = self.resource_budget.reconcile(
@@ -486,10 +550,14 @@ class AsyncDAGScheduler:
                     "reconciliation": copy.deepcopy(reconciliation),
                     "at": utc_now(),
                 }
-                self._event("GLOBAL_HARD_BUDGET_STOP", "<campaign>", {
-                    "task_id": task_id,
-                    "exceeded": reconciliation["exceeded"],
-                })
+                self._event(
+                    "GLOBAL_HARD_BUDGET_STOP",
+                    "<campaign>",
+                    {
+                        "task_id": task_id,
+                        "exceeded": reconciliation["exceeded"],
+                    },
+                )
             self._save()
         return reconciliation
 
@@ -509,9 +577,7 @@ class AsyncDAGScheduler:
         obligation = self._obligation(obligation_id)
         request = obligation.get("literature_request") or {}
         request_id = str(
-            request.get("literature_request_id")
-            or obligation.get("literature_request_hash")
-            or ""
+            request.get("literature_request_id") or obligation.get("literature_request_hash") or ""
         )
         literature_config = self.config.get("literature", {})
         campaign_approval = bool(
@@ -520,16 +586,15 @@ class AsyncDAGScheduler:
         )
         approval_source = (
             str(literature_config.get("public_search_approval_source") or "operator")
-            if campaign_approval else None
+            if campaign_approval
+            else None
         )
         created = []
         for proposal in chosen:
             if not isinstance(proposal, dict):
                 raise ProjectError("Literature Lead search_tasks entries must be objects")
             strategy = str(proposal.get("strategy") or "").strip()
-            query = self._validate_public_query(
-                str(proposal.get("public_query") or ""), obligation
-            )
+            query = self._validate_public_query(str(proposal.get("public_query") or ""), obligation)
             approved_at = utc_now() if campaign_approval else None
             payload = {
                 "strategy": strategy,
@@ -546,7 +611,8 @@ class AsyncDAGScheduler:
                 "limit": int(proposal.get("limit", 10) or 10),
             }
             task = self.create_task(
-                "literature", obligation_id,
+                "literature",
+                obligation_id,
                 role="literature_searcher",
                 payload=payload,
                 priority={"HIGH": 20, "MEDIUM": 10, "LOW": 0}.get(
@@ -555,10 +621,15 @@ class AsyncDAGScheduler:
                 parent_task_id=lead_task_id,
             )
             created.append(task)
-            self._event("PUBLIC_QUERY_APPROVED" if campaign_approval else "PUBLIC_QUERY_NOT_AUTHORIZED", obligation_id, {
-                "task_id": task["task_id"], "query_hash": payload["query_hash"],
-                "approval_source": approval_source,
-            })
+            self._event(
+                "PUBLIC_QUERY_APPROVED" if campaign_approval else "PUBLIC_QUERY_NOT_AUTHORIZED",
+                obligation_id,
+                {
+                    "task_id": task["task_id"],
+                    "query_hash": payload["query_hash"],
+                    "approval_source": approval_source,
+                },
+            )
         return created
 
     @staticmethod
@@ -578,12 +649,16 @@ class AsyncDAGScheduler:
         return query
 
     def register_source(self, source: dict, *, obligation_id: str) -> tuple[dict, bool]:
-        identifier = str(
-            source.get("DOI_or_stable_identifier")
-            or source.get("stable_identifier")
-            or source.get("url")
-            or ""
-        ).strip().casefold()
+        identifier = (
+            str(
+                source.get("DOI_or_stable_identifier")
+                or source.get("stable_identifier")
+                or source.get("url")
+                or ""
+            )
+            .strip()
+            .casefold()
+        )
         if not identifier:
             payload = json.dumps(source, ensure_ascii=False, sort_keys=True)
             identifier = "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -612,7 +687,11 @@ class AsyncDAGScheduler:
             return copy.deepcopy(record), True
 
     def create_reader_task(
-        self, obligation_id: str, source_id: str, *, deep: bool = False,
+        self,
+        obligation_id: str,
+        source_id: str,
+        *,
+        deep: bool = False,
         parent_task_id: str | None = None,
     ) -> dict:
         with self._lock:
@@ -620,22 +699,31 @@ class AsyncDAGScheduler:
                 raise ProjectError(f"Unknown literature source: {source_id}")
             role = "literature_deep_reader" if deep else "literature_reader"
             return self.create_task(
-                "literature", obligation_id, role=role,
+                "literature",
+                obligation_id,
+                role=role,
                 payload={"source_id": source_id, "deep_read": bool(deep)},
                 parent_task_id=parent_task_id,
             )
 
     def create_citation_chain_task(
-        self, obligation_id: str, source_id: str, *, depth: int,
+        self,
+        obligation_id: str,
+        source_id: str,
+        *,
+        depth: int,
         parent_task_id: str | None = None,
     ) -> dict:
         maximum = int(self._literature_budget("max_citation_chain_depth", 2))
         if depth > maximum:
             raise ProjectError("Citation-chain depth budget exhausted")
         return self.create_task(
-            "literature", obligation_id, role="literature_searcher",
+            "literature",
+            obligation_id,
+            role="literature_searcher",
             payload={"strategy": "citation_chain", "source_id": source_id},
-            parent_task_id=parent_task_id, citation_depth=depth,
+            parent_task_id=parent_task_id,
+            citation_depth=depth,
         )
 
     def apply_literature_result(
@@ -669,7 +757,8 @@ class AsyncDAGScheduler:
                         "assumption_snapshot_hash"
                     ]
                     self.create_task(
-                        "verification", obligation_id,
+                        "verification",
+                        obligation_id,
                         role="reconstruction",
                         payload={
                             "authority_status": "VERIFIED_SOURCE_THEOREM",
@@ -677,44 +766,69 @@ class AsyncDAGScheduler:
                             **copy.deepcopy(app_context),
                         },
                     )
-                    self._event("SOURCE_THEOREM_VERIFIED", obligation_id, {
-                        "action": "APPLICABILITY_RECONSTRUCTION", "verdict": verdict,
-                    })
+                    self._event(
+                        "SOURCE_THEOREM_VERIFIED",
+                        obligation_id,
+                        {
+                            "action": "APPLICABILITY_RECONSTRUCTION",
+                            "verdict": verdict,
+                        },
+                    )
                 else:
                     obligation["status"] = "LITERATURE_PENDING"
                     self.create_task(
-                        "literature", obligation_id,
+                        "literature",
+                        obligation_id,
                         role="literature_authority_auditor",
                         payload={
                             "minimum_tier": "research",
                             "authority_verification_required": True,
                         },
                     )
-                    self._event("LITERATURE_RESULT_AVAILABLE", obligation_id, {
-                        "action": "AUTHORITY_VERIFY", "verdict": verdict,
-                    })
+                    self._event(
+                        "LITERATURE_RESULT_AVAILABLE",
+                        obligation_id,
+                        {
+                            "action": "AUTHORITY_VERIFY",
+                            "verdict": verdict,
+                        },
+                    )
             elif verdict == "NO_SUFFICIENT_RESULT_FOUND":
                 self._cancel_literature_tasks(obligation_id)
                 obligation["status"] = "PROOF_READY"
                 self.create_task("proof", obligation_id, role="constructive")
-                self._event("LITERATURE_RESULT_AVAILABLE", obligation_id, {
-                    "action": "RELEASE_PROOF", "verdict": verdict,
-                })
+                self._event(
+                    "LITERATURE_RESULT_AVAILABLE",
+                    obligation_id,
+                    {
+                        "action": "RELEASE_PROOF",
+                        "verdict": verdict,
+                    },
+                )
             elif verdict in {"PARTIAL_RESULT_FOUND", "METHOD_FOUND"}:
                 key = "partial_matches" if verdict == "PARTIAL_RESULT_FOUND" else "method_matches"
                 self.state["literature"][key] += 1
                 obligation["status"] = "PROOF_READY"
                 self.create_task(
-                    "proof", obligation_id, role="constructive",
+                    "proof",
+                    obligation_id,
+                    role="constructive",
                     payload={"literature_verdict": verdict},
                 )
             elif verdict in {"INSUFFICIENT_SEARCH", "CONFLICTING_LITERATURE"}:
                 obligation["status"] = "LITERATURE_PENDING"
-                self._event("LITERATURE_RESULT_AVAILABLE", obligation_id, {
-                    "action": "ESCALATE", "verdict": verdict,
-                })
+                self._event(
+                    "LITERATURE_RESULT_AVAILABLE",
+                    obligation_id,
+                    {
+                        "action": "ESCALATE",
+                        "verdict": verdict,
+                    },
+                )
             elif verdict == "LITERATURE_PROVIDER_UNAVAILABLE":
-                allow = bool(self._config("allow_proof_fallback_when_literature_unavailable", False))
+                allow = bool(
+                    self._config("allow_proof_fallback_when_literature_unavailable", False)
+                )
                 if allow:
                     obligation["status"] = "PROOF_READY"
                     obligation["proof_without_literature_screening"] = True
@@ -725,7 +839,10 @@ class AsyncDAGScheduler:
             return copy.deepcopy(obligation)
 
     def reuse_verified_source_theorem(
-        self, obligation_id: str, authority_record: dict, *,
+        self,
+        obligation_id: str,
+        authority_record: dict,
+        *,
         verdict: str = "EXACT_RESULT_FOUND",
     ) -> dict:
         """Reuse source truth while requiring fresh obligation applicability."""
@@ -740,7 +857,8 @@ class AsyncDAGScheduler:
                 "reused_source_truth": True,
             }
         return self.apply_literature_result(
-            obligation_id, verdict=verdict,
+            obligation_id,
+            verdict=verdict,
             authority_status="VERIFIED_SOURCE_THEOREM",
         )
 
@@ -765,13 +883,18 @@ class AsyncDAGScheduler:
                 return self.snapshot()["obligations"][child_id]
             return self.add_obligation(
                 child_id,
-                target_statement=str(payload.get("statement") or payload.get("target_statement") or ""),
-                parent_obligation_id=str(payload.get("parent_obligation_id") or obligation_id or "") or None,
+                target_statement=str(
+                    payload.get("statement") or payload.get("target_statement") or ""
+                ),
+                parent_obligation_id=str(payload.get("parent_obligation_id") or obligation_id or "")
+                or None,
                 dependencies=list(payload.get("dependencies") or []),
                 branch_id=str(payload.get("branch_id") or "main"),
                 current_tier=payload.get("current_tier") or payload.get("tier"),
                 minimum_inherited_tier=payload.get("minimum_inherited_tier"),
-                fresh_independent_obligation=bool(payload.get("fresh_independent_obligation", False)),
+                fresh_independent_obligation=bool(
+                    payload.get("fresh_independent_obligation", False)
+                ),
                 created_by_call_id=payload.get("created_by_call_id"),
                 created_by_role=payload.get("created_by_role"),
                 risk_level=payload.get("risk_level"),
@@ -802,10 +925,16 @@ class AsyncDAGScheduler:
         if event_type == "LITERATURE_REQUEST":
             return self.add_literature_request(payload)
         task_id = str(payload.get("task_id") or event.get("task_id") or "")
-        if event_type in {"WORKER_RESULT", "PROOF_RESULT", "VERIFIER_RESULT", "LITERATURE_RESULT_AVAILABLE"} and task_id:
+        if (
+            event_type
+            in {"WORKER_RESULT", "PROOF_RESULT", "VERIFIER_RESULT", "LITERATURE_RESULT_AVAILABLE"}
+            and task_id
+        ):
             return self.complete_task(task_id, payload.get("result") or payload)
         if event_type == "TASK_CANCELLED" and task_id:
-            return self.cancel_task(task_id, reason=str(payload.get("reason") or "event cancellation"))
+            return self.cancel_task(
+                task_id, reason=str(payload.get("reason") or "event cancellation")
+            )
         return None
 
     def close_obligation(self, obligation_id: str, *, reason: str) -> dict:
@@ -827,14 +956,19 @@ class AsyncDAGScheduler:
         obligation_id = obligation["obligation_id"]
         if obligation["literature_first"] or obligation["dual_track"]:
             self.create_task(
-                "literature", obligation_id, role="literature_lead",
+                "literature",
+                obligation_id,
+                role="literature_lead",
                 payload={"target_statement": obligation["target_statement"]},
                 priority=obligation["priority"],
             )
         if obligation["dual_track"]:
             proof_task = self.create_task(
-                "proof", obligation_id, role="constructive",
-                payload={"speculative": True}, priority=obligation["priority"],
+                "proof",
+                obligation_id,
+                role="constructive",
+                payload={"speculative": True},
+                priority=obligation["priority"],
                 speculative=True,
             )
             self.state["dual_tracks"][obligation_id] = {
@@ -844,7 +978,9 @@ class AsyncDAGScheduler:
             }
         elif not obligation["literature_first"]:
             self.create_task(
-                "proof", obligation_id, role="constructive",
+                "proof",
+                obligation_id,
+                role="constructive",
                 priority=obligation["priority"],
             )
 
@@ -856,15 +992,26 @@ class AsyncDAGScheduler:
                 event_payload.setdefault("parent_obligation_id", task["obligation_id"])
                 event_payload.setdefault("created_by_role", task.get("role"))
                 event_payload.setdefault("created_by_call_id", task.get("call_id"))
-                self.handle_event({"event": event_name, "obligation_id": task["obligation_id"], "payload": event_payload})
+                self.handle_event(
+                    {
+                        "event": event_name,
+                        "obligation_id": task["obligation_id"],
+                        "payload": event_payload,
+                    }
+                )
         literature_request = result.get("LITERATURE_REQUEST") or result.get("literature_request")
         if isinstance(literature_request, dict):
             self.add_literature_request(literature_request)
         if result.get("proof_candidate") or result.get("success"):
             obligation["status"] = "VERIFICATION_READY"
             self.create_task(
-                "verification", task["obligation_id"], role="theorem_verifier",
-                payload={"proof_task_id": task["task_id"], "high_value": bool(result.get("high_value"))},
+                "verification",
+                task["obligation_id"],
+                role="theorem_verifier",
+                payload={
+                    "proof_task_id": task["task_id"],
+                    "high_value": bool(result.get("high_value")),
+                },
             )
             dual = self.state["dual_tracks"].get(task["obligation_id"])
             if dual:
@@ -890,12 +1037,11 @@ class AsyncDAGScheduler:
         elif role == "literature_searcher":
             metrics["searcher_calls"] += 1
             for source in result.get("sources", []):
-                record, created = self.register_source(
-                    source, obligation_id=task["obligation_id"]
-                )
+                record, created = self.register_source(source, obligation_id=task["obligation_id"])
                 if created and result.get("create_reader", True):
                     self.create_reader_task(
-                        task["obligation_id"], record["source_id"],
+                        task["obligation_id"],
+                        record["source_id"],
                         deep=bool(source.get("deep_read_required")),
                         parent_task_id=task["task_id"],
                     )
@@ -908,7 +1054,9 @@ class AsyncDAGScheduler:
                 depth = int(task.get("citation_depth", 0)) + 1
                 if depth <= int(self._literature_budget("max_citation_chain_depth", 2)):
                     self.create_citation_chain_task(
-                        task["obligation_id"], source_id, depth=depth,
+                        task["obligation_id"],
+                        source_id,
+                        depth=depth,
                         parent_task_id=task["task_id"],
                     )
         elif role == "literature_authority_auditor":
@@ -923,16 +1071,22 @@ class AsyncDAGScheduler:
                     ),
                     authority_status="VERIFIED_SOURCE_THEOREM",
                     synthesis_path=result.get("synthesis_path")
-                        or obligation.get("literature_synthesis"),
+                    or obligation.get("literature_synthesis"),
                 )
             else:
-                obligation["authority_status"] = result.get("authority_status") or "AUTHORITY_VERIFICATION_FAILED"
+                obligation["authority_status"] = (
+                    result.get("authority_status") or "AUTHORITY_VERIFICATION_FAILED"
+                )
                 obligation["literature_status"] = "AUTHORITY_VERIFICATION_FAILED"
                 obligation["status"] = "LITERATURE_PENDING"
-                self._event("AUTHORITY_REJECTED", task["obligation_id"], {
-                    "task_id": task["task_id"],
-                    "errors": result.get("authority_verification_errors", []),
-                })
+                self._event(
+                    "AUTHORITY_REJECTED",
+                    task["obligation_id"],
+                    {
+                        "task_id": task["task_id"],
+                        "errors": result.get("authority_verification_errors", []),
+                    },
+                )
                 return
         elif role == "literature_synthesizer":
             if isinstance(result.get("authority_record"), dict):
@@ -944,30 +1098,36 @@ class AsyncDAGScheduler:
         verdict = result.get("literature_verdict")
         if verdict and role != "literature_authority_auditor":
             self.apply_literature_result(
-                task["obligation_id"], verdict=verdict,
+                task["obligation_id"],
+                verdict=verdict,
                 authority_status=result.get("authority_status"),
                 synthesis_path=result.get("synthesis_path"),
             )
-        if role in {
-            "literature_searcher", "literature_reader", "literature_deep_reader"
-        }:
+        if role in {"literature_searcher", "literature_reader", "literature_deep_reader"}:
             self._maybe_schedule_synthesizer(task["obligation_id"])
 
     def _complete_verification(self, task: dict, result: dict, obligation: dict) -> None:
         obligation["verification_status"] = "RESULT_AVAILABLE"
         verdict = str(result.get("verdict", "UNCERTAIN")).upper()
-        if task.get("role") == "reconstruction" and verdict in {
-            "RECONSTRUCTION_COMPLETE", "APPLICABILITY_CANDIDATE", "CORRECT",
-        } and result.get("applicability_id"):
+        if (
+            task.get("role") == "reconstruction"
+            and verdict
+            in {
+                "RECONSTRUCTION_COMPLETE",
+                "APPLICABILITY_CANDIDATE",
+                "CORRECT",
+            }
+            and result.get("applicability_id")
+        ):
             obligation["applicability_id"] = result["applicability_id"]
             obligation["applicability_status"] = "APPLICABILITY_CANDIDATE"
-            obligation["applicability_assumption_snapshot"] = result.get(
-                "assumption_snapshot_hash"
-            )
+            obligation["applicability_assumption_snapshot"] = result.get("assumption_snapshot_hash")
             obligation["reconstruction_artifact"] = result.get("result_artifact")
             obligation["status"] = "VERIFICATION_READY"
             self.create_task(
-                "verification", task["obligation_id"], role="theorem_verifier",
+                "verification",
+                task["obligation_id"],
+                role="theorem_verifier",
                 payload={
                     "reconstruction_task_id": task["task_id"],
                     "applicability_id": result["applicability_id"],
@@ -1000,23 +1160,36 @@ class AsyncDAGScheduler:
                 self._cancel_speculative_proof(task["obligation_id"], redirect=True)
                 self.close_obligation(task["obligation_id"], reason="applicable external authority")
                 self.state["literature"]["literature_guided_closures"] += 1
-                self._event("APPLICABLE_AUTHORITY_AVAILABLE", task["obligation_id"], {
-                    "applicability_id": expected_id,
-                })
+                self._event(
+                    "APPLICABLE_AUTHORITY_AVAILABLE",
+                    task["obligation_id"],
+                    {
+                        "applicability_id": expected_id,
+                    },
+                )
             else:
                 obligation["applicability_status"] = result.get(
                     "applicability_status", "APPLICABILITY_REJECTED"
                 )
                 obligation["status"] = "PROOF_READY"
-                obligation.setdefault("verification_failures", []).append({
-                    "verdict": verdict,
-                    "detail": result.get("detail") or result.get("applicability_verification_errors"),
-                    "at": utc_now(),
-                })
+                obligation.setdefault("verification_failures", []).append(
+                    {
+                        "verdict": verdict,
+                        "detail": result.get("detail")
+                        or result.get("applicability_verification_errors"),
+                        "at": utc_now(),
+                    }
+                )
             return
-        if task.get("role") == "reconstruction" and obligation.get("authority_status") == "VERIFIED_SOURCE_THEOREM":
+        if (
+            task.get("role") == "reconstruction"
+            and obligation.get("authority_status") == "VERIFIED_SOURCE_THEOREM"
+        ):
             verdict = "MISSING_APPLICABILITY_RECONSTRUCTION"
-        if obligation.get("authority_status") == "VERIFIED_SOURCE_THEOREM" and task.get("role") == "theorem_verifier":
+        if (
+            obligation.get("authority_status") == "VERIFIED_SOURCE_THEOREM"
+            and task.get("role") == "theorem_verifier"
+        ):
             # A generic CORRECT verdict cannot bypass the dedicated
             # reconstruction + independent applicability path.
             verdict = "MISSING_APPLICABILITY_EVIDENCE"
@@ -1024,13 +1197,17 @@ class AsyncDAGScheduler:
             self.close_obligation(task["obligation_id"], reason="verified")
         else:
             obligation["status"] = "PROOF_READY"
-            obligation.setdefault("verification_failures", []).append({
-                "verdict": verdict,
-                "detail": result.get("detail"),
-                "at": utc_now(),
-            })
+            obligation.setdefault("verification_failures", []).append(
+                {
+                    "verdict": verdict,
+                    "detail": result.get("detail"),
+                    "at": utc_now(),
+                }
+            )
             self.create_task(
-                "proof", task["obligation_id"], role="constructive",
+                "proof",
+                task["obligation_id"],
+                role="constructive",
                 payload={"verification_feedback": result},
             )
 
@@ -1044,7 +1221,10 @@ class AsyncDAGScheduler:
             if not isinstance(item, dict):
                 continue
             if str(item.get("status") or "").upper() not in {
-                "AUTHORIZED", "VERIFIED", "PROVED", "CLOSED",
+                "AUTHORIZED",
+                "VERIFIED",
+                "PROVED",
+                "CLOSED",
             }:
                 continue
             assumptions.append(copy.deepcopy(item))
@@ -1053,14 +1233,19 @@ class AsyncDAGScheduler:
         for dependency_id in sorted(obligation.get("dependencies", [])):
             dependency = self.state["obligations"].get(dependency_id, {})
             if dependency.get("status") == "CLOSED":
-                lemmas.append({
-                    "id": dependency_id,
-                    "statement": dependency.get("target_statement"),
-                    "status": "CLOSED",
-                })
+                lemmas.append(
+                    {
+                        "id": dependency_id,
+                        "statement": dependency.get("target_statement"),
+                        "status": "CLOSED",
+                    }
+                )
         target = str(obligation.get("target_statement") or "")
         snapshot = applicability_assumption_snapshot(
-            obligation_id, target, assumptions, lemmas,
+            obligation_id,
+            target,
+            assumptions,
+            lemmas,
         )
         return {
             "current_target": target,
@@ -1077,9 +1262,10 @@ class AsyncDAGScheduler:
             current = self.applicability_context(obligation_id)["assumption_snapshot_hash"]
             if stored != current:
                 obligation["applicability_status"] = "NEEDS_REVALIDATION"
-                if obligation.get("status") == "CLOSED" and obligation.get(
-                    "closed_reason"
-                ) == "applicable external authority":
+                if (
+                    obligation.get("status") == "CLOSED"
+                    and obligation.get("closed_reason") == "applicable external authority"
+                ):
                     obligation["status"] = "VERIFICATION_READY"
                     obligation.pop("closed_at", None)
                     obligation.pop("closed_reason", None)
@@ -1102,9 +1288,7 @@ class AsyncDAGScheduler:
             return
         task["status"] = "REDIRECTED" if redirect else "CANCELLED"
         task["completed_at"] = utc_now()
-        for collection in (
-            self.state["queues"]["PROOF_QUEUE"], self.state["active"]["proof"]
-        ):
+        for collection in (self.state["queues"]["PROOF_QUEUE"], self.state["active"]["proof"]):
             if task_id in collection:
                 collection.remove(task_id)
         dual["literature_completed_first"] = True
@@ -1115,22 +1299,22 @@ class AsyncDAGScheduler:
 
     def _maybe_schedule_synthesizer(self, obligation_id: str) -> None:
         relevant = [
-            task for task in self.state["tasks"].values()
-            if task["obligation_id"] == obligation_id
-            and task["pipeline"] == "literature"
+            task
+            for task in self.state["tasks"].values()
+            if task["obligation_id"] == obligation_id and task["pipeline"] == "literature"
         ]
         if any(task["role"] == "literature_synthesizer" for task in relevant):
             return
         unfinished_research = any(
-            task["role"] in {
-                "literature_searcher", "literature_reader", "literature_deep_reader"
-            }
+            task["role"] in {"literature_searcher", "literature_reader", "literature_deep_reader"}
             and task["status"] in {"READY", "ACTIVE"}
             for task in relevant
         )
         if not unfinished_research:
             self.create_task(
-                "literature", obligation_id, role="literature_synthesizer",
+                "literature",
+                obligation_id,
+                role="literature_synthesizer",
                 payload={"required_output": "LITERATURE_SYNTHESIS.md"},
             )
 
@@ -1154,7 +1338,8 @@ class AsyncDAGScheduler:
         for dependent_id in self._obligation(obligation_id).get("dependents", []):
             dependent = self._obligation(dependent_id)
             unresolved = [
-                item for item in dependent["dependencies"]
+                item
+                for item in dependent["dependencies"]
                 if self._obligation(item)["status"] != "CLOSED"
             ]
             if unresolved:
@@ -1162,8 +1347,11 @@ class AsyncDAGScheduler:
             if dependent_id in self.state["queues"]["BLOCKED_QUEUE"]:
                 self.state["queues"]["BLOCKED_QUEUE"].remove(dependent_id)
             dependent["status"] = (
-                "DUAL_TRACK" if dependent.get("dual_track") else
-                "LITERATURE_READY" if dependent.get("literature_first") else "PROOF_READY"
+                "DUAL_TRACK"
+                if dependent.get("dual_track")
+                else "LITERATURE_READY"
+                if dependent.get("literature_first")
+                else "PROOF_READY"
             )
             self._activate_initial_tracks(dependent)
             self._event("DEPENDENCY_UNBLOCKED", dependent_id, {"dependency": obligation_id})
@@ -1181,13 +1369,15 @@ class AsyncDAGScheduler:
     def _event(self, event_type: str, obligation_id: str, payload: dict | None = None) -> None:
         number = int(self.state["next_event_number"])
         self.state["next_event_number"] = number + 1
-        self.state["events"].append({
-            "event_id": f"event-{number:08d}",
-            "type": event_type,
-            "obligation_id": obligation_id,
-            "payload": copy.deepcopy(payload or {}),
-            "created_at": utc_now(),
-        })
+        self.state["events"].append(
+            {
+                "event_id": f"event-{number:08d}",
+                "type": event_type,
+                "obligation_id": obligation_id,
+                "payload": copy.deepcopy(payload or {}),
+                "created_at": utc_now(),
+            }
+        )
 
     def _config(self, key: str, default: Any) -> Any:
         routing = self.config.get("routing", {})
@@ -1199,8 +1389,7 @@ class AsyncDAGScheduler:
 
     def _enforce_task_budget(self, pipeline: str, role: str) -> None:
         existing = [
-            task for task in self.state["tasks"].values()
-            if task.get("pipeline") == pipeline
+            task for task in self.state["tasks"].values() if task.get("pipeline") == pipeline
         ]
         budgets = self.config.get("pipeline_budgets", {})
         if isinstance(budgets, dict):
@@ -1210,7 +1399,8 @@ class AsyncDAGScheduler:
                 raise ProjectError(f"{pipeline} hard budget exhausted")
             if soft is not None and len(existing) >= int(soft):
                 self._event(
-                    "PIPELINE_SOFT_BUDGET_EXCEEDED", "<campaign>",
+                    "PIPELINE_SOFT_BUDGET_EXCEEDED",
+                    "<campaign>",
                     {"pipeline": pipeline, "calls": len(existing)},
                 )
         if pipeline != "literature":
@@ -1221,24 +1411,19 @@ class AsyncDAGScheduler:
                 "Literature hard budget exhausted; verdict must be INSUFFICIENT_SEARCH"
             )
         readers = [
-            task for task in existing
+            task
+            for task in existing
             if task.get("role") in {"literature_reader", "literature_deep_reader"}
         ]
         if role in {"literature_reader", "literature_deep_reader"} and len(readers) >= int(
             self._literature_budget("max_reader_calls", 1000000)
         ):
-            raise ProjectError(
-                "Reader budget exhausted; verdict must be INSUFFICIENT_SEARCH"
-            )
-        deep_reads = [
-            task for task in existing if task.get("role") == "literature_deep_reader"
-        ]
+            raise ProjectError("Reader budget exhausted; verdict must be INSUFFICIENT_SEARCH")
+        deep_reads = [task for task in existing if task.get("role") == "literature_deep_reader"]
         if role == "literature_deep_reader" and len(deep_reads) >= int(
             self._literature_budget("max_deep_reads", 1000000)
         ):
-            raise ProjectError(
-                "Deep-read budget exhausted; verdict must be INSUFFICIENT_SEARCH"
-            )
+            raise ProjectError("Deep-read budget exhausted; verdict must be INSUFFICIENT_SEARCH")
 
     def _save(self) -> None:
         lock = getattr(self, "_lock", None)
@@ -1249,9 +1434,7 @@ class AsyncDAGScheduler:
             if self.state_path is None:
                 return
             self.state_path.parent.mkdir(parents=True, exist_ok=True)
-            temp = self.state_path.with_suffix(
-                self.state_path.suffix + f".{uuid.uuid4().hex}.tmp"
-            )
+            temp = self.state_path.with_suffix(self.state_path.suffix + f".{uuid.uuid4().hex}.tmp")
             temp.write_text(
                 json.dumps(self.state, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
@@ -1303,25 +1486,53 @@ class AsynchronousPipelineRuntime:
                 if pipeline not in self.handlers:
                     for task in tasks:
                         self.scheduler.fail_task(
-                            task["task_id"], failure_kind="NO_HANDLER",
+                            task["task_id"],
+                            failure_kind="NO_HANDLER",
                             detail=f"No runtime handler for {pipeline}",
                         )
                     continue
                 for task in tasks:
                     task_id = task["task_id"]
                     try:
-                        payload = task.get("payload", {}) if isinstance(task.get("payload"), dict) else {}
+                        payload = (
+                            task.get("payload", {}) if isinstance(task.get("payload"), dict) else {}
+                        )
                         defaults = self.scheduler.config.get("resource_estimates", {})
                         defaults = defaults if isinstance(defaults, dict) else {}
-                        reservation = self.scheduler.resource_budget.reserve({
-                            "provider_calls": 1,
-                            "input_tokens": int(payload.get("input_tokens_estimate", defaults.get("input_tokens", 1024)) or 0),
-                            "output_tokens": int(payload.get("output_tokens_estimate", defaults.get("output_tokens", 512)) or 0),
-                            "reasoning_tokens": int(payload.get("reasoning_tokens_estimate", defaults.get("reasoning_tokens", 512)) or 0),
-                            "cached_tokens": int(payload.get("cached_tokens_estimate", defaults.get("cached_tokens", 0)) or 0),
-                        })
+                        reservation = self.scheduler.resource_budget.reserve(
+                            {
+                                "provider_calls": 1,
+                                "input_tokens": int(
+                                    payload.get(
+                                        "input_tokens_estimate", defaults.get("input_tokens", 1024)
+                                    )
+                                    or 0
+                                ),
+                                "output_tokens": int(
+                                    payload.get(
+                                        "output_tokens_estimate", defaults.get("output_tokens", 512)
+                                    )
+                                    or 0
+                                ),
+                                "reasoning_tokens": int(
+                                    payload.get(
+                                        "reasoning_tokens_estimate",
+                                        defaults.get("reasoning_tokens", 512),
+                                    )
+                                    or 0
+                                ),
+                                "cached_tokens": int(
+                                    payload.get(
+                                        "cached_tokens_estimate", defaults.get("cached_tokens", 0)
+                                    )
+                                    or 0
+                                ),
+                            }
+                        )
                     except ProjectError as exc:
-                        self.scheduler.fail_task(task_id, failure_kind="BUDGET_EXHAUSTED", detail=str(exc))
+                        self.scheduler.fail_task(
+                            task_id, failure_kind="BUDGET_EXHAUSTED", detail=str(exc)
+                        )
                         continue
                     context = TaskExecutionContext(task_id)
                     self.contexts[task_id] = context
@@ -1411,11 +1622,13 @@ class AsynchronousPipelineRuntime:
                     if current.get("status") == "CANCEL_REQUESTED":
                         completed.append(self.scheduler.interrupt_task(task_id, detail=str(exc)))
                     else:
-                        completed.append(self.scheduler.fail_task(
-                            task_id,
-                            failure_kind="HANDLER_ERROR",
-                            detail=f"{type(exc).__name__}: {exc}",
-                        ))
+                        completed.append(
+                            self.scheduler.fail_task(
+                                task_id,
+                                failure_kind="HANDLER_ERROR",
+                                detail=f"{type(exc).__name__}: {exc}",
+                            )
+                        )
         return completed
 
     def pending(self) -> list[str]:

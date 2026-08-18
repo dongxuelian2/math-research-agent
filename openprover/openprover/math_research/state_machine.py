@@ -123,8 +123,9 @@ class AuditGate:
         }
 
 
-def validate_transition(current: str, new: str, *, actor: str,
-                        gate: AuditGate | None = None) -> None:
+def validate_transition(
+    current: str, new: str, *, actor: str, gate: AuditGate | None = None
+) -> None:
     if current not in THEOREM_STATUSES:
         raise InvalidTransition(f"Unknown current theorem status: {current}")
     if new not in THEOREM_STATUSES:
@@ -140,6 +141,4 @@ def validate_transition(current: str, new: str, *, actor: str,
             raise InvalidTransition("Only Archivist may transition a theorem to PROVED")
         if gate is None or not gate.passed:
             reasons = gate.failure_reasons if gate else ["audit gate was not supplied"]
-            raise InvalidTransition(
-                "PROVED transition rejected: " + "; ".join(reasons)
-            )
+            raise InvalidTransition("PROVED transition rejected: " + "; ".join(reasons))

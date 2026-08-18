@@ -78,9 +78,7 @@ def build_tool_payload(value: Any) -> list[dict[str, Any]]:
             elif item.get("name"):
                 declarations.append(dict(item))
             else:
-                raise ValueError(
-                    "Gemini tool object requires name or functionDeclarations"
-                )
+                raise ValueError("Gemini tool object requires name or functionDeclarations")
             continue
         name = str(item).strip()
         if name == "google_search":
@@ -109,11 +107,7 @@ def make_tool_executor(
     compiler certificate.
     """
 
-    names = {
-        str(item)
-        for item in _names(configured_tools)
-        if not isinstance(item, dict)
-    }
+    names = {str(item) for item in _names(configured_tools) if not isinstance(item, dict)}
     if not names.intersection({"lean_verify", "lean_store", "lean_search"}):
         return None
     project_value = lean_project_dir or os.environ.get("LEAN_PROJECT_DIR")
@@ -133,9 +127,7 @@ def make_tool_executor(
         if project_path is None or not project_path.is_dir():
             return {
                 "status": "ERROR",
-                "error": (
-                    "LEAN_PROJECT_DIR is not configured for the formalization lane"
-                ),
+                "error": ("LEAN_PROJECT_DIR is not configured for the formalization lane"),
             }
         from ..lean import execute_worker_tool
 

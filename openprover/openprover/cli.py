@@ -16,6 +16,4 @@ def main(argv: list[str] | None = None) -> None:
         version="openprover package; use `python -m openprover.math_research --help`",
     )
     parser.parse_args(argv)
-    parser.error(
-        "Use `uv run python -m openprover.math_research` for the supported product CLI"
-    )
+    parser.error("Use `uv run python -m openprover.math_research` for the supported product CLI")
