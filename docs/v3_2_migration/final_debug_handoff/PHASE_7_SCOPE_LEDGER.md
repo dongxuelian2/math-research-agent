@@ -35,9 +35,11 @@ new authority ontology, or a router redesign.
 | Basic negative tests | `MISSING` | Test stale root, open frontier, failed gate, missing closure, and tampered artifact rejection. |
 | Documentation/handoff | `MISSING` | Create the self-contained final debug handoff package. |
 
-## Explicit non-goals
+## Explicit Phase 7 non-goals
 
-- Do not repair NF-003 or NF-004.
+- Do not repair NF-003 or NF-004 inside the Phase 7 implementation itself;
+  those defects were handled by the separate final hardening pass recorded
+  below.
 - Do not change the prior audit disposition or certification flags.
 - Do not redesign execution binding, routing, or authority contracts.
 - Do not rewrite terminal rejection or forged-authority defenses.
@@ -74,3 +76,12 @@ durable `TRUTH_PROMOTED` checkpoint.
 Focused tests cover a successful production-shaped path, restart/resume,
 durable truth-promotion recovery, stale-root rejection, open-frontier
 rejection, failed-gate rejection, and tampered-proof rejection.
+
+## Post-Phase-7 final hardening
+
+The final candidate pass added strict normal semantic binding completeness and
+an explicit pre-backend required-binding guard. It also added regressions for
+the partial current-domain and no-backend public entry points, preserved the
+map-scoped effect adapter, ran the global Ruff formatter, and revalidated
+F-002/F-005/F-007 plus the Phase 7 lifecycle. The formal certification flags
+remain `NO` pending independent and external gates.

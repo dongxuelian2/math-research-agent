@@ -5,36 +5,44 @@ audit records.
 
 ## NF-003 — Partial current-domain binding
 
-**Status: OPEN.**
+**Candidate status: REPAIRED_PENDING_INDEPENDENT_CERTIFICATION.**
 
-The normal semantic route can accept an execution binding containing only root
-identity while the current domain contains richer authority dimensions. Missing
-required dimensions can therefore behave as wildcards instead of failing
-closed. The Phase 7 implementation does not tighten this validator or change
-its semantics.
+`ResearchOrchestrator._validate_execution_binding()` now fails closed when the
+current domain has a ResearchMap or obligation/directive/session dimension and
+the supplied binding omits it. The normal `RoutedLLMClient` path validates this
+before call creation/provider invocation. Map-scoped governance effects use an
+explicit complete-map adapter, while truth mutation keeps its explicit
+root-only adapter; neither is a wildcard in the normal semantic route.
+
+Evidence: `NF-003-PARTIAL-BINDING` PASS, the new production regression in
+`test_pre_root_authority_repairs.py`, the full local suite, and the X1/X7 repair
+runner.
 
 ## NF-004 — No-backend semantic route bypass
 
-**Status: OPEN.**
+**Candidate status: REPAIRED_PENDING_INDEPENDENT_CERTIFICATION.**
 
-With `require_execution_binding=True` and no runtime backend, the normal
-semantic `RoutedLLMClient` route can bypass execution-binding enforcement and
-return semantic provider output. The Phase 7 implementation does not move or
-redesign this guard.
+`RoutedLLMClient._execute_route()` now evaluates `require_execution_binding`
+before any runtime-backend branch, requires both a binding and validator, and
+rejects a validator result other than `True` before the provider is acquired.
+Transport-only diagnostics remain outside the normal semantic route.
+
+Evidence: `NF-004-NO-BACKEND-GUARD` PASS and the new provider-not-called
+regression in `test_pre_root_authority_repairs.py`.
 
 ## F-007 — Complete binding / restart control
 
-**Status: OPEN.**
+**Candidate status: REPAIR_CANDIDATE_CLOSED.**
 
-F-007 remains open because NF-003 and NF-004 remain open. The Phase 7 resume
-path adds only the persistence and recovery needed for Phase 7 artifacts; it is
-not a certification of the broader F-007 contract.
+Complete, partial, stale/restart, and no-backend semantic variants now pass the
+candidate probes and local regressions. This is a local repair disposition, not
+an independent final audit or formal certification.
 
 ## Historical closed findings
 
 ```text
-F-002 = CLOSED
-F-005 = CLOSED
+F-002 = CLOSED and revalidated locally
+F-005 = CLOSED and revalidated locally
 ```
 
 Terminal rejection and forged-authority defenses are reused as existing

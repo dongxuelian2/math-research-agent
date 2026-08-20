@@ -99,9 +99,25 @@ across ordinary theorem status transitions. The implementation preserves both
 identities explicitly. This observation is not a new formal audit finding and
 does not alter NF-003, NF-004, F-002, F-005, or F-007.
 
+## Final hardening delta after Phase 7
+
+The unattended final hardening pass repaired two production defects that were
+deliberately outside the original Phase 7 implementation scope:
+
+- NF-003: the normal orchestrator validator now rejects omitted current map and
+  semantic context dimensions. Map-scoped governance effects use an explicit
+  complete-map validator, and truth mutation keeps its explicit root-only
+  validator.
+- NF-004: the normal routed semantic client enforces the required binding and
+  validator before checking whether a runtime backend exists, and validates the
+  supplied binding before provider acquisition.
+
+The final adversarial probes, X1/X7 repair runner, full suite, and Phase 7
+focused slice pass on the candidate. This is local engineering closure only.
+
 ## Out of scope
 
-NF-003 and NF-004 were not repaired. Existing terminal-rejection and
-forged-authority defenses were reused. No old audit fact was edited; no hosted
-CI, POSIX certification, final independent audit, push, or formal certification
-was performed.
+No old audit fact was edited. F-002 terminal-rejection and F-005
+forged-authority defenses were revalidated, not redesigned. Hosted CI, a real
+POSIX process-group run, an independent final audit, push, and formal
+certification remain outside this local candidate turn.

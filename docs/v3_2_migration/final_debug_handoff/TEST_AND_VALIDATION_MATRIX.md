@@ -2,22 +2,33 @@
 
 | Check | Result | Evidence / boundary |
 |---|---|---|
-| Phase 7 focused tests | PASS | `4 passed` in `test_phase7_implementation.py` |
+| NF-003 partial current-domain binding | PASS | Final adversarial probe rejects root-only binding; provider is not reached in the new regression |
+| NF-004 no-backend semantic binding guard | PASS | Final adversarial probe rejects before provider; new regression confirms zero provider calls |
+| F-007 complete/restart binding controls | PASS | `F007-RESTART-CONTROLS` plus focused router/runtime tests |
+| F-002 terminal rejection | PASS | `F002-TERMINAL-REJECTION`; full local suite remains green |
+| F-005 authority forgery matrix | PASS | `F005-A1-A14`; no map mutation |
+| X1 candidate rerun | PASS | Repair runner reports `CERTIFIED`; NF-003 partial variant also PASS; no formal certification inferred |
+| X7 candidate rerun | PASS | Repair runner reports `CERTIFIED`; complete/partial/no-backend variants pass; no formal certification inferred |
+| Phase 7 focused/recovery slice | PASS | `20 passed` across authority, blocker, and Phase 7 implementation tests |
 | R19 production research-plane integration | PASS | Existing R19 test passed with Phase 7 artifacts enabled |
-| Full local suite | PASS | `287 passed, 1 warning`; historical baseline was 283 passed, so four tests were added |
+| Full local suite | PASS | `289 passed` with pytest cache provider disabled for deterministic local execution |
 | Ruff lint | PASS | `uv run --project openprover --extra dev ruff check openprover` passed |
-| Ruff format for new Phase 7 files | PASS | `phase7.py` and `test_phase7_implementation.py` are formatter-compliant |
-| Ruff global format gate | KNOWN PRE-EXISTING FAILURE / DEFERRED | `11 files would be reformatted, 133 files already formatted`; no global cleanup was attempted |
-| Python compilation | PASS | `uv run --project openprover python -m compileall -q openprover` passed |
+| Ruff global format gate | PASS | Global format run changed 11 files; final check reports `144 files already formatted` |
+| Python compilation | PASS | Production and final adversarial probe sources compiled |
 | `uv lock --check` | PASS | `uv lock --check --project openprover` passed; 49 packages resolved |
+| `git diff --check` | PASS | No whitespace errors |
 | Windows durable restart recovery | PASS | Focused test resumes a completed run and separately recovers from `TRUTH_PROMOTED`; no certification claim |
-| Hosted CI | DEFERRED | Explicitly outside this owner-override implementation turn |
-| POSIX interruption/certification | DEFERRED | Explicitly outside this owner-override implementation turn |
-| Final adversarial reauthorization audit | NOT RUN | Phase 7 must stop before re-audit/certification |
-| Push | NOT RUN | Local commits only; owner/next engineer decides whether to push |
+| Windows interrupt race | PASS | `3 passed` in `test_interrupt_race.py` |
+| Bash syntax | PASS | 7 scripts parsed with `bash -n` |
+| PowerShell parse | PASS | 2 scripts parsed by PowerShell AST parser |
+| Hosted CI | PENDING | No push or workflow dispatch was authorized in this turn |
+| POSIX interruption/certification | NOT EXECUTED | WSL and Docker are unavailable; MSYS Bash syntax is not a POSIX process-group run |
+| Final independent audit | NOT RUN | Required before formal certification |
+| Push | NO | Local commits only |
 
 The single pytest warning is the existing Windows permission warning for the
 repository `.pytest_cache` projection. It did not affect test outcomes.
 
-NF-003 and NF-004 are intentionally not green requirements in this matrix;
-their known failing probes remain in the handoff for the next debug campaign.
+The local candidate gates are green for NF-003/NF-004/F-007/F-002/F-005. Hosted
+Linux CI, a real POSIX interruption host, and an independent final audit remain
+external gates; formal certification flags therefore remain `NO`.
