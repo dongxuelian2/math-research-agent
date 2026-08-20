@@ -204,7 +204,7 @@ def test_h_canonical_formula_wins_and_wrong_extract_never_reconstructs_authority
     assert blocked.body is None
 
 
-def test_production_manifest_to_orchestrator_context_and_task_payload(tmp_path):
+def test_t8_production_resume_accepts_unchanged_claim(tmp_path):
     project = _project(tmp_path)
     source = project.root / "sources" / "campaign.md"
     source.write_text("canonical production body", encoding="utf-8")
@@ -251,6 +251,43 @@ def test_production_manifest_to_orchestrator_context_and_task_payload(tmp_path):
         assert resumed.canonical_authority[0]["resolution_status"] == "RESOLVED_CANONICAL"
         assert resumed.canonical_authority[0]["body"] == "canonical production body"
         assert resumed.state["canonical_source_requirements"][0]["purpose"] == "proof_authority"
+        assert resumed.truth_resume_blocked is False
+        assert resumed.state["truth_resume_validation"]["status"] == "MATCH"
+    finally:
+        resumed.close()
+
+
+def test_t9_production_resume_blocks_when_root_assertion_changed(tmp_path):
+    project = _project(tmp_path)
+    repository_root = Path(__file__).resolve().parents[3]
+    orchestrator = ResearchOrchestrator(
+        project,
+        "target",
+        config_path=repository_root / "configs" / "models.mock.json",
+    )
+    try:
+        assert orchestrator.run(stop_after="context")["phase"] == "CONTEXT_READY"
+        run_dir = orchestrator.run_dir
+    finally:
+        orchestrator.close()
+
+    theorem = project.load_theorem("target")
+    theorem["statement"] = "A materially different target assertion."
+    project.update_theorem(theorem)
+
+    resumed = ResearchOrchestrator(
+        project,
+        "target",
+        config_path=repository_root / "configs" / "models.mock.json",
+        resume=run_dir,
+    )
+    try:
+        state = resumed.run()
+        assert resumed.truth_resume_blocked is True
+        assert state["phase"] == "CHECKPOINT"
+        assert state["status"] == "BLOCKED_CLAIM_SNAPSHOT_STALE"
+        assert state["truth_resume_validation"]["status"] == "ASSERTION_CHANGED"
+        assert not (run_dir / "CANDIDATE_PROOF.md").exists()
     finally:
         resumed.close()
 
