@@ -97,6 +97,49 @@ class RuntimeReconciler:
                     record["outbox_id"],
                     "durable dispatch command is pending",
                 )
+            elif record["state"] == OutboxState.DISPATCHED:
+                attempt = self.backend.get_attempt(record["attempt_id"])
+                has_result = any(
+                    item["attempt_id"] == record["attempt_id"]
+                    for item in self.backend.list_rows("attempt_results")
+                )
+                if (
+                    attempt is not None
+                    and attempt["state"] in {AttemptState.ORPHANED, AttemptState.UNKNOWN_EXECUTION}
+                    and not has_result
+                ):
+                    reason = (
+                        "provider request may have been accepted, but no durable result or "
+                        "acknowledgement exists"
+                    )
+                    self.backend.classify_unknown_execution(record["attempt_id"], reason=reason)
+                    self._record(
+                        ReconciliationAction.UNKNOWN_EXECUTION,
+                        "ATTEMPT",
+                        record["attempt_id"],
+                        reason,
+                        outbox_id=record["outbox_id"],
+                    )
+                    try:
+                        self.backend.transition_outbox(
+                            record["outbox_id"],
+                            OutboxState.DEAD_LETTER,
+                            claim_token=str(record["claim_token"] or ""),
+                            claim_generation=int(record["claim_generation"]),
+                            actor="reconciler",
+                            last_error="UNKNOWN_EXECUTION: manual review required",
+                        )
+                    except RuntimeConflict:
+                        # A concurrent dispatcher may have acknowledged or replaced
+                        # the outbox; the durable UNKNOWN_EXECUTION state remains.
+                        continue
+                    self._record(
+                        ReconciliationAction.MANUAL_REVIEW_REQUIRED,
+                        "OUTBOX",
+                        record["outbox_id"],
+                        "unknown execution moved out of DISPATCHED; manual review required",
+                        attempt_id=record["attempt_id"],
+                    )
 
     def _reconcile_manifests(self) -> None:
         registered = {
