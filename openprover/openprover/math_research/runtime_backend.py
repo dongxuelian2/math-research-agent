@@ -19,6 +19,7 @@ from .runtime_model import (
     InvalidRuntimeTransition,
     JobState,
     OutboxState,
+    ReconciliationAction,
     RuntimeConflict,
     canonical_json,
     content_hash,
@@ -1048,6 +1049,344 @@ class SQLiteRuntimeBackend:
             except (RuntimeConflict, InvalidRuntimeTransition):
                 continue
         return orphaned
+
+    def _resolve_project_artifact(self, relative_path: str | Path) -> Path:
+        raw = Path(relative_path)
+        path = raw.resolve() if raw.is_absolute() else (self.project_root / raw).resolve()
+        try:
+            path.relative_to(self.project_root)
+        except ValueError as exc:
+            raise ArtifactIntegrityError("Artifact path escapes its project") from exc
+        return path
+
+    def register_artifact(
+        self,
+        relative_path: str | Path,
+        *,
+        artifact_kind: str,
+        producer_attempt_id: str | None = None,
+        expected_sha256: str | None = None,
+        artifact_id: str | None = None,
+    ) -> dict[str, Any]:
+        path = self._resolve_project_artifact(relative_path)
+        if not path.is_file():
+            raise ArtifactIntegrityError(f"Artifact does not exist: {path}")
+        digest, size = sha256_file(path)
+        if expected_sha256 is not None and digest != expected_sha256:
+            raise ArtifactIntegrityError(
+                f"Artifact hash mismatch: expected {expected_sha256}, found {digest}"
+            )
+        relative = path.relative_to(self.project_root).as_posix()
+        identity = artifact_id or stable_id("artifact", artifact_kind, relative, digest)
+        with self._transaction() as connection:
+            if producer_attempt_id is not None:
+                attempt = connection.execute(
+                    "SELECT attempt_id FROM attempts WHERE attempt_id = ?", (producer_attempt_id,)
+                ).fetchone()
+                if attempt is None:
+                    raise RuntimeConflict(f"Unknown producer attempt: {producer_attempt_id}")
+            existing = connection.execute(
+                "SELECT * FROM artifact_registry WHERE artifact_id = ?", (identity,)
+            ).fetchone()
+            if existing is not None:
+                record = dict(existing)
+                if (
+                    record["relative_path"] != relative
+                    or record["sha256"] != digest
+                    or int(record["size"]) != size
+                ):
+                    raise ArtifactIntegrityError("Artifact identity collision")
+                return record
+            connection.execute(
+                """INSERT INTO artifact_registry(
+                       artifact_id, relative_path, sha256, size, artifact_kind,
+                       producer_attempt_id, created_at, durability_state, schema_version
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    identity,
+                    relative,
+                    digest,
+                    size,
+                    artifact_kind,
+                    producer_attempt_id,
+                    utc_now(),
+                    "VERIFIED",
+                    RUNTIME_SCHEMA_VERSION,
+                ),
+            )
+            self._journal(
+                connection,
+                object_type="ARTIFACT",
+                object_id=identity,
+                from_state=None,
+                to_state="VERIFIED",
+                transition_kind="REGISTER_ARTIFACT",
+                actor="artifact-registry",
+                attempt_id=producer_attempt_id,
+                metadata={"relative_path": relative, "sha256": digest, "size": size},
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM artifact_registry WHERE artifact_id = ?", (identity,)
+                ).fetchone()
+            )
+
+    def verify_artifact(self, artifact_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM artifact_registry WHERE artifact_id = ?", (artifact_id,)
+            ).fetchone()
+        if row is None:
+            raise ArtifactIntegrityError(f"Unknown artifact: {artifact_id}")
+        record = dict(row)
+        path = self._resolve_project_artifact(record["relative_path"])
+        if not path.is_file():
+            raise ArtifactIntegrityError(f"Registered artifact is missing: {path}")
+        digest, size = sha256_file(path)
+        if digest != record["sha256"] or size != int(record["size"]):
+            raise ArtifactIntegrityError(f"Registered artifact is corrupt: {path}")
+        return record
+
+    def record_result(
+        self,
+        *,
+        attempt_id: str,
+        artifact_id: str,
+        completion_status: str,
+        idempotency_key: str | None = None,
+        provider_metadata: Mapping[str, Any] | None = None,
+        lease_token: str | None = None,
+        generation: int | None = None,
+        reconcile_existing: bool = False,
+        actor: str = "result-ingestor",
+    ) -> dict[str, Any]:
+        artifact = self.verify_artifact(artifact_id)
+        key = idempotency_key or stable_id("result-key", attempt_id, artifact_id, completion_status)
+        result_id = stable_id("result", key)
+        with self._transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM attempt_results WHERE idempotency_key = ?", (key,)
+            ).fetchone()
+            if existing is not None:
+                return dict(existing)
+            row = connection.execute(
+                "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+            attempt = dict(row)
+            if artifact["producer_attempt_id"] not in {None, attempt_id}:
+                raise ArtifactIntegrityError("Result artifact belongs to another attempt")
+            fenced = False
+            rejection = None
+            if reconcile_existing:
+                job = connection.execute(
+                    "SELECT accepted_result_id FROM logical_jobs WHERE logical_job_id = ?",
+                    (attempt["logical_job_id"],),
+                ).fetchone()
+                fenced = job is not None and job["accepted_result_id"] is not None
+                rejection = "logical job already has an accepted result" if fenced else None
+            else:
+                fenced = (
+                    lease_token is None
+                    or generation is None
+                    or attempt["lease_token"] != lease_token
+                    or int(attempt["generation"]) != int(generation)
+                    or attempt["state"]
+                    not in {AttemptState.RUNNING, AttemptState.CANCEL_REQUESTED}
+                )
+                rejection = "stale lease fencing token" if fenced else None
+            authoritative = not fenced
+            ingestion_state = "STALE_FENCED" if fenced else "INGESTED"
+            connection.execute(
+                """INSERT INTO attempt_results(
+                       result_id, idempotency_key, attempt_id, logical_job_id, artifact_id,
+                       artifact_sha256, provider_metadata, completion_status, created_at,
+                       ingestion_state, authoritative, fencing_rejection, schema_version
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    result_id,
+                    key,
+                    attempt_id,
+                    attempt["logical_job_id"],
+                    artifact_id,
+                    artifact["sha256"],
+                    canonical_json(dict(provider_metadata or {})),
+                    completion_status,
+                    utc_now(),
+                    ingestion_state,
+                    authoritative,
+                    rejection,
+                    RUNTIME_SCHEMA_VERSION,
+                ),
+            )
+            self._journal(
+                connection,
+                object_type="ATTEMPT_RESULT",
+                object_id=result_id,
+                from_state=None,
+                to_state=ingestion_state,
+                transition_kind="INGEST_ATTEMPT_RESULT",
+                actor=actor,
+                attempt_id=attempt_id,
+                logical_job_id=str(attempt["logical_job_id"]),
+                metadata={"authoritative": authoritative, "fencing_rejection": rejection},
+            )
+            if authoritative:
+                current = str(attempt["state"])
+                if current not in {
+                    AttemptState.LEASED,
+                    AttemptState.RUNNING,
+                    AttemptState.CANCEL_REQUESTED,
+                    AttemptState.ORPHANED,
+                }:
+                    raise InvalidRuntimeTransition(
+                        f"Cannot record authoritative result from attempt state {current}"
+                    )
+                connection.execute(
+                    """UPDATE attempts SET state = ?, updated_at = ?, version = version + 1,
+                           lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL
+                       WHERE attempt_id = ? AND version = ?""",
+                    (
+                        AttemptState.RESULT_RECORDED,
+                        utc_now(),
+                        attempt_id,
+                        attempt["version"],
+                    ),
+                )
+                self._journal(
+                    connection,
+                    object_type="ATTEMPT",
+                    object_id=attempt_id,
+                    from_state=current,
+                    to_state=AttemptState.RESULT_RECORDED,
+                    transition_kind="RESULT_DURABLY_RECORDED",
+                    actor=actor,
+                    attempt_id=attempt_id,
+                    logical_job_id=str(attempt["logical_job_id"]),
+                    causal_ref=result_id,
+                )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM attempt_results WHERE result_id = ?", (result_id,)
+                ).fetchone()
+            )
+
+    def accept_result(self, logical_job_id: str, *, actor: str = "result-selector") -> dict[str, Any]:
+        """Serialize FIRST_VALID_ACCEPTED_RESULT selection for one LogicalJob."""
+
+        with self._transaction() as connection:
+            job_row = connection.execute(
+                "SELECT * FROM logical_jobs WHERE logical_job_id = ?", (logical_job_id,)
+            ).fetchone()
+            if job_row is None:
+                raise RuntimeConflict(f"Unknown LogicalJob: {logical_job_id}")
+            job = dict(job_row)
+            if job["accepted_result_id"] is not None:
+                return dict(
+                    connection.execute(
+                        "SELECT * FROM attempt_results WHERE result_id = ?",
+                        (job["accepted_result_id"],),
+                    ).fetchone()
+                )
+            winner = connection.execute(
+                """SELECT * FROM attempt_results
+                   WHERE logical_job_id = ? AND authoritative = 1
+                     AND completion_status IN ('SUCCESS', 'COMPLETED', 'PASS')
+                   ORDER BY created_at, result_id LIMIT 1""",
+                (logical_job_id,),
+            ).fetchone()
+            if winner is None:
+                raise RuntimeConflict("LogicalJob has no valid successful result")
+            cursor = connection.execute(
+                """UPDATE logical_jobs SET accepted_result_id = ?, state = ?, updated_at = ?,
+                       version = version + 1
+                   WHERE logical_job_id = ? AND accepted_result_id IS NULL AND version = ?""",
+                (
+                    winner["result_id"],
+                    JobState.RESULT_ACCEPTED,
+                    utc_now(),
+                    logical_job_id,
+                    job["version"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("LogicalJob acceptance CAS lost")
+            self._journal(
+                connection,
+                object_type="LOGICAL_JOB",
+                object_id=logical_job_id,
+                from_state=str(job["state"]),
+                to_state=JobState.RESULT_ACCEPTED,
+                transition_kind="ACCEPT_SINGLE_RESULT",
+                actor=actor,
+                attempt_id=str(winner["attempt_id"]),
+                logical_job_id=logical_job_id,
+                causal_ref=str(winner["result_id"]),
+                metadata={"result_policy": job["result_policy"]},
+            )
+            attempt = connection.execute(
+                "SELECT * FROM attempts WHERE attempt_id = ?", (winner["attempt_id"],)
+            ).fetchone()
+            if attempt is not None and attempt["state"] == AttemptState.RESULT_RECORDED:
+                connection.execute(
+                    "UPDATE attempts SET state = ?, updated_at = ?, version = version + 1 "
+                    "WHERE attempt_id = ? AND version = ?",
+                    (
+                        AttemptState.COMPLETED,
+                        utc_now(),
+                        winner["attempt_id"],
+                        attempt["version"],
+                    ),
+                )
+                self._journal(
+                    connection,
+                    object_type="ATTEMPT",
+                    object_id=str(winner["attempt_id"]),
+                    from_state=AttemptState.RESULT_RECORDED,
+                    to_state=AttemptState.COMPLETED,
+                    transition_kind="WINNING_RESULT_ACCEPTED",
+                    actor=actor,
+                    attempt_id=str(winner["attempt_id"]),
+                    logical_job_id=logical_job_id,
+                    causal_ref=str(winner["result_id"]),
+                )
+            return dict(winner)
+
+    def record_reconciliation(
+        self,
+        action: str | ReconciliationAction,
+        *,
+        object_type: str,
+        object_id: str,
+        reason: str,
+        details: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            cursor = connection.execute(
+                """INSERT INTO reconciliation_actions(
+                       action, object_type, object_id, reason, details_json, created_at
+                   ) VALUES(?, ?, ?, ?, ?, ?)""",
+                (
+                    str(action),
+                    object_type,
+                    object_id,
+                    reason,
+                    canonical_json(dict(details or {})),
+                    utc_now(),
+                ),
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM reconciliation_actions WHERE reconciliation_id = ?",
+                    (cursor.lastrowid,),
+                ).fetchone()
+            )
+
+    def reconcile(self) -> list[dict[str, Any]]:
+        from .runtime_reconciler import RuntimeReconciler
+
+        return RuntimeReconciler(self).run()
 
     def list_rows(self, table: str) -> list[dict[str, Any]]:
         allowed = {
