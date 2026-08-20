@@ -1206,11 +1206,9 @@ class ResearchOrchestrator:
         if self.stop_controller is not None and self.stop_controller.requested():
             return self._graceful_stop_checkpoint("CANDIDATE_READY")
 
-        # A full candidate is always a strategic-review event even if its
-        # underlying local lemmas were produced at lower tiers.
-        self.model_router.promote_high_value(
-            self.target_id, theorem_level=True, proof_candidate=True
-        )
+        # Audit roles select their own compute tier. Candidate existence is not
+        # durable research-strategy authority and therefore does not mutate the
+        # ModelRouter's legacy obligation escalation state.
         if not self._phase_at_least("AUDITS_READY"):
             if self.target["status"] == "CANDIDATE_PROOF":
                 self.target = self._transition_truth(

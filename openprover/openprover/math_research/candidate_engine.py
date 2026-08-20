@@ -165,7 +165,9 @@ class CandidateEngine(_OwnerComponent):
         if self.stop_controller is not None:
             policy_kwargs["stop_controller"] = self.stop_controller
         policy_kwargs["pipeline_scheduler"] = self.pipeline_scheduler
-        policy_kwargs["model_router"] = self.model_router
+        # ModelRouter owns per-call compute selection only. Typed worker outcomes
+        # are retained by the tactical/session path and must not become durable
+        # research-strategy counters inside the router.
         policy_kwargs["root_obligation_id"] = self.target_id
         prover_kwargs["research_policy"] = ResearchPolicy(**policy_kwargs)
         active_proof_task = self._claim_target_pipeline_task("proof")

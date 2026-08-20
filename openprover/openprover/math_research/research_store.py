@@ -27,6 +27,11 @@ from .research_obligation import (
     ObligationDispositionKind,
     ResearchObligation,
 )
+from .route_failure import (
+    RouteContext,
+    RouteFailureRecord,
+    route_failure_from_legacy_fingerprint,
+)
 from .truth_store import TruthStoreFacade, TruthValidationError
 
 
@@ -64,9 +69,94 @@ class ResearchStoreFacade:
         self.obligations_root = self.root / "obligations"
         self.dispositions_root = self.root / "dispositions"
         self.rebases_root = self.root / "rebases"
+        self.route_failures_root = self.root / "route_failures"
         self.directives_root = self.root / "directives"
         self.sessions_root = self.root / "sessions"
         self.index_root = self.root / "indexes"
+
+    def record_route_failure(
+        self,
+        research_map_id: str,
+        obligation_id: str,
+        *,
+        route_description: str,
+        method_family: str,
+        exact_failure_condition: str,
+        failure_domain: str,
+        evidence_refs: Iterable[str],
+        reopen_conditions: Iterable[str],
+        created_by: str,
+        context: RouteContext | None = None,
+    ) -> tuple[RouteFailureRecord, ResearchMap]:
+        current = self.load_current_map(research_map_id)
+        self._validate_root_hash(current.root_claim_snapshot_hash, "RECORD_ROUTE_FAILURE")
+        ref = current.obligation_ref(obligation_id)
+        route_context = context or self.route_context_for_snapshot(
+            current.root_claim_snapshot_hash
+        )
+        record = RouteFailureRecord.capture(
+            root_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            research_map_id=current.research_map_id,
+            research_map_version=current.version,
+            research_map_hash=current.research_map_hash,
+            obligation_id=obligation_id,
+            obligation_hash=ref.obligation_hash,
+            route_description=route_description,
+            method_family=method_family,
+            context=route_context,
+            exact_failure_condition=exact_failure_condition,
+            failure_domain=failure_domain,
+            evidence_refs=tuple(evidence_refs),
+            reopen_conditions=tuple(reopen_conditions),
+            provenance="NATIVE",
+            created_at=utc_now(),
+            created_by=created_by,
+        )
+        self._persist_route_failure(record)
+        revised = self._attach_route_failure(current, record, created_by=created_by)
+        return record, revised
+
+    def import_legacy_strategy_fingerprint(
+        self,
+        research_map_id: str,
+        obligation_id: str,
+        legacy: Mapping[str, Any],
+        *,
+        created_by: str = "StrategyFingerprintCompatibilityAdapter",
+    ) -> tuple[RouteFailureRecord, ResearchMap]:
+        current = self.load_current_map(research_map_id)
+        self._validate_root_hash(current.root_claim_snapshot_hash, "IMPORT_LEGACY_ROUTE_FAILURE")
+        ref = current.obligation_ref(obligation_id)
+        record = route_failure_from_legacy_fingerprint(
+            legacy,
+            root_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            research_map_id=current.research_map_id,
+            research_map_version=current.version,
+            research_map_hash=current.research_map_hash,
+            obligation_id=obligation_id,
+            obligation_hash=ref.obligation_hash,
+            context=self.route_context_for_snapshot(current.root_claim_snapshot_hash),
+            created_at=utc_now(),
+        )
+        self._persist_route_failure(record)
+        revised = self._attach_route_failure(current, record, created_by=created_by)
+        return record, revised
+
+    def load_route_failure(self, route_failure_id: str) -> RouteFailureRecord:
+        failure_id = require_id(route_failure_id, "route_failure_id")
+        path = self.route_failures_root / f"{failure_id}.json"
+        result = RouteFailureRecord.from_dict(read_json(path, "RouteFailureRecord"))
+        if result.route_failure_id != failure_id:
+            raise ProjectError("RouteFailureRecord filename/id mismatch")
+        return result
+
+    def route_context_for_snapshot(self, claim_snapshot_hash: str) -> RouteContext:
+        snapshot = self.truth_store.load_claim_snapshot(claim_snapshot_hash)
+        return RouteContext.capture(
+            dependency_snapshot_hash=snapshot.dependency_snapshot_hash,
+            assumption_snapshot_hash=snapshot.assumption_snapshot_hash,
+            authority_context_hash=snapshot.authority_binding_hash,
+        )
 
     def create_directive(
         self,
@@ -641,6 +731,129 @@ class ResearchStoreFacade:
             self.dispositions_root / f"{digest_part(value.disposition_hash)}.json",
             value.to_dict(),
         )
+
+    def _persist_route_failure(self, value: RouteFailureRecord) -> None:
+        write_immutable_json(
+            self.route_failures_root / f"{value.route_failure_id}.json", value.to_dict()
+        )
+        self._index_references(
+            {
+                value.root_claim_snapshot_hash,
+                value.dependency_snapshot_hash,
+                value.assumption_snapshot_hash,
+                value.authority_context_hash,
+                *value.evidence_refs,
+            },
+            obligation_id=value.obligation_id,
+            research_map_id=value.research_map_id,
+            route_failure_id=value.route_failure_id,
+        )
+
+    def _attach_route_failure(
+        self, current: ResearchMap, record: RouteFailureRecord, *, created_by: str
+    ) -> ResearchMap:
+        old_ref = current.obligation_ref(record.obligation_id)
+        prior = self.load_disposition(old_ref.disposition_hash)
+        decision = ObligationDisposition.capture(
+            obligation_id=prior.obligation_id,
+            obligation_hash=prior.obligation_hash,
+            disposition=prior.disposition,
+            blocker_refs=prior.blocker_refs,
+            evidence_refs=prior.evidence_refs,
+            route_failure_refs=tuple(
+                dict.fromkeys((*prior.route_failure_refs, record.route_failure_id))
+            ),
+            resolution_basis=prior.resolution_basis,
+            superseded_by=prior.superseded_by,
+            reason=prior.reason,
+            previous_disposition_hash=prior.disposition_hash,
+            recorded_at=utc_now(),
+            recorded_by=created_by,
+        )
+        self._persist_disposition(decision)
+        refs = [
+            ObligationRef.capture(
+                item.obligation_id,
+                item.obligation_hash,
+                decision.disposition,
+                decision.disposition_hash,
+            )
+            if item.obligation_id == record.obligation_id
+            else item
+            for item in current.obligation_refs
+        ]
+        return self.revise_map(
+            current,
+            obligation_refs=refs,
+            created_by=created_by,
+            revision_reason=MapRevisionReason.ROUTE_FAILURE.value,
+            route_failure_refs=tuple(
+                dict.fromkeys((*current.route_failure_refs, record.route_failure_id))
+            ),
+            route_memory_changes=(f"{record.obligation_id}:{record.route_failure_id}",),
+            evidence_refs=record.evidence_refs,
+        )
+
+    def _index_references(
+        self,
+        references: Iterable[str],
+        *,
+        obligation_id: str,
+        research_map_id: str,
+        route_failure_id: str | None = None,
+    ) -> None:
+        path = self.index_root / "reverse_references.json"
+        value = (
+            read_json(path, "Research reverse-reference projection")
+            if path.exists()
+            else {
+                "schema_version": 1,
+                "object_type": "RESEARCH_REVERSE_REFERENCE_PROJECTION",
+                "references": {},
+            }
+        )
+        if set(value) != {"schema_version", "object_type", "references"} or value.get(
+            "schema_version"
+        ) != 1 or value.get("object_type") != "RESEARCH_REVERSE_REFERENCE_PROJECTION":
+            raise ProjectError("Research reverse-reference projection migration is required")
+        for reference in references:
+            if not isinstance(reference, str) or not reference.strip():
+                continue
+            item = value["references"].setdefault(
+                reference,
+                {
+                    "obligation_ids": [],
+                    "research_map_ids": [],
+                    "route_failure_ids": [],
+                },
+            )
+            for key, member in (
+                ("obligation_ids", obligation_id),
+                ("research_map_ids", research_map_id),
+                ("route_failure_ids", route_failure_id),
+            ):
+                if member and member not in item[key]:
+                    item[key].append(member)
+                    item[key].sort()
+        write_projection_json(path, value)
+
+    def affected_by_reference(self, reference: str) -> dict[str, list[str]]:
+        path = self.index_root / "reverse_references.json"
+        if not path.exists():
+            return {
+                "obligation_ids": [],
+                "research_map_ids": [],
+                "route_failure_ids": [],
+            }
+        value = read_json(path, "Research reverse-reference projection")
+        result = value.get("references", {}).get(reference)
+        if not isinstance(result, dict):
+            return {
+                "obligation_ids": [],
+                "research_map_ids": [],
+                "route_failure_ids": [],
+            }
+        return copy.deepcopy(result)
 
     def _validate_root_hash(self, root_hash: str, operation: str) -> None:
         require_hash(root_hash, "root_claim_snapshot_hash")
