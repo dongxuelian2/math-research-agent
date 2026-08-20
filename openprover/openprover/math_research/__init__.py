@@ -1,6 +1,31 @@
 """Long-horizon natural-language mathematics project layer for OpenProver."""
 
 from .audit_protocol import AuditResult
+from .architecture_critic import (
+    ArchitectureCritic,
+    ArchitectureCriticIndependenceReceipt,
+    ArchitectureCriticVerdict,
+    evaluate_patch,
+)
+from .architecture_patch import (
+    ArchitecturePatch,
+    ArchitecturePatchApplication,
+    PatchAuthorization,
+    PatchAuthorizationStatus,
+    PatchClassification,
+    PatchObligationAddition,
+    PatchOperationKind,
+    ScopeTransfer,
+    ScopeTransferDisposition,
+    classify_patch,
+)
+from .architecture_review import (
+    ArchitectureDimension,
+    ArchitectureDimensionFinding,
+    ArchitectureReview,
+    ArchitectureReviewVerdict,
+    GovernanceActor,
+)
 from .canonical_artifacts import (
     CanonicalArtifactResolver,
     CanonicalPurpose,
@@ -27,6 +52,12 @@ from .claim_snapshot import (
 )
 from .gemini_provider import GeminiClient, GeminiProviderError
 from .formalization import run_formalization
+from .governance import (
+    ArchitectureReviewClock,
+    ArchitectureReviewTrigger,
+    GovernanceController,
+    GovernanceThresholds,
+)
 from .observatory import build_snapshot, run_server
 from .schemas import (
     AuditCriteriaSchema,
@@ -90,6 +121,19 @@ from .truth_identity import (
     DependencySnapshot,
 )
 from .truth_mutation import TruthMutationIntent, TruthMutationReceipt
+from .structural_effect import (
+    StructuralEffect,
+    StructuralEffectKind,
+    StructuralEffectLevel,
+    StructuralEffectValidation,
+    classify_structural_effect,
+)
+from .structural_probe import (
+    ProbeBudget,
+    StructuralProbe,
+    StructuralProbePlan,
+    StructuralProbeResult,
+)
 from .truth_store import (
     CurrentTruth,
     TruthMutationBlocked,
@@ -98,6 +142,35 @@ from .truth_store import (
 )
 
 __all__ = [
+    "ArchitectureCritic",
+    "ArchitectureCriticIndependenceReceipt",
+    "ArchitectureCriticVerdict",
+    "ArchitectureDimension",
+    "ArchitectureDimensionFinding",
+    "ArchitecturePatch",
+    "ArchitecturePatchApplication",
+    "ArchitectureReview",
+    "ArchitectureReviewClock",
+    "ArchitectureReviewTrigger",
+    "ArchitectureReviewVerdict",
+    "GovernanceActor",
+    "GovernanceController",
+    "GovernanceThresholds",
+    "PatchAuthorization",
+    "PatchAuthorizationStatus",
+    "PatchClassification",
+    "PatchObligationAddition",
+    "PatchOperationKind",
+    "ProbeBudget",
+    "ScopeTransfer",
+    "ScopeTransferDisposition",
+    "StructuralEffect",
+    "StructuralEffectKind",
+    "StructuralEffectLevel",
+    "StructuralEffectValidation",
+    "StructuralProbe",
+    "StructuralProbePlan",
+    "StructuralProbeResult",
     "AuditGate",
     "AuditCriteriaSchema",
     "AuditResult",
@@ -173,8 +246,11 @@ __all__ = [
     "run_formalization",
     "build_snapshot",
     "checkpoint_policy_fingerprint",
+    "classify_patch",
+    "classify_structural_effect",
     "compare_claim_snapshots",
     "inspect_legacy_checkpoint",
+    "evaluate_patch",
     "resolve_profile",
     "provider_capabilities",
     "run_server",

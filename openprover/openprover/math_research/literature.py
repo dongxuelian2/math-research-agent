@@ -1071,15 +1071,10 @@ class LiteratureTaskExecutor:
                 result = self._deterministic_authority_gate(result, task)
             verdict = result.get("literature_verdict")
             if verdict == "CONFLICTING_LITERATURE" or result.get("architecture_changing", False):
-                self.router.escalate(
-                    task["obligation_id"],
-                    reason=(
-                        "conflicting_literature"
-                        if verdict == "CONFLICTING_LITERATURE"
-                        else "architecture_changing_literature"
-                    ),
-                    minimum_tier="strategic",
-                )
+                # Literature is governance evidence, not a Router-owned strategy
+                # mutation. The orchestrator projects this typed signal into the
+                # mandatory ArchitectureReview clock.
+                result["governance_review_trigger"] = "LITERATURE_MECHANISM_CHANGE"
             if role == "literature_synthesizer":
                 fields = LiteratureSynthesis.__dataclass_fields__
                 synthesis = LiteratureSynthesis(

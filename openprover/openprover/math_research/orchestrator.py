@@ -26,6 +26,7 @@ from .campaign import (
     classify_provider_exception,
 )
 from .gemini_provider import GeminiProviderError
+from .governance import GovernanceController
 from .codex_cli_provider import CodexCLIProviderError
 from .openai_provider import OpenAIProviderError
 from .candidate_engine import CandidateEngine
@@ -56,6 +57,7 @@ from .route_failure import FailureDomain, ReopenCondition
 from .scheduler import StopController, StrategyFingerprintStore
 from .state_machine import AuditGate
 from .truth_store import TruthMutationBlocked, TruthStoreFacade
+from .structural_effect import StructuralEffect
 
 
 PHASES = ("CREATED", "CONTEXT_READY", "CANDIDATE_READY", "AUDITS_READY", "COMPLETE")
@@ -304,6 +306,9 @@ class ResearchOrchestrator:
             self.project,
             truth_store=self.truth_store,
             root_validation_kwargs=self._truth_capture_kwargs(),
+        )
+        self.governance_controller = GovernanceController(
+            self.project, research_store=self.research_store
         )
         self._initialize_research_plane(resume_requested=bool(resume))
         if not immutable_complete:
@@ -663,6 +668,16 @@ class ResearchOrchestrator:
                 self.directive = self.research_store.load_directive(str(directive_id))
             if session_id:
                 self.tactical_session = self.research_store.load_tactical_session(str(session_id))
+            classification = self.governance_controller.classify_legacy_checkpoint(self.state)
+            self.state["governance_checkpoint_classification"] = classification
+            if classification == "GOVERNANCE_REVIEW_REQUIRED":
+                self.governance_controller.ensure_clock(str(map_id))
+                self.governance_controller.signal_review(str(map_id), "HUMAN_REQUEST")
+            else:
+                clock = self.governance_controller.ensure_clock(str(map_id))
+                if self.state.get("architecture_review_clock_hash") != clock.clock_hash:
+                    raise ProjectError("Governance checkpoint is stale or incomplete")
+            self.state.update(self.governance_controller.checkpoint_projection(str(map_id)))
             _write_json(self.state_path, self.state)
             return
         if resume_requested:
@@ -757,6 +772,10 @@ class ResearchOrchestrator:
                 tactical_session_id=self.tactical_session.tactical_session_id,
             )
         )
+        self.state.update(
+            self.governance_controller.checkpoint_projection(self.research_map.research_map_id)
+        )
+        self.state["governance_checkpoint_classification"] = "DIRECT_IMPORT"
         _write_json(self.state_path, self.state)
 
     def _transition_truth(
@@ -1179,6 +1198,10 @@ class ResearchOrchestrator:
         self.state["phase"] = phase
         self.state["last_updated"] = utc_now()
         self.state["metrics"] = self.metrics
+        if getattr(self, "research_map", None) is not None:
+            self.state.update(
+                self.governance_controller.checkpoint_projection(self.research_map.research_map_id)
+            )
         _write_json(self.state_path, self.state)
 
     def _phase_at_least(self, phase: str) -> bool:
@@ -1669,6 +1692,47 @@ changed failure condition is explicitly recorded.
         if revised is not None:
             self.research_map = revised
             self.state.update(self.research_store.frontier_projection(revised.research_map_id))
+        if decision.status == "RESOLUTION_ACCEPTED":
+            current_map = self.research_store.load_current_map(self.research_map.research_map_id)
+            self.governance_controller.record_effect(
+                StructuralEffect.capture(
+                    root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
+                    research_map_id=current_map.research_map_id,
+                    research_map_version=current_map.version,
+                    research_map_hash=current_map.research_map_hash,
+                    obligation_refs=(closure.obligation_id,),
+                    effect_kind="ONE_OBLIGATION_RESOLVED",
+                    evidence_refs=decision.accepted_evidence_ids,
+                    validation_basis=decision.decision_hash,
+                    validation_status="VALIDATED",
+                    source_type="SESSION_CLOSURE",
+                    created_at=utc_now(),
+                    created_by="ResearchOrchestrator",
+                )
+            )
+        pipeline_snapshot = self.pipeline_scheduler.snapshot()
+        for task in pipeline_snapshot.get("tasks", {}).values():
+            result = task.get("result") if isinstance(task, dict) else None
+            trigger = result.get("governance_review_trigger") if isinstance(result, dict) else None
+            if trigger:
+                self.governance_controller.signal_review(
+                    self.research_map.research_map_id, str(trigger)
+                )
+        blocked_ids = tuple(
+            item.obligation_id
+            for item in self.research_map.obligation_refs
+            if item.disposition == "BLOCKED"
+        )
+        self.governance_controller.record_session(
+            self.research_map.research_map_id,
+            successor_execution=bool(self.parent_run_id),
+            root_obstruction_unchanged=True,
+            blocked_obligation_ids=blocked_ids,
+            tactical_session_id=self.tactical_session.tactical_session_id,
+        )
+        self.state.update(
+            self.governance_controller.checkpoint_projection(self.research_map.research_map_id)
+        )
         _write_json(self.state_path, self.state)
 
     def _finalize(self, gate: AuditGate) -> None:
@@ -1804,6 +1868,10 @@ changed failure condition is explicitly recorded.
                 )
                 self.research_map = revised
                 route_records.append(record.route_failure_id)
+                self.governance_controller.record_route_failure(
+                    self.research_map.research_map_id,
+                    obligation_id=obligation_id,
+                )
             self.state["route_failure_ids"] = route_records
             self.state.update(
                 self.research_store.frontier_projection(self.research_map.research_map_id)

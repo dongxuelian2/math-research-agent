@@ -372,6 +372,8 @@ class GovernanceController:
         self.patches_root = self.root / "architecture_patches"
         self.critics_root = self.root / "architecture_critics"
         self.authorizations_root = self.root / "patch_authorizations"
+        self.applications_root = self.root / "patch_applications"
+        self.sessions_root = self.root / "session_observations"
         self.control_path = self.root / "control.json"
 
     def ensure_clock(self, research_map_id: str) -> ArchitectureReviewClock:
@@ -697,12 +699,65 @@ class GovernanceController:
             )
         )
 
+    def apply_authorized_patch(
+        self, authorization_id: str, *, applied_by: str = "GovernanceController"
+    ):
+        from .architecture_patch import (
+            ArchitecturePatchApplication,
+            PatchAuthorizationStatus,
+        )
+
+        authorization = self.load_authorization(authorization_id)
+        if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
+            raise ProjectError("PatchAuthorization is not AUTHORIZED")
+        patch = self.load_patch(authorization.patch_id)
+        target_map = self.research_store.apply_governed_reframe(
+            patch,
+            authorization,
+            applied_by=applied_by,
+        )
+        application = ArchitecturePatchApplication.capture(
+            patch=patch,
+            authorization=authorization,
+            target_map_hash=target_map.research_map_hash,
+            target_map_version=target_map.version,
+            applied_at=utc_now(),
+            applied_by=applied_by,
+        )
+        write_immutable_json(
+            self.applications_root / f"{application.application_id}.json",
+            application.to_dict(),
+        )
+        control = self._control()
+        if control.get("pending_architecture_patch_id") == patch.patch_id:
+            control["pending_architecture_patch_id"] = None
+        self._write_control(control)
+        self.ensure_clock(target_map.research_map_id)
+        return target_map, application
+
+    def load_application(self, application_id: str):
+        from .architecture_patch import ArchitecturePatchApplication
+
+        value = read_json(
+            self.applications_root / f"{application_id}.json",
+            "ArchitecturePatchApplication",
+        )
+        patch = self.load_patch(value["patch_id"])
+        authorization = self.load_authorization(value["authorization_id"])
+        return ArchitecturePatchApplication.from_dict(
+            value, patch=patch, authorization=authorization
+        )
+
     def record_effect(self, effect: StructuralEffect) -> ArchitectureReviewClock:
         current_map = self.research_store.load_current_map(effect.research_map_id)
         self._validate_effect(effect, current_map)
-        write_immutable_json(
-            self.effects_root / f"{effect.structural_effect_id}.json", effect.to_dict()
-        )
+        effect_path = self.effects_root / f"{effect.structural_effect_id}.json"
+        if effect_path.is_file():
+            existing = StructuralEffect.from_dict(read_json(effect_path, "StructuralEffect"))
+            if existing != effect:
+                raise ProjectError("StructuralEffect immutable identity collision")
+            return self.ensure_clock(effect.research_map_id)
+        write_immutable_json(effect_path, effect.to_dict())
         current = self.ensure_clock(effect.research_map_id)
         updates: dict[str, Any] = {}
         if effect.validation_status == StructuralEffectValidation.VALIDATED.value:
@@ -723,9 +778,16 @@ class GovernanceController:
         successor_execution: bool = False,
         root_obstruction_unchanged: bool = True,
         blocked_obligation_ids: tuple[str, ...] | list[str] = (),
+        tactical_session_id: str | None = None,
     ) -> ArchitectureReviewClock:
         current_map = self.research_store.load_current_map(research_map_id)
         current = self.ensure_clock(research_map_id)
+        observation_path = None
+        if tactical_session_id is not None:
+            session_id = require_id(tactical_session_id, "record_session.tactical_session_id")
+            observation_path = self.sessions_root / f"{session_id}.json"
+            if observation_path.is_file():
+                return current
         blocked = dict(current.blocked_obligation_ages)
         active_blocked = set(
             string_tuple(blocked_obligation_ids, "record_session.blocked_obligation_ids")
@@ -735,7 +797,7 @@ class GovernanceController:
             blocked[obligation_id] = blocked.get(obligation_id, 0) + 1
         for obligation_id in set(blocked) - active_blocked:
             blocked.pop(obligation_id)
-        return self._advance(
+        result = self._advance(
             current,
             current_map,
             sessions_since_last_review=current.sessions_since_last_review + 1,
@@ -749,6 +811,19 @@ class GovernanceController:
                 + (1 if root_obstruction_unchanged else 0)
             ),
         )
+        if observation_path is not None:
+            identity = {
+                "schema_version": RESEARCH_SCHEMA_VERSION,
+                "object_type": "GOVERNANCE_SESSION_OBSERVATION",
+                "tactical_session_id": tactical_session_id,
+                "research_map_id": research_map_id,
+                "successor_execution": successor_execution,
+                "root_obstruction_unchanged": root_obstruction_unchanged,
+                "blocked_obligation_ids": list(blocked_obligation_ids),
+                "resulting_clock_hash": result.clock_hash,
+            }
+            write_immutable_json(observation_path, identity)
+        return result
 
     def record_route_failure(
         self, research_map_id: str, *, obligation_id: str

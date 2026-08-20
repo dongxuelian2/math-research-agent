@@ -621,3 +621,133 @@ class PatchAuthorization:
 
     def to_dict(self) -> dict[str, Any]:
         return artifact_dict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ArchitecturePatchApplication:
+    schema_version: int
+    object_type: str
+    application_id: str
+    patch_id: str
+    patch_hash: str
+    authorization_id: str
+    authorization_hash: str
+    review_id: str
+    critic_id: str
+    probe_ids: tuple[str, ...]
+    source_map_hash: str
+    target_map_hash: str
+    target_map_version: int
+    scope_transfer_hashes: tuple[str, ...]
+    applied_at: str
+    applied_by: str
+    application_hash: str
+
+    @classmethod
+    def capture(
+        cls,
+        *,
+        patch: ArchitecturePatch,
+        authorization: PatchAuthorization,
+        target_map_hash: str,
+        target_map_version: int,
+        applied_at: str,
+        applied_by: str,
+    ) -> "ArchitecturePatchApplication":
+        if authorization.patch_id != patch.patch_id or authorization.patch_hash != patch.patch_hash:
+            raise ProjectError("ArchitecturePatchApplication patch/authorization mismatch")
+        if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
+            raise ProjectError("ArchitecturePatchApplication requires AUTHORIZED receipt")
+        if (
+            not isinstance(target_map_version, int)
+            or isinstance(target_map_version, bool)
+            or target_map_version != patch.source_map_version + 1
+        ):
+            raise ProjectError("ArchitecturePatchApplication must create exactly one map version")
+        identity = {
+            "patch_id": patch.patch_id,
+            "patch_hash": patch.patch_hash,
+            "authorization_id": authorization.authorization_id,
+            "authorization_hash": authorization.authorization_hash,
+            "review_id": patch.review_id,
+            "critic_id": authorization.critic_id,
+            "probe_ids": list(patch.probe_ids),
+            "source_map_hash": patch.source_map_hash,
+            "target_map_hash": require_hash(
+                target_map_hash, "ArchitecturePatchApplication.target_map_hash"
+            ),
+            "target_map_version": target_map_version,
+            "scope_transfer_hashes": [item.transfer_hash for item in patch.scope_transfers],
+            "applied_by": require_text(applied_by, "ArchitecturePatchApplication.applied_by"),
+        }
+        return cls(
+            schema_version=RESEARCH_SCHEMA_VERSION,
+            object_type="ARCHITECTURE_PATCH_APPLICATION",
+            application_id=content_id(
+                "application", "architecture_patch_application_id", stable_value(identity)
+            ),
+            patch_id=patch.patch_id,
+            patch_hash=patch.patch_hash,
+            authorization_id=authorization.authorization_id,
+            authorization_hash=authorization.authorization_hash,
+            review_id=patch.review_id,
+            critic_id=authorization.critic_id,
+            probe_ids=patch.probe_ids,
+            source_map_hash=patch.source_map_hash,
+            target_map_hash=identity["target_map_hash"],
+            target_map_version=target_map_version,
+            scope_transfer_hashes=tuple(identity["scope_transfer_hashes"]),
+            applied_at=require_text(applied_at, "ArchitecturePatchApplication.applied_at"),
+            applied_by=identity["applied_by"],
+            application_hash=domain_hash("architecture_patch_application", stable_value(identity)),
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        value: Mapping[str, Any],
+        *,
+        patch: ArchitecturePatch,
+        authorization: PatchAuthorization,
+    ) -> "ArchitecturePatchApplication":
+        fields = {
+            "schema_version",
+            "object_type",
+            "application_id",
+            "patch_id",
+            "patch_hash",
+            "authorization_id",
+            "authorization_hash",
+            "review_id",
+            "critic_id",
+            "probe_ids",
+            "source_map_hash",
+            "target_map_hash",
+            "target_map_version",
+            "scope_transfer_hashes",
+            "applied_at",
+            "applied_by",
+            "application_hash",
+        }
+        strict_fields(value, fields, "ArchitecturePatchApplication")
+        validate_envelope(
+            value,
+            object_type="ARCHITECTURE_PATCH_APPLICATION",
+            name="ArchitecturePatchApplication",
+        )
+        captured = cls.capture(
+            patch=patch,
+            authorization=authorization,
+            target_map_hash=value["target_map_hash"],
+            target_map_version=value["target_map_version"],
+            applied_at=value["applied_at"],
+            applied_by=value["applied_by"],
+        )
+        if captured.application_id != value.get(
+            "application_id"
+        ) or captured.application_hash != value.get("application_hash"):
+            raise ProjectError("ArchitecturePatchApplication identity mismatch")
+        return captured
+
+    def to_dict(self) -> dict[str, Any]:
+        return artifact_dict(self)

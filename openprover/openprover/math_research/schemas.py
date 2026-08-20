@@ -174,6 +174,7 @@ class LiteratureResultSchema(StrictSchemaModel):
     authority_verification_errors: list[StrictStr] = Field(default_factory=list)
     deterministic_verification: StrictBool = False
     architecture_changing: StrictBool = False
+    governance_review_trigger: StrictStr = ""
 
 
 class PipelineResultSchema(StrictSchemaModel):
