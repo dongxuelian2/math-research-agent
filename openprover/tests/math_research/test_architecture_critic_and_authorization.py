@@ -324,3 +324,45 @@ def test_g20_critic_cannot_resolve_obligation(tmp_path):
     current = research.load_current_map(research_map.research_map_id)
     assert current.obligation_ref("O1").disposition == "OPEN"
     assert current.obligation_ref("O2").disposition == "OPEN"
+
+
+def test_g15_g16_authorized_reframe_creates_one_version_and_preserves_history(tmp_path):
+    project, _, research, research_map, controller, review, probe = _workflow(tmp_path)
+    theorem_before = project.load_theorem("T1")
+    patch = _patch(research_map, review, probe)
+    controller.persist_patch(patch)
+    critic = evaluate_patch(
+        patch=patch,
+        review=review,
+        current_map=research_map,
+        probes=(probe,),
+        critic_actor=_critic_actor(),
+        evidence_refs=("critic-evidence",),
+        created_at=utc_now(),
+    )
+    controller.persist_critic(critic)
+    authorization = controller.authorize_patch(patch.patch_id, critic.critic_id)
+
+    assert authorization.status == "AUTHORIZED"
+    assert research.load_current_map(research_map.research_map_id) == research_map
+    target, application = controller.apply_authorized_patch(
+        authorization.authorization_id,
+        applied_by="governance-applier",
+    )
+
+    assert target.version == 2
+    assert target.parent_version_ref == research_map.research_map_hash
+    assert research.load_map(research_map.research_map_hash) == research_map
+    assert research.load_current_map(research_map.research_map_id) == target
+    assert {item.obligation_id for item in target.obligation_refs} == {
+        "O1",
+        "O2",
+        "N1",
+        "N2",
+    }
+    assert target.obligation_ref("O1").disposition == "SUPERSEDED"
+    assert target.obligation_ref("O2").disposition == "SUPERSEDED"
+    assert target.obligation_ref("N1").disposition == "OPEN"
+    assert target.obligation_ref("N2").disposition == "OPEN"
+    assert controller.load_application(application.application_id) == application
+    assert project.load_theorem("T1") == theorem_before

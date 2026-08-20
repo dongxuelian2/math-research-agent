@@ -168,3 +168,50 @@
   JSON.
 - `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
 - `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.
+
+## PHASE 5 Architecture Governance
+
+- Audit-first ordering: `PHASE5_GOVERNANCE_PATH_AUDIT.md` was committed as
+  `4b6bc70` before any PHASE 5 production source change.
+- StructuralEffect/review-clock, ArchitectureReview/probe,
+  ArchitectureCritic/authorization, and positive/negative governance E2E:
+  `22 passed in 4.95s`.
+- The production governance E2E created ClaimSnapshot C1, ResearchMap v1 with
+  O1/O2/O3, two real TacticalSessions and tactical effects, a mandatory review,
+  bounded supporting probe, complete O1/O2/O3→N1/N2 transfers, independent
+  critic approval, authorized application, and exactly ResearchMap v2. The
+  theorem record and immutable v1 were unchanged.
+- The negative E2E omitted O3 transfer, produced critic `SCOPE_LOSS`, rejected
+  authorization, and retained v1 plus all three old obligations.
+- G22 restored an exact due clock through a campaign checkpoint. G23 converted
+  governance-less legacy campaign state to `GOVERNANCE_REVIEW_REQUIRED` with no
+  fabricated ArchitectureReview.
+- Repository-wide local-safe suite, excluding only the separately invoked
+  import-time interrupt file: `244 passed in 15.38s`.
+- PHASE 3 Truth Plane slice: `24 passed in 2.79s`.
+- PHASE 4 Research Plane slice: `21 passed in 4.97s`.
+- Provider-focused Gemini/Vertex/Codex/OpenAI/routing suite:
+  `38 passed in 2.49s`.
+- Checkpoint migration suite: `8 passed in 2.15s`.
+- Canonical authority suite: `11 passed in 2.94s`.
+- Typed Worker-event production plus explicit plan-over-capacity regression:
+  `7 passed in 2.70s`.
+- One parallel focused invocation encountered a transient Windows `WinError 5`
+  while replacing a per-test clock projection. The complete local-safe suite
+  had already passed, and the exact 22-test PHASE 5 slice immediately passed
+  under a fresh isolated base temp. The failed invocation is not counted as a
+  pass.
+- The separately invoked `openprover/tests/test_interrupt_race.py` remains
+  `ENVIRONMENT_BLOCKED`: collection executes `os.killpg` on Windows and raised
+  `AttributeError: module 'os' has no attribute 'killpg'`. It produced one
+  collection error and is not marked PASS, deleted, or permanently skipped.
+- `uv lock --check --project openprover`: PASS with 49 resolved packages.
+- `ruff format openprover` formatted one final test; the subsequent check
+  reported 131 files already formatted. `ruff check openprover`: PASS.
+- `python -m compileall -q openprover/openprover openprover/tests`: PASS.
+- `bash -n scripts/bootstrap.sh scripts/run_benchmark.sh`: PASS.
+- PowerShell parsers for `scripts/bootstrap.ps1` and `run_math_agent.ps1`: PASS.
+- Actual PowerShell status entrypoint: exit 0 with the `demo-odd-sum` theorem
+  JSON.
+- `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
+- `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.

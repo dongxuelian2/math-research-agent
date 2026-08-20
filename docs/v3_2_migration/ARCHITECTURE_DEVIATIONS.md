@@ -57,6 +57,35 @@ bounded deviations. Later-phase work is not presented as v3.2-complete.
   semantics.
 
 Legacy checkpoint fingerprints remain compatibility metadata only. Current
-PHASE 4 runs carry real ClaimSnapshot and ResearchMap identity; legacy
+PHASE 5 runs carry real ClaimSnapshot, ResearchMap, and governance identity; legacy
 checkpoints without either remain `REVALIDATION_REQUIRED`. Runtime state remains
 file-backed JSON by explicit scope, and no SQLite/WAL authority was introduced.
+
+## ARCHITECTURE_DEVIATION: filesystem Architecture Governance control state
+
+- 规范要求: PHASE 5 must provide durable review scheduling, immutable reviews,
+  bounded probes, independent criticism, authorization, and auditable patch
+  application while explicitly not implementing the PHASE 6 runtime.
+- 当前实现: immutable typed JSON artifacts plus atomically replaced clock and
+  active/pending projections under `research/governance/`. Semantics are
+  single-process only; no cross-process lease, CAS, outbox, or reconciliation
+  claim is made.
+- 最小引入面: `GovernanceController` owns scheduling and gate orchestration but
+  owns no mathematical strategy, provider routing, obligation resolution, or
+  Truth mutation. `ScopeTransfer` is the minimal coverage seam needed to prove
+  no scope disappeared during a destructive patch.
+- 未来迁移条件: PHASE 6 moves control projections and effect publication to the
+  authoritative SQLite/WAL runtime while retaining the immutable artifact
+  schemas and exact authorization semantics.
+
+## BOUNDED PHASE 5 SEAM: explicit evidence invalidation input
+
+- 规范要求: stale review/probe/patch evidence must force governance
+  revalidation.
+- 当前实现: authorization intersects an explicitly supplied invalidation set
+  with all review, probe, patch, and critic evidence; any intersection produces
+  `REVALIDATION_REQUIRED` and cannot apply.
+- 边界: PHASE 5 does not invent a cross-process invalidation event bus or
+  journal. Durable authority/dependency invalidation publication and recovery
+  belong to PHASE 6. This does not weaken the authorization gate when current
+  invalidation facts are supplied.
