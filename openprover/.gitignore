@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 runs/
 .pytest_cache/
+.tmp/
 .venv/
 .env
 .env.*
