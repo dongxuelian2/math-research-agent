@@ -684,6 +684,101 @@ class ResearchStoreFacade:
         self._persist_map(research_map)
         return research_map
 
+    def _require_durable_patch_authorization(
+        self,
+        authorization,
+        prior: ResearchMap,
+        *,
+        strategic_thesis: str | None,
+        removed_or_reframed_scope: tuple[str, ...],
+        added_scope: tuple[str, ...],
+    ) -> None:
+        """Revalidate destructive authority at the final mutation boundary.
+
+        A typed ``PatchAuthorization`` is only an in-memory value.  The
+        durable governance chain is the authority: it binds the authorization
+        to the exact patch, review, critic, probes, root snapshot, source map,
+        and requested map mutation.  This check intentionally lives here so a
+        direct caller cannot bypass ``GovernanceController.apply_authorized_patch``
+        by constructing an ``AUTHORIZED`` dataclass payload.
+        """
+
+        from .architecture_critic import ArchitectureCriticVerdict
+        from .architecture_patch import PatchAuthorizationStatus
+        from .structural_probe import StructuralProbeResult
+        from .governance import GovernanceController
+
+        try:
+            controller = GovernanceController(self.project, research_store=self)
+            durable = controller.load_authorization(authorization.authorization_id)
+            if durable != authorization:
+                raise ProjectError("durable authorization does not match supplied authority")
+            if durable.status != PatchAuthorizationStatus.AUTHORIZED.value:
+                raise ProjectError("durable authorization is not AUTHORIZED")
+            if not durable.scope_validation_passed or not durable.truth_boundary_intact:
+                raise ProjectError("durable authorization gates are not satisfied")
+            if durable.invalidated_evidence_refs:
+                raise ProjectError("durable authorization contains invalidated evidence")
+
+            patch = controller.load_patch(durable.patch_id)
+            review = controller.load_review(durable.review_id)
+            critic = controller.load_critic(durable.critic_id)
+            if (
+                durable.patch_hash != patch.patch_hash
+                or durable.review_id != patch.review_id
+                or durable.review_hash != patch.review_hash
+                or durable.critic_id != critic.critic_id
+                or durable.critic_hash != critic.critic_hash
+            ):
+                raise ProjectError("durable authorization chain identity mismatch")
+            if review.review_id != patch.review_id or review.review_hash != patch.review_hash:
+                raise ProjectError("durable review identity mismatch")
+            if (
+                critic.patch_id != patch.patch_id
+                or critic.patch_hash != patch.patch_hash
+                or critic.review_id != review.review_id
+                or critic.review_hash != review.review_hash
+                or critic.verdict != ArchitectureCriticVerdict.APPROVE.value
+                or not critic.independence_receipt.policy_satisfied
+            ):
+                raise ProjectError("durable critic did not approve this exact patch")
+            if (
+                durable.root_claim_snapshot_hash != patch.root_claim_snapshot_hash
+                or durable.source_map_hash != patch.source_map_hash
+                or patch.source_map_id != prior.research_map_id
+                or patch.source_map_version != prior.version
+                or patch.source_map_hash != prior.research_map_hash
+                or patch.root_claim_snapshot_hash != prior.root_claim_snapshot_hash
+            ):
+                raise ProjectError("durable patch is stale or targets another map")
+            if not patch.scope_transfer_complete:
+                raise ProjectError("durable patch has incomplete scope transfer")
+            if tuple(patch.probe_ids) != tuple(durable.probe_ids) or tuple(
+                patch.probe_hashes
+            ) != tuple(durable.probe_hashes):
+                raise ProjectError("durable probe identity mismatch")
+            for probe_id, probe_hash in zip(patch.probe_ids, patch.probe_hashes, strict=True):
+                probe = controller.load_probe(probe_id)
+                if probe.probe_hash != probe_hash or probe.result != StructuralProbeResult.SUPPORTS_PATCH.value:
+                    raise ProjectError("durable probe does not support this patch")
+
+            expected_thesis = patch.structural_thesis_change or prior.strategic_thesis
+            requested_thesis = prior.strategic_thesis if strategic_thesis is None else strategic_thesis
+            if requested_thesis != expected_thesis:
+                raise ProjectError("durable authorization is not bound to the requested thesis")
+            if tuple(patch.removed_or_reframed_scope) != tuple(removed_or_reframed_scope):
+                raise ProjectError("durable authorization is not bound to the requested scope")
+            if tuple(item.obligation_id for item in patch.additions) != tuple(added_scope):
+                raise ProjectError("durable authorization is not bound to the requested additions")
+        except (ProjectError, OSError, KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ProjectError) and str(exc).startswith(
+                "DESTRUCTIVE_REFRAME_REQUIRES_TRUSTED_AUTHORIZATION:"
+            ):
+                raise
+            raise ProjectError(
+                "DESTRUCTIVE_REFRAME_REQUIRES_TRUSTED_AUTHORIZATION: " + str(exc)
+            ) from exc
+
     def revise_map(
         self,
         parent: str | ResearchMap,
@@ -723,6 +818,13 @@ class ResearchStoreFacade:
                 raise ProjectError(
                     "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: authorization is not AUTHORIZED"
                 )
+            self._require_durable_patch_authorization(
+                governance_authorization,
+                prior,
+                strategic_thesis=strategic_thesis,
+                removed_or_reframed_scope=removed_or_reframed_scope,
+                added_scope=tuple(added_scope),
+            )
         new_root = root_claim_snapshot_hash or prior.root_claim_snapshot_hash
         if new_root != prior.root_claim_snapshot_hash:
             raise ProjectError("Root changes require explicit rebase_research_map")
