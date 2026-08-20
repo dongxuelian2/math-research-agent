@@ -9,6 +9,7 @@ from pathlib import Path
 from .project import ProjectError, ProjectStore, utc_now
 from .providers import create_client, load_model_config
 from .routing import ModelRouter, RoutedLLMClient
+from .runtime_backend import SQLiteRuntimeBackend
 from .schemas import (
     FormalizationResultSchema,
     parse_structured_response,
@@ -65,6 +66,8 @@ def run_formalization(
     router = ModelRouter(
         config,
         state_path=run_path / "routing_state.json",
+        runtime_backend=SQLiteRuntimeBackend(project.root),
+        runtime_scope=f"{run_path.name}:formalization",
     )
     client = RoutedLLMClient(
         router,
