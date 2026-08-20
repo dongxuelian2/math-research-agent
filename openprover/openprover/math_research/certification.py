@@ -23,6 +23,7 @@ from .campaign import ReplayPolicy, classify_provider_exception
 from .project import ProjectError, ProjectStore, utc_now
 from .providers import create_client, load_model_config, resolve_role_config
 from .routing import ModelRouter, RoutedLLMClient
+from .runtime_backend import SQLiteRuntimeBackend
 from .schemas import AuditResultSchema, SchemaError, parse_structured_response
 from .state_machine import AuditGate
 from .trust_kernel import (
@@ -120,6 +121,8 @@ class ReplayCertificationRunner:
         self.model_router = ModelRouter(
             self.config,
             state_path=self.output_dir / "routing_state.json",
+            runtime_backend=SQLiteRuntimeBackend(self.project.root),
+            runtime_scope=f"certification:{self.output_dir.name}",
         )
         self.clients: list[object] = []
 

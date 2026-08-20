@@ -54,6 +54,7 @@ from .schemas import (
     parse_structured_response,
 )
 from .route_failure import FailureDomain, ReopenCondition
+from .runtime_backend import SQLiteRuntimeBackend
 from .scheduler import StopController, StrategyFingerprintStore
 from .state_machine import AuditGate
 from .truth_store import TruthMutationBlocked, TruthStoreFacade
@@ -282,6 +283,25 @@ class ResearchOrchestrator:
         self.run_dir = self._resolve_run_dir(resume, run_id=run_id)
         self.state_path = self.run_dir / "state.json"
         self.state = self._load_or_initialize_state()
+        runtime_db_preexisting = (self.project.root / "runtime" / "control.sqlite3").is_file()
+        self.runtime_backend = SQLiteRuntimeBackend(self.project.root)
+        if resume and not runtime_db_preexisting:
+            self.runtime_backend.import_legacy_checkpoint(
+                str(self.run_dir),
+                classification="MIGRATED_FROM_LEGACY_CHECKPOINT",
+                metadata={"run_id": self.run_dir.name, "target_id": self.target_id},
+            )
+        runtime_reconciliation = self.runtime_backend.reconcile()
+        self.state["runtime_control_plane"] = {
+            "authority": "SQLITE_WAL",
+            "database": "runtime/control.sqlite3",
+            "schema_version": self.runtime_backend.check()["schema_version"],
+            "checkpoint_role": "PORTABLE_COMPATIBILITY_PROJECTION",
+            "last_reconciliation_ids": [
+                item["reconciliation_id"] for item in runtime_reconciliation
+            ],
+        }
+        _write_json(self.state_path, self.state)
         self.started = time.perf_counter()
         self.metrics: dict[str, dict] = self.state.get("metrics", {})
         project_override = self.project.load_project().get("model_routing", {})
@@ -291,6 +311,8 @@ class ResearchOrchestrator:
             state_path=(None if immutable_complete else self.run_dir / "routing_state.json"),
             campaign_override=self.campaign_routing_override,
             project_override=project_override,
+            runtime_backend=self.runtime_backend,
+            runtime_scope=self.run_dir.name,
         )
         self.pipeline_scheduler = AsyncDAGScheduler(
             state=(pipeline_state if pipeline_state is not None else None),

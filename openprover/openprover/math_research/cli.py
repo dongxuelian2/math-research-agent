@@ -17,6 +17,8 @@ from .orchestrator import ResearchOrchestrator, build_run_preview
 from .project import ProjectError, ProjectStore
 from .providers import create_client, load_model_config, resolve_role_config
 from .retrieval import ContextBuilder
+from .runtime_backend import SQLiteRuntimeBackend
+from .runtime_dispatch import DurableProviderDispatcher
 from .state_machine import THEOREM_STATUSES
 
 
@@ -104,6 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--project", required=True)
     status.add_argument("--target")
 
+    runtime_check = sub.add_parser("runtime-check", help="verify the SQLite/WAL control plane")
+    runtime_check.add_argument("--project", required=True)
+
+    reconcile = sub.add_parser("reconcile", help="reconcile durable runtime and artifacts")
+    reconcile.add_argument("--project", required=True)
+
     trans = sub.add_parser(
         "transition", help="perform a human lifecycle transition (never directly to PROVED)"
     )
@@ -162,6 +170,7 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         )
         output_dir = Path(args.output).resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
+        runtime_backend = SQLiteRuntimeBackend(output_dir)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         prefix = provider.replace("_", "-") + "-provider-smoke"
         archive_path = output_dir / f"{prefix}-{stamp}.md"
@@ -175,17 +184,31 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         started = time.perf_counter()
         try:
             try:
-                response = client.call(
-                    prompt=(
-                        f"Return exactly {args.expect} and nothing else. "
-                        "Do not add punctuation, Markdown, or explanation."
+                prompt = (
+                    f"Return exactly {args.expect} and nothing else. "
+                    "Do not add punctuation, Markdown, or explanation."
+                )
+                system_prompt = (
+                    "This is a minimal provider connectivity check. Follow the "
+                    "user's exact output constraint."
+                )
+                job = runtime_backend.create_logical_job(
+                    job_kind="OTHER",
+                    semantic_target=f"provider-smoke:{args.role}:{stamp}",
+                    idempotency_key=f"provider-smoke:{args.role}:{stamp}",
+                )
+                response = DurableProviderDispatcher(runtime_backend).execute(
+                    logical_job_id=job["logical_job_id"],
+                    provider=str(provider),
+                    model=role.get("model"),
+                    reasoning_tier=role.get("reasoning_effort"),
+                    payload={"prompt": prompt, "system_prompt": system_prompt},
+                    invoke=lambda: client.call(
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        label=f"{provider}_provider_smoke",
+                        archive_path=archive_path,
                     ),
-                    system_prompt=(
-                        "This is a minimal provider connectivity check. Follow the "
-                        "user's exact output constraint."
-                    ),
-                    label=f"{provider}_provider_smoke",
-                    archive_path=archive_path,
                 )
             except (GeminiProviderError, CodexCLIProviderError, OpenAIProviderError) as exc:
                 failure = {
@@ -318,6 +341,25 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             "project": store.load_project(),
             "theorems": store.rebuild_index()["theorems"],
         }
+    if args.command == "runtime-check":
+        backend = SQLiteRuntimeBackend(store.root)
+        return {
+            **backend.check(),
+            "counts": {
+                table: len(backend.list_rows(table))
+                for table in (
+                    "logical_jobs",
+                    "attempts",
+                    "outbox",
+                    "attempt_results",
+                    "effect_slots",
+                )
+            },
+        }
+    if args.command == "reconcile":
+        backend = SQLiteRuntimeBackend(store.root)
+        actions = backend.reconcile()
+        return {"runtime": backend.check(), "actions": actions, "action_count": len(actions)}
     if args.command == "transition":
         return store.transition(
             args.target,

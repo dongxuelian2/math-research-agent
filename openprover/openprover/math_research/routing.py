@@ -257,6 +257,8 @@ class ModelRouter:
         state_path: str | Path | None = None,
         campaign_override: dict | None = None,
         project_override: dict | None = None,
+        runtime_backend=None,
+        runtime_scope: str | None = None,
     ):
         self.config = copy.deepcopy(config)
         self.layers = [
@@ -268,6 +270,8 @@ class ModelRouter:
         if state is None and self.state_path and self.state_path.exists():
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
         self.state = initialize_routing_state(state)
+        self.runtime_backend = runtime_backend
+        self.runtime_scope = runtime_scope or "standalone"
         self._lock = threading.RLock()
         self._save()
 
@@ -802,6 +806,7 @@ class RoutedLLMClient:
         self.total_retries = 0
         self.total_cost = 0.0
         self.billing_mode = "gemini_heterogeneous"
+        self._runtime_attempts: dict[str, dict[str, Any]] = {}
         default_route = router.resolve(self.default_role, reserve=False)
         self.model = default_route.model or f"{default_route.provider}-default"
         self.context_length = int(default_route.config.get("context_length", 200_000))
@@ -923,9 +928,55 @@ class RoutedLLMClient:
         **payload,
     ) -> dict:
         metadata = self.router.begin_call(route, obligation_id=obligation_id, branch_id=branch_id)
+        logical_job_id = None
+        if self.router.runtime_backend is not None:
+            job_kind = (
+                "AUDIT"
+                if "auditor" in route.role or route.role in {"worker_verifier", "theorem_verifier"}
+                else "FORMALIZATION"
+                if route.role == "formalization_agent"
+                else "LITERATURE"
+                if route.role.startswith("literature_")
+                else "TACTICAL_SESSION"
+            )
+            job = self.router.runtime_backend.create_logical_job(
+                job_kind=job_kind,
+                semantic_target=obligation_id or branch_id or route.role,
+                idempotency_key=f"{self.router.runtime_scope}:{metadata['call_id']}",
+                obligation_id=obligation_id,
+                result_policy="FIRST_VALID_ACCEPTED_RESULT",
+                actor="model-router",
+            )
+            logical_job_id = job["logical_job_id"]
+
+        def invoke(active_route, active_client, *, fallback_reason=None):
+            if self.router.runtime_backend is None:
+                return getattr(active_client, method)(**payload, **kwargs)
+            from .runtime_dispatch import DurableProviderDispatcher
+
+            return DurableProviderDispatcher(self.router.runtime_backend).execute(
+                logical_job_id=logical_job_id,
+                provider=active_route.provider,
+                model=active_route.model,
+                reasoning_tier=active_route.reasoning_effort or active_route.tier,
+                payload={
+                    "method": method,
+                    "payload": payload,
+                    "kwargs": kwargs,
+                    "role": active_route.role,
+                    "obligation_id": obligation_id,
+                    "branch_id": branch_id,
+                },
+                invoke=lambda: getattr(active_client, method)(**payload, **kwargs),
+                retry_fallback_reason=fallback_reason,
+                on_started=lambda attempt: self._runtime_attempts.__setitem__(
+                    attempt["attempt_id"], attempt
+                ),
+                on_finished=lambda attempt_id: self._runtime_attempts.pop(attempt_id, None),
+            )
         try:
             client = self._client(route)
-            response = getattr(client, method)(**payload, **kwargs)
+            response = invoke(route, client)
         except Exception as exc:
             if route.tier == "routine" and self._is_route_unavailable(exc):
                 self.router.finish_call(metadata["call_id"], error=str(exc))
@@ -948,7 +999,11 @@ class RoutedLLMClient:
                             role=fallback.role,
                             tier=fallback.tier,
                         )
-                    response = getattr(client, method)(**payload, **kwargs)
+                    response = invoke(
+                        fallback,
+                        client,
+                        fallback_reason=fallback.fallback_reason or "routine route fallback",
+                    )
                 except Exception as fallback_exc:
                     self.router.finish_call(fallback_meta["call_id"], error=str(fallback_exc))
                     raise
@@ -1037,6 +1092,11 @@ class RoutedLLMClient:
         )
 
     def interrupt(self):
+        if self.router.runtime_backend is not None:
+            for attempt_id in list(self._runtime_attempts):
+                self.router.runtime_backend.request_cancel(
+                    attempt_id, actor="routed-client-interrupt"
+                )
         for client in list(self._clients.values()):
             client.interrupt()
 

@@ -98,7 +98,9 @@ class RuntimeReconciler:
                 )
 
     def _reconcile_manifests(self) -> None:
-        registered = {row["artifact_id"] for row in self.backend.list_rows("artifact_registry")}
+        registered = {
+            row["artifact_id"]: row for row in self.backend.list_rows("artifact_registry")
+        }
         for manifest in self.artifacts.manifests():
             if manifest.get("invalid"):
                 self._record(
@@ -109,30 +111,30 @@ class RuntimeReconciler:
                 )
                 continue
             artifact_id = str(manifest.get("artifact_id") or "")
-            if artifact_id in registered:
-                continue
-            try:
-                artifact = self.backend.register_artifact(
-                    str(manifest["relative_path"]),
-                    artifact_kind=str(manifest["artifact_kind"]),
-                    producer_attempt_id=manifest.get("producer_attempt_id"),
-                    expected_sha256=str(manifest["sha256"]),
-                    artifact_id=artifact_id,
-                )
-            except (ArtifactIntegrityError, RuntimeConflict, KeyError) as exc:
+            artifact = registered.get(artifact_id)
+            if artifact is None:
+                try:
+                    artifact = self.backend.register_artifact(
+                        str(manifest["relative_path"]),
+                        artifact_kind=str(manifest["artifact_kind"]),
+                        producer_attempt_id=manifest.get("producer_attempt_id"),
+                        expected_sha256=str(manifest["sha256"]),
+                        artifact_id=artifact_id,
+                    )
+                except (ArtifactIntegrityError, RuntimeConflict, KeyError) as exc:
+                    self._record(
+                        ReconciliationAction.MANUAL_REVIEW_REQUIRED,
+                        "ARTIFACT",
+                        artifact_id or manifest["manifest_path"],
+                        f"orphan artifact cannot be registered: {exc}",
+                    )
+                    continue
                 self._record(
-                    ReconciliationAction.MANUAL_REVIEW_REQUIRED,
+                    ReconciliationAction.REPAIR_PROJECTION,
                     "ARTIFACT",
-                    artifact_id or manifest["manifest_path"],
-                    f"orphan artifact cannot be registered: {exc}",
+                    artifact_id,
+                    "registered a verified orphan filesystem artifact",
                 )
-                continue
-            self._record(
-                ReconciliationAction.REPAIR_PROJECTION,
-                "ARTIFACT",
-                artifact_id,
-                "registered a verified orphan filesystem artifact",
-            )
             result = manifest.get("result_metadata")
             if not isinstance(result, dict) or not result.get("completion_status"):
                 continue
