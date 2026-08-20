@@ -1,7 +1,7 @@
 # Debug Reproducers
 
-Run commands from the repository root. Use a clean local environment and do
-not edit the expected NF-003/NF-004 outcomes.
+Run commands from the repository root. The commands use temporary project
+roots and do not modify frozen audit records.
 
 ## Existing final adversarial probe
 
@@ -11,23 +11,34 @@ The next debug/certification engineer should run:
 uv run --project openprover --extra test python docs/v3_2_migration/pre_root_final_reauthorization/run_final_adversarial_probes.py
 ```
 
-The preserved expected outcome is:
+The final candidate outcome is:
 
 ```text
 F005-A1-A14 PASS
 F007-RESTART-CONTROLS PASS
-NF-003-PARTIAL-BINDING FAIL
-NF-004-NO-BACKEND-GUARD FAIL
+NF-003-PARTIAL-BINDING PASS
+NF-004-NO-BACKEND-GUARD PASS
 F002-TERMINAL-REJECTION PASS
 ```
 
-This probe was not rerun as a Phase 7 certification action. Its known failing
-NF-003/NF-004 expectations must remain visible to the next engineer.
+The final run also reports `F005-A1-A14 PASS` and
+`F007-RESTART-CONTROLS PASS`. These are candidate repair results, not formal
+certification.
+
+## X1-X16 repair runner
+
+```powershell
+uv run --project openprover --extra test python docs/v3_2_migration/pre_root_repair/run_pre_root_repair_probes.py
+```
+
+The final run reports X1 and X7 as `CERTIFIED` in the runner's local evidence
+taxonomy, with no blocking probe failures. The candidate report deliberately
+does not convert that runner label into an independent certification claim.
 
 ## Phase 7 focused coverage
 
 ```powershell
-uv run --project openprover pytest -q openprover/tests/math_research/test_phase7_implementation.py
+uv run --project openprover --extra test pytest -q openprover/tests/math_research/test_pre_root_authority_repairs.py openprover/tests/math_research/test_pre_root_blocker_repairs.py openprover/tests/math_research/test_phase7_implementation.py
 ```
 
 The focused tests exercise:
@@ -49,6 +60,28 @@ uv run --project openprover pytest -q openprover/tests/math_research/test_phase4
 ```powershell
 uv run --project openprover pytest -q
 ```
+
+For the final deterministic local count, the executed command was:
+
+```powershell
+uv run --project openprover --extra test pytest -q -p no:cacheprovider
+```
+
+It returned `289 passed`.
+
+## Static and platform checks
+
+```powershell
+uv run --project openprover --extra dev ruff check openprover
+uv run --project openprover --extra dev ruff format --check openprover
+uv lock --check --project openprover
+uv run --project openprover python -m compileall -q openprover/openprover docs/v3_2_migration/pre_root_final_reauthorization
+uv run --project openprover --extra test pytest -q -p no:cacheprovider openprover/tests/test_interrupt_race.py
+```
+
+The Windows interrupt check returned `3 passed`. Bash and PowerShell syntax
+scans also passed. A real POSIX process-group run remains unavailable on this
+host because WSL and Docker are not installed.
 
 ## Artifact inspection
 

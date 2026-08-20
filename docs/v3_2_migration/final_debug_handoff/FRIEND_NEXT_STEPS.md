@@ -1,28 +1,21 @@
 # Friend Next Steps
 
-This is the recommended order for the next debug and certification engineer.
+This is the recommended order for the next independent audit and certification
+engineer.
 
-1. Confirm the local ending HEAD, clean worktree, and the formal freeze flags
-   in `CURRENT_STATE.md`.
-2. Reproduce NF-003 with the existing partial current-domain binding probe.
-3. Reproduce NF-004 with the existing no-backend semantic-route probe.
-4. Repair NF-003 so missing required current-domain dimensions fail closed.
-5. Repair NF-004 so `require_execution_binding=True` cannot bypass enforcement
-   when the runtime backend is absent.
-6. Run the complete F-007 binding/restart matrix, including complete, partial,
-   stale, standalone, and interrupted cases.
-7. Run the Phase 7 focused tests, the relevant integration tests, and the full
-   local suite.
-8. Resolve the historical Ruff format gate without changing unrelated
-   production semantics.
-9. Push only under the repository owner’s authorization and run hosted Linux
-   CI.
-10. Execute the POSIX interruption gate.
-11. Run one fresh independent final audit over the consolidated implementation.
-12. Grant or deny final certification based on that audit; do not infer it from
-    this implementation handoff.
+1. Confirm the local ending HEAD, clean worktree, and formal freeze flags in
+   `CURRENT_STATE.md` and `FINAL_CANDIDATE_REPORT.md`.
+2. Review the exact NF-003/NF-004 production diffs and rerun
+   `DEBUG_REPRODUCERS.md` from the final HEAD.
+3. Run an independent final audit over the complete, partial, stale/restart,
+   no-backend, map-scoped, and truth-only binding variants.
+4. If external validation is authorized, push the local commits and run the
+   hosted Linux/Windows workflow.
+5. Execute the POSIX interruption gate on a real POSIX host.
+6. Reconcile hosted/POSIX evidence with X1-X16 and C1-C10, then grant or deny
+   final certification based on that independent audit.
 
 Do not edit the historical F-002/F-005 closure or the prior denied
-reauthorization record. Do not treat the Phase 7 owner override as formal
-authorization, and do not mark NF-003/NF-004 closed without independent
-evidence.
+reauthorization record. Do not treat the Phase 7 owner override or this local
+repair candidate as formal authorization, and do not turn candidate probe
+labels into final certification.
