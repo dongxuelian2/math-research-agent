@@ -75,3 +75,23 @@ FINAL_CONSOLIDATION_FULL = NOT_STARTED
 PHASE_7_IMPLEMENTATION_STARTED = NO
 PHASE_7_AUTHORIZED = NOT_GRANTED
 ```
+
+## Full local verification
+
+- Full local-safe suite: `275 passed`.
+- `openprover/tests/test_interrupt_race.py`: `3 passed`.
+- `uv lock --check --project openprover`: passed; 49 packages resolved.
+- Ruff check: passed for production sources, tests, and the repair runner.
+- `uv run --project openprover --extra test python -m compileall -q ...`: passed.
+- `git diff --check`: passed; Git emitted only expected LF/CRLF working-copy
+  notices.
+- `bash -n scripts/bootstrap.sh scripts/run_benchmark.sh`: passed.
+- PowerShell parser checks for `scripts/bootstrap.ps1` and
+  `run_math_agent.ps1`: passed.
+- Hosted CI remains `PENDING_PUSH`: no push was authorized.
+
+The frozen original probe runner was also rerun exactly. It still reports its
+historical X1 `PARTIAL` observation because that file is immutable and its
+instrumentation intentionally has no stale-binding validator. The separate
+repair runner in this directory performs the repaired X1 validator and reports
+X1 `CERTIFIED`; the frozen evidence was not rewritten.
