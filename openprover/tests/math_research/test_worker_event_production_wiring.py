@@ -195,7 +195,7 @@ def test_typed_events_drive_all_policy_consumers(tmp_path: Path):
     assert router.frontier[0][1]["parameter_reduction"] is True
 
 
-def test_production_planner_worker_verifier_audit_gate_e2e(tmp_path: Path):
+def test_t13_production_planner_worker_verifier_truth_mutation_e2e(tmp_path: Path):
     """Exercise the real deterministic production route, not the showcase replay."""
 
     repository_root = Path(__file__).resolve().parents[3]
@@ -238,3 +238,24 @@ def test_production_planner_worker_verifier_audit_gate_e2e(tmp_path: Path):
         == "PASS"
     )
     assert store.load_theorem("demo-odd-sum")["status"] == "PROVED"
+    state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+    mutation_id = state["truth_mutation_id"]
+    intent_path = (
+        project_root
+        / "truth"
+        / "mutations"
+        / "intents"
+        / (mutation_id.removeprefix("sha256:") + ".json")
+    )
+    receipt_path = (
+        project_root
+        / "truth"
+        / "mutations"
+        / "receipts"
+        / (mutation_id.removeprefix("sha256:") + ".json")
+    )
+    intent = json.loads(intent_path.read_text(encoding="utf-8"))
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert intent["claim_snapshot_hash"] == intent["audited_claim_snapshot_hash"]
+    assert receipt["resulting_status"] == "PROVED"
+    assert receipt["claim_snapshot_hash"] == intent["claim_snapshot_hash"]

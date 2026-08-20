@@ -95,3 +95,39 @@
   standalone YAML parser is installed, so semantic hosted-workflow execution is
   not claimed.
 - `HOSTED_CI = PENDING_PUSH` because no push was authorized or performed.
+
+## PHASE 3 Truth Plane Foundation
+
+- Audit-first ordering: `PHASE3_TRUTH_PATH_AUDIT.md` was committed before any
+  PHASE 3 production code.
+- Typed identity/snapshot/facade/mutation plus production integration suite:
+  T1–T13 `24 passed in 3.06s` in deterministic local fixtures.
+- Root, dependency, authority, and trust-policy races are injected between
+  audit and promotion; every stale case retains an intent, writes blocked
+  evidence, emits no receipt, and leaves the target non-PROVED.
+- Unchanged production E2E reaches Planner, three Workers, Worker Verifiers,
+  Candidate, specialist/final audits, exact-snapshot gate, mutation intent,
+  compare-and-transition, receipt, and PROVED.
+- One repeated E2E invocation encountered a transient Windows `WinError 5`
+  while the pre-existing routing code replaced a temp JSON file. The same test
+  immediately passed under a new isolated temp root; it is not counted as a
+  code pass or as the known interrupt-test exclusion.
+- Final repository-wide local-safe suite, excluding only the separately run
+  import-time interrupt file: `200 passed in 8.90s`.
+- Provider-focused Gemini/Vertex/Codex/OpenAI/routing suite:
+  `38 passed in 1.95s`.
+- Checkpoint migration suite: `8 passed in 1.84s`.
+- Canonical authority suite including T8/T9: `11 passed in 2.27s`.
+- The separately invoked `test_interrupt_race.py` remains
+  `ENVIRONMENT_BLOCKED`: collection executes a POSIX process-group test at
+  import time and this Windows host has no `os.killpg`. It produced one
+  collection error and is not marked PASS, deleted, or permanently skipped.
+- `uv lock --check`: passed with 49 packages.
+- PowerShell parsers for `scripts/bootstrap.ps1` and `run_math_agent.ps1`: PASS.
+- `bash -n scripts/bootstrap.sh scripts/run_benchmark.sh`: PASS.
+- Actual PowerShell status launcher: exit 0 with the demo theorem JSON.
+- `ruff format --check openprover`: 108 files already formatted.
+- `ruff check openprover`: PASS.
+- `python -m compileall -q openprover`: PASS.
+- `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
+- `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.

@@ -26,16 +26,22 @@ These are explicit pre-existing production deviations retained temporarily; none
 - 采用的临时设计: Preserve v2 lifecycle without claiming v3 semantics.
 - 未来迁移条件: Campaign/Session/CandidateAttempt separation and obligation reopen path have production E2E parity.
 
-## ARCHITECTURE_DEVIATION: no authoritative v3 planes/runtime
+## ARCHITECTURE_DEVIATION: filesystem Truth Plane without authoritative v3 runtime
 
 - 规范要求: Distinct Truth/Research/Execution ownership with SQLite/WAL control state and filesystem artifacts.
-- 当前实现: JSON ProjectStore plus file-backed campaign/routing/pipeline state; no ClaimSnapshot, ResearchMap, AttemptIntent, outbox, or truth saga.
-- 不可直接实现的原因: Phase 0/1 are preservation gates and explicitly forbid a wholesale runtime rewrite.
-- 采用的临时设计: Narrow hooks/adapters only; existing authority semantics remain unchanged.
-- 未来迁移条件: Phase 2 deterministic runtime and Phase 3 Truth schemas/tests pass crash, race, stale, and migration acceptance matrices.
+- 当前实现: PHASE 3 now has immutable ClaimSnapshot and a filesystem truth
+  mutation saga over JSON ProjectStore. ResearchMap, AttemptIntent runtime,
+  SQLite/WAL, outbox, leases, and cross-process transactions remain absent.
+- 不可直接实现的原因: PHASE 3 explicitly requires the thinnest facade and
+  forbids stealing later runtime-plane ownership.
+- 采用的临时设计: content-addressed truth artifacts, per-file atomic replace,
+  and a narrow in-process reentrant compare-and-transition lock. No database or
+  distributed-runtime claim is made.
+- 未来迁移条件: later execution-plane phases provide SQLite/WAL CAS, outbox,
+  recovery, attempt ownership, and parity tests without changing the PHASE 3
+  truth object semantics.
 
-The checkpoint work does not widen this deviation. Its minimal assertion and
-policy fingerprints are compatibility metadata only; they do not claim
-ClaimSnapshot identity or Truth/Research/Execution-plane ownership. Migrated
-runtime state remains file-backed JSON by explicit scope, and no SQLite/WAL
-authority was introduced.
+Legacy checkpoint fingerprints remain compatibility metadata only. Current
+PHASE 3 runs carry real ClaimSnapshot identity; legacy checkpoints without one
+remain `REVALIDATION_REQUIRED`. Runtime state remains file-backed JSON by
+explicit scope, and no SQLite/WAL authority was introduced.
