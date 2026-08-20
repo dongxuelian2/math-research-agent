@@ -5,14 +5,21 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import sqlite3
+import time
+import uuid
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 
 from .project import utc_now
 from .runtime_model import (
+    ATTEMPT_TRANSITIONS,
     RUNTIME_SCHEMA_VERSION,
     ArtifactIntegrityError,
+    AttemptState,
+    InvalidRuntimeTransition,
     JobState,
+    OutboxState,
+    RuntimeConflict,
     canonical_json,
     content_hash,
     stable_id,
@@ -414,6 +421,633 @@ class SQLiteRuntimeBackend:
                     "SELECT * FROM logical_jobs WHERE logical_job_id = ?", (logical_job_id,)
                 ).fetchone()
             )
+
+    def get_attempt(self, attempt_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            return self._row(
+                connection.execute(
+                    "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+                ).fetchone()
+            )
+
+    def get_outbox(self, outbox_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            return self._row(
+                connection.execute(
+                    "SELECT * FROM outbox WHERE outbox_id = ?", (outbox_id,)
+                ).fetchone()
+            )
+
+    def create_attempt_intent(
+        self,
+        *,
+        logical_job_id: str,
+        provider: str,
+        payload_hash: str,
+        dispatch_kind: str,
+        attempt_number: int | None = None,
+        attempt_id: str | None = None,
+        model: str | None = None,
+        reasoning_tier: str | None = None,
+        claim_snapshot_hash: str | None = None,
+        directive_context_refs: Sequence[str] = (),
+        retry_fallback_reason: str | None = None,
+        payload_ref: str | None = None,
+        actor: str = "runtime-controller",
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Commit immutable intent and outbox atomically before external execution."""
+
+        now = utc_now()
+        with self._transaction() as connection:
+            job = connection.execute(
+                "SELECT * FROM logical_jobs WHERE logical_job_id = ?", (logical_job_id,)
+            ).fetchone()
+            if job is None:
+                raise RuntimeConflict(f"Unknown LogicalJob: {logical_job_id}")
+            number = attempt_number
+            if number is None:
+                number = int(
+                    connection.execute(
+                        "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM attempts "
+                        "WHERE logical_job_id = ?",
+                        (logical_job_id,),
+                    ).fetchone()[0]
+                )
+            if number < 1:
+                raise ValueError("attempt_number must be positive")
+            intent_id = attempt_id or stable_id("attempt", logical_job_id, number)
+            existing = connection.execute(
+                "SELECT * FROM attempts WHERE attempt_id = ?", (intent_id,)
+            ).fetchone()
+            if existing is not None:
+                outbox = connection.execute(
+                    "SELECT * FROM outbox WHERE attempt_id = ?", (intent_id,)
+                ).fetchone()
+                if outbox is None:
+                    raise RuntimeConflict("AttemptIntent exists without its transactional outbox")
+                return dict(existing), dict(outbox)
+            collision = connection.execute(
+                "SELECT attempt_id FROM attempts WHERE logical_job_id = ? AND attempt_number = ?",
+                (logical_job_id, number),
+            ).fetchone()
+            if collision is not None:
+                raise RuntimeConflict(
+                    f"Attempt number {number} already belongs to {collision['attempt_id']}"
+                )
+            refs = canonical_json(list(directive_context_refs))
+            connection.execute(
+                """INSERT INTO attempts(
+                       attempt_id, logical_job_id, attempt_number, provider, model, reasoning_tier,
+                       payload_hash, claim_snapshot_hash, directive_context_refs,
+                       retry_fallback_reason, created_at, updated_at, state, schema_version
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    intent_id,
+                    logical_job_id,
+                    number,
+                    provider,
+                    model,
+                    reasoning_tier,
+                    payload_hash,
+                    claim_snapshot_hash or job["claim_snapshot_hash"],
+                    refs,
+                    retry_fallback_reason,
+                    now,
+                    now,
+                    AttemptState.CREATED,
+                    RUNTIME_SCHEMA_VERSION,
+                ),
+            )
+            self._journal(
+                connection,
+                object_type="ATTEMPT",
+                object_id=intent_id,
+                from_state=None,
+                to_state=AttemptState.CREATED,
+                transition_kind="CREATE_ATTEMPT_INTENT",
+                actor=actor,
+                attempt_id=intent_id,
+                logical_job_id=logical_job_id,
+                metadata={"attempt_number": number, "payload_hash": payload_hash},
+            )
+            connection.execute(
+                "UPDATE attempts SET state = ?, version = 1 WHERE attempt_id = ?",
+                (AttemptState.READY, intent_id),
+            )
+            self._journal(
+                connection,
+                object_type="ATTEMPT",
+                object_id=intent_id,
+                from_state=AttemptState.CREATED,
+                to_state=AttemptState.READY,
+                transition_kind="INTENT_COMMITTED",
+                actor=actor,
+                attempt_id=intent_id,
+                logical_job_id=logical_job_id,
+            )
+            outbox_id = stable_id("outbox", intent_id)
+            connection.execute(
+                """INSERT INTO outbox(
+                       outbox_id, attempt_id, payload_ref, payload_hash, dispatch_kind,
+                       state, created_at
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    outbox_id,
+                    intent_id,
+                    payload_ref,
+                    payload_hash,
+                    dispatch_kind,
+                    OutboxState.PENDING,
+                    now,
+                ),
+            )
+            self._journal(
+                connection,
+                object_type="OUTBOX",
+                object_id=outbox_id,
+                from_state=None,
+                to_state=OutboxState.PENDING,
+                transition_kind="ENQUEUE_TRANSACTIONAL_OUTBOX",
+                actor=actor,
+                attempt_id=intent_id,
+                logical_job_id=logical_job_id,
+                metadata={"dispatch_kind": dispatch_kind},
+            )
+            if job["state"] == JobState.CREATED:
+                connection.execute(
+                    "UPDATE logical_jobs SET state = ?, updated_at = ?, version = version + 1 "
+                    "WHERE logical_job_id = ? AND state = ?",
+                    (JobState.ACTIVE, now, logical_job_id, JobState.CREATED),
+                )
+                self._journal(
+                    connection,
+                    object_type="LOGICAL_JOB",
+                    object_id=logical_job_id,
+                    from_state=JobState.CREATED,
+                    to_state=JobState.ACTIVE,
+                    transition_kind="FIRST_ATTEMPT_READY",
+                    actor=actor,
+                    logical_job_id=logical_job_id,
+                    attempt_id=intent_id,
+                )
+            return (
+                dict(
+                    connection.execute(
+                        "SELECT * FROM attempts WHERE attempt_id = ?", (intent_id,)
+                    ).fetchone()
+                ),
+                dict(
+                    connection.execute(
+                        "SELECT * FROM outbox WHERE outbox_id = ?", (outbox_id,)
+                    ).fetchone()
+                ),
+            )
+
+    def _rejected_transition(
+        self,
+        *,
+        attempt: Mapping[str, Any],
+        requested_state: str,
+        actor: str,
+        reason: str,
+    ) -> None:
+        with self._transaction() as connection:
+            self._journal(
+                connection,
+                object_type="ATTEMPT",
+                object_id=str(attempt["attempt_id"]),
+                from_state=str(attempt["state"]),
+                to_state=str(attempt["state"]),
+                transition_kind="REJECTED_ILLEGAL_TRANSITION",
+                actor=actor,
+                attempt_id=str(attempt["attempt_id"]),
+                logical_job_id=str(attempt["logical_job_id"]),
+                metadata={"requested_state": requested_state, "reason": reason},
+            )
+
+    def transition_attempt(
+        self,
+        attempt_id: str,
+        to_state: str | AttemptState,
+        *,
+        actor: str,
+        expected_states: Sequence[str | AttemptState] | None = None,
+        lease_token: str | None = None,
+        generation: int | None = None,
+        causal_ref: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        target = str(to_state)
+        rejected: tuple[dict[str, Any], str] | None = None
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+            attempt = dict(row)
+            current = str(attempt["state"])
+            expected = {str(value) for value in expected_states} if expected_states else None
+            if expected is not None and current not in expected:
+                rejected = (attempt, f"expected one of {sorted(expected)}, found {current}")
+            elif target not in ATTEMPT_TRANSITIONS.get(current, frozenset()):
+                rejected = (attempt, f"{current} -> {target} is not legal")
+            elif lease_token is not None and (
+                attempt["lease_token"] != lease_token or int(attempt["generation"]) != generation
+            ):
+                rejected = (attempt, "stale lease fencing token")
+            if rejected is None:
+                clear_lease = target in {
+                    AttemptState.COMPLETED,
+                    AttemptState.FAILED_RETRYABLE,
+                    AttemptState.FAILED_TERMINAL,
+                    AttemptState.CANCELLED,
+                    AttemptState.ORPHANED,
+                }
+                cursor = connection.execute(
+                    """UPDATE attempts SET state = ?, updated_at = ?, version = version + 1,
+                           lease_owner = CASE WHEN ? THEN NULL ELSE lease_owner END,
+                           lease_token = CASE WHEN ? THEN NULL ELSE lease_token END,
+                           lease_expires_at = CASE WHEN ? THEN NULL ELSE lease_expires_at END
+                       WHERE attempt_id = ? AND version = ? AND state = ?""",
+                    (
+                        target,
+                        utc_now(),
+                        clear_lease,
+                        clear_lease,
+                        clear_lease,
+                        attempt_id,
+                        attempt["version"],
+                        current,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeConflict("Attempt CAS lost")
+                self._journal(
+                    connection,
+                    object_type="ATTEMPT",
+                    object_id=attempt_id,
+                    from_state=current,
+                    to_state=target,
+                    transition_kind="ATTEMPT_STATE_TRANSITION",
+                    actor=actor,
+                    attempt_id=attempt_id,
+                    logical_job_id=str(attempt["logical_job_id"]),
+                    causal_ref=causal_ref,
+                    metadata=metadata,
+                )
+                return dict(
+                    connection.execute(
+                        "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+                    ).fetchone()
+                )
+        assert rejected is not None
+        self._rejected_transition(
+            attempt=rejected[0], requested_state=target, actor=actor, reason=rejected[1]
+        )
+        if "stale lease" in rejected[1]:
+            raise RuntimeConflict(rejected[1])
+        raise InvalidRuntimeTransition(rejected[1])
+
+    def claim_attempt(
+        self,
+        attempt_id: str,
+        *,
+        owner: str,
+        ttl_seconds: float,
+        allow_orphaned: bool = False,
+    ) -> dict[str, Any]:
+        if ttl_seconds <= 0:
+            raise ValueError("lease ttl must be positive")
+        allowed = {AttemptState.READY}
+        if allow_orphaned:
+            allowed.add(AttemptState.ORPHANED)
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+            attempt = dict(row)
+            if attempt["state"] not in allowed:
+                raise RuntimeConflict(f"Attempt is not claimable: {attempt['state']}")
+            generation = int(attempt["generation"]) + 1
+            token = uuid.uuid4().hex
+            now = utc_now()
+            cursor = connection.execute(
+                """UPDATE attempts SET state = ?, lease_owner = ?, lease_token = ?,
+                       lease_acquired_at = ?, lease_expires_at = ?, heartbeat_at = ?,
+                       generation = ?, updated_at = ?, version = version + 1
+                   WHERE attempt_id = ? AND state = ? AND version = ?""",
+                (
+                    AttemptState.LEASED,
+                    owner,
+                    token,
+                    now,
+                    time.time() + ttl_seconds,
+                    now,
+                    generation,
+                    now,
+                    attempt_id,
+                    attempt["state"],
+                    attempt["version"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("Attempt lease CAS lost")
+            self._journal(
+                connection,
+                object_type="ATTEMPT",
+                object_id=attempt_id,
+                from_state=str(attempt["state"]),
+                to_state=AttemptState.LEASED,
+                transition_kind="LEASE_ACQUIRED",
+                actor=owner,
+                attempt_id=attempt_id,
+                logical_job_id=str(attempt["logical_job_id"]),
+                metadata={"generation": generation, "ttl_seconds": ttl_seconds},
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+                ).fetchone()
+            )
+
+    def heartbeat(
+        self,
+        attempt_id: str,
+        *,
+        lease_token: str,
+        generation: int,
+        ttl_seconds: float,
+    ) -> dict[str, Any]:
+        if ttl_seconds <= 0:
+            raise ValueError("heartbeat ttl must be positive")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+            attempt = dict(row)
+            if attempt["state"] not in {AttemptState.LEASED, AttemptState.RUNNING}:
+                raise RuntimeConflict(f"Attempt has no renewable lease: {attempt['state']}")
+            if (
+                attempt["lease_token"] != lease_token
+                or int(attempt["generation"]) != int(generation)
+                or float(attempt["lease_expires_at"] or 0) <= time.time()
+            ):
+                raise RuntimeConflict("stale or expired heartbeat fencing token")
+            now = utc_now()
+            cursor = connection.execute(
+                """UPDATE attempts SET heartbeat_at = ?, lease_expires_at = ?,
+                       updated_at = ?, version = version + 1
+                   WHERE attempt_id = ? AND version = ? AND lease_token = ? AND generation = ?""",
+                (
+                    now,
+                    time.time() + ttl_seconds,
+                    now,
+                    attempt_id,
+                    attempt["version"],
+                    lease_token,
+                    generation,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("Heartbeat CAS lost")
+            self._journal(
+                connection,
+                object_type="ATTEMPT",
+                object_id=attempt_id,
+                from_state=str(attempt["state"]),
+                to_state=str(attempt["state"]),
+                transition_kind="HEARTBEAT_RENEWED",
+                actor=str(attempt["lease_owner"]),
+                attempt_id=attempt_id,
+                logical_job_id=str(attempt["logical_job_id"]),
+                metadata={"generation": generation, "ttl_seconds": ttl_seconds},
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM attempts WHERE attempt_id = ?", (attempt_id,)
+                ).fetchone()
+            )
+
+    def claim_outbox(
+        self,
+        outbox_id: str,
+        *,
+        owner: str,
+        ttl_seconds: float,
+    ) -> dict[str, Any]:
+        if ttl_seconds <= 0:
+            raise ValueError("outbox claim ttl must be positive")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT o.*, a.logical_job_id FROM outbox o JOIN attempts a USING(attempt_id) "
+                "WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown outbox record: {outbox_id}")
+            record = dict(row)
+            claimable = record["state"] in {
+                OutboxState.PENDING,
+                OutboxState.FAILED_RETRYABLE,
+            } or (
+                record["state"] == OutboxState.CLAIMED
+                and float(record["claim_expires_at"] or 0) <= time.time()
+            )
+            if not claimable:
+                raise RuntimeConflict(f"Outbox record is not claimable: {record['state']}")
+            token = uuid.uuid4().hex
+            generation = int(record["claim_generation"]) + 1
+            now = utc_now()
+            cursor = connection.execute(
+                """UPDATE outbox SET state = ?, claimed_at = ?, claim_owner = ?, claim_token = ?,
+                       claim_generation = ?, claim_expires_at = ?, version = version + 1
+                   WHERE outbox_id = ? AND version = ?""",
+                (
+                    OutboxState.CLAIMED,
+                    now,
+                    owner,
+                    token,
+                    generation,
+                    time.time() + ttl_seconds,
+                    outbox_id,
+                    record["version"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("Outbox claim CAS lost")
+            self._journal(
+                connection,
+                object_type="OUTBOX",
+                object_id=outbox_id,
+                from_state=str(record["state"]),
+                to_state=OutboxState.CLAIMED,
+                transition_kind="OUTBOX_CLAIMED",
+                actor=owner,
+                attempt_id=str(record["attempt_id"]),
+                logical_job_id=str(record["logical_job_id"]),
+                metadata={"claim_generation": generation, "ttl_seconds": ttl_seconds},
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM outbox WHERE outbox_id = ?", (outbox_id,)
+                ).fetchone()
+            )
+
+    def transition_outbox(
+        self,
+        outbox_id: str,
+        to_state: str | OutboxState,
+        *,
+        claim_token: str,
+        claim_generation: int,
+        actor: str,
+        last_error: str | None = None,
+    ) -> dict[str, Any]:
+        target = str(to_state)
+        allowed = {
+            OutboxState.DISPATCHED,
+            OutboxState.ACKNOWLEDGED,
+            OutboxState.FAILED_RETRYABLE,
+            OutboxState.DEAD_LETTER,
+        }
+        if target not in allowed:
+            raise InvalidRuntimeTransition(f"Unsupported outbox target: {target}")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT o.*, a.logical_job_id FROM outbox o JOIN attempts a USING(attempt_id) "
+                "WHERE outbox_id = ?",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown outbox record: {outbox_id}")
+            record = dict(row)
+            valid_from = {
+                OutboxState.DISPATCHED: {OutboxState.CLAIMED},
+                OutboxState.ACKNOWLEDGED: {OutboxState.DISPATCHED},
+                OutboxState.FAILED_RETRYABLE: {
+                    OutboxState.CLAIMED,
+                    OutboxState.DISPATCHED,
+                },
+                OutboxState.DEAD_LETTER: {
+                    OutboxState.CLAIMED,
+                    OutboxState.DISPATCHED,
+                    OutboxState.FAILED_RETRYABLE,
+                },
+            }[target]
+            if record["state"] not in valid_from:
+                raise InvalidRuntimeTransition(
+                    f"Outbox {record['state']} -> {target} is not legal"
+                )
+            if (
+                record["claim_token"] != claim_token
+                or int(record["claim_generation"]) != int(claim_generation)
+            ):
+                raise RuntimeConflict("stale outbox claim fencing token")
+            now = utc_now()
+            cursor = connection.execute(
+                """UPDATE outbox SET state = ?,
+                       dispatched_at = CASE WHEN ? = 'DISPATCHED' THEN ? ELSE dispatched_at END,
+                       acknowledged_at = CASE WHEN ? = 'ACKNOWLEDGED' THEN ? ELSE acknowledged_at END,
+                       last_error = ?, retry_count = retry_count + CASE WHEN ? = 'FAILED_RETRYABLE' THEN 1 ELSE 0 END,
+                       version = version + 1
+                   WHERE outbox_id = ? AND version = ?""",
+                (
+                    target,
+                    target,
+                    now,
+                    target,
+                    now,
+                    last_error,
+                    target,
+                    outbox_id,
+                    record["version"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("Outbox transition CAS lost")
+            self._journal(
+                connection,
+                object_type="OUTBOX",
+                object_id=outbox_id,
+                from_state=str(record["state"]),
+                to_state=target,
+                transition_kind="OUTBOX_STATE_TRANSITION",
+                actor=actor,
+                attempt_id=str(record["attempt_id"]),
+                logical_job_id=str(record["logical_job_id"]),
+                metadata={"last_error": last_error} if last_error else None,
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM outbox WHERE outbox_id = ?", (outbox_id,)
+                ).fetchone()
+            )
+
+    def request_cancel(self, attempt_id: str, *, actor: str) -> dict[str, Any]:
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None:
+            raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+        if attempt["state"] in {
+            AttemptState.RESULT_RECORDED,
+            AttemptState.COMPLETED,
+            AttemptState.CANCELLED,
+            AttemptState.FAILED_RETRYABLE,
+            AttemptState.FAILED_TERMINAL,
+        }:
+            return attempt
+        return self.transition_attempt(
+            attempt_id,
+            AttemptState.CANCEL_REQUESTED,
+            actor=actor,
+            expected_states={AttemptState.READY, AttemptState.LEASED, AttemptState.RUNNING},
+        )
+
+    def finalize_cancel(self, attempt_id: str, *, actor: str) -> dict[str, Any]:
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None:
+            raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+        if attempt["state"] in {AttemptState.RESULT_RECORDED, AttemptState.COMPLETED}:
+            return attempt
+        if attempt["state"] == AttemptState.CANCELLED:
+            return attempt
+        return self.transition_attempt(
+            attempt_id,
+            AttemptState.CANCELLED,
+            actor=actor,
+            expected_states={AttemptState.CANCEL_REQUESTED},
+        )
+
+    def orphan_expired_leases(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        cutoff = time.time() if now is None else float(now)
+        orphaned: list[dict[str, Any]] = []
+        with self._connect() as connection:
+            ids = [
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT attempt_id FROM attempts WHERE state IN (?, ?) "
+                    "AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?",
+                    (AttemptState.LEASED, AttemptState.RUNNING, cutoff),
+                )
+            ]
+        for attempt_id in ids:
+            try:
+                orphaned.append(
+                    self.transition_attempt(
+                        attempt_id,
+                        AttemptState.ORPHANED,
+                        actor="reconciler",
+                        expected_states={AttemptState.LEASED, AttemptState.RUNNING},
+                        metadata={"reason": "LEASE_EXPIRED"},
+                    )
+                )
+            except (RuntimeConflict, InvalidRuntimeTransition):
+                continue
+        return orphaned
 
     def list_rows(self, table: str) -> list[dict[str, Any]]:
         allowed = {
