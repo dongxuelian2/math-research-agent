@@ -22,8 +22,8 @@ The labels below compare A and B before this branch's repairs. “Validated” m
 | worker role scheduling | No dedicated public scheduler | `RoleScheduler` and assignment artifact | REMOTE_ONLY | KEEP. |
 | heterogeneous routing | Broad provider/model configs | Typed role/tier router, narrower providers | MERGE_REQUIRED | Preserve B control plane; restore A provider adapters. |
 | routing escalation | Earlier heterogeneous/fallback logic | Failure counters, disagreement and tier escalation | BOTH_DIFFERENT | SALVAGE_PRIMITIVE; strategy ownership must later leave Router. |
-| OpenAI provider | Implementation + contract tests | Deleted | REGRESSED_REMOTE | Restore behind common Provider interface; do not replace Gemini. |
-| Codex provider | CLI implementation + contract tests | Deleted | REGRESSED_REMOTE | Restore as compatibility adapter. |
+| OpenAI provider | Implementation + contract tests | Deleted | REGRESSED_REMOTE | Restored behind the current Provider interface and typed schema contract. |
+| Codex provider | CLI implementation + contract tests | Deleted | REGRESSED_REMOTE | Restored as a current-contract compatibility adapter. |
 | Gemini provider | Absent | Gemini structured output/tool loop | REMOTE_ONLY | KEEP. |
 | Vertex Gemini | Absent | Present | REMOTE_ONLY | KEEP. |
 | Claude/Mistral/GLM/OpenRouter/local | Implementations/configs/smokes | Deleted | REGRESSED_REMOTE | Preserve as optional legacy adapters only after contract revalidation. |
@@ -39,8 +39,8 @@ The labels below compare A and B before this branch's repairs. “Validated” m
 | literature search/retrieval | Broad pipeline and live smokes | Reworked pipeline | BOTH_DIFFERENT | SALVAGE verified search/acquisition primitives. |
 | literature authority | Fail-closed trust checks | Mostly preserved and typed | BOTH_DIFFERENT | KEEP B invariants. |
 | applicability | Separate applicability records/tests | Preserved | BOTH_DIFFERENT | KEEP B invariants. |
-| canonical artifact authority | Partial manifest/replay logic | Literature artifact hashes improved; project proof/replay body authority unresolved | MERGE_REQUIRED | P0 remains: body + SHA-256 + authority provenance or dependent branch blocks. |
-| checkpoint/resume | Broad v2 resume regressions | Current schema strict; legacy resume coverage deleted | REGRESSED_REMOTE | Add explicit migration classification; never silently upgrade/delete. |
+| canonical artifact authority | Partial manifest/replay logic | Literature artifact hashes improved; project proof/replay body authority unresolved | MERGE_REQUIRED | P0 implemented: body + SHA-256 + provenance or the dependent branch blocks. |
+| checkpoint/resume | Broad v2 resume regressions | Current schema strict; legacy resume coverage deleted | REGRESSED_REMOTE | Conservative classification and immutable migration provenance restored on this branch. |
 | budget | Conservative budget logic | Retained/modified | BOTH_DIFFERENT | SALVAGE atomic reservation semantics. |
 | provider quota handling | Multiple provider behavior | Gemini-specific retry/usage plus mock | MERGE_REQUIRED | Preserve resumable resource failure taxonomy. |
 | Windows bootstrap | `bootstrap.ps1` + launcher | Deleted | REGRESSED_REMOTE | Restored using shared uv/Python core on this branch. |
@@ -69,4 +69,15 @@ The following A files carried validated capabilities and therefore cannot be con
 - Current remote Ubuntu/uv CI is preserved and a Windows bootstrap/launcher job is added.
 - A real deterministic production-path E2E (not showcase replay) covers Planner→3 Workers→Worker Verifier→Candidate→specialist Auditors→Final Gate→PROVED in an isolated fixture.
 
-No provider, checkpoint, canonical-authority, Truth Plane, Research Plane, or durable Execution Plane migration is claimed complete by this document.
+## Pre-Truth-Plane preservation result
+
+- Canonical Artifact Authority P0 is implemented on the production context,
+  scheduler, checkpoint, and promotion path.
+- Gemini/Vertex/mock are preserved; Codex CLI and OpenAI are restored behind
+  the current provider-neutral contract.
+- Legacy checkpoints are classified before resume, original bytes are retained,
+  unknown compatibility requires revalidation, and hash-only authority must
+  recover its canonical body.
+
+Truth Plane, ResearchMap/ResearchObligation, Architecture Review, and the
+SQLite/WAL Execution Plane remain explicitly `NOT_STARTED`.

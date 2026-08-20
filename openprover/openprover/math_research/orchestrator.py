@@ -15,6 +15,11 @@ from .canonical_artifacts import (
     CanonicalSourceRequirement,
     authority_promotion_decision,
 )
+from .checkpoint_migration import (
+    CURRENT_RUN_STATE_SCHEMA,
+    LegacyCheckpointMigrator,
+    checkpoint_policy_fingerprint,
+)
 from .campaign import (
     FailureMap,
     ReplayPolicy,
@@ -320,6 +325,31 @@ class ResearchOrchestrator:
                 ) from exc
             if not candidate.is_dir():
                 raise ProjectError(f"Resume directory not found: {candidate}")
+            source_state_path = candidate / "state.json"
+            if source_state_path.is_file():
+                try:
+                    source_state = json.loads(source_state_path.read_text(encoding="utf-8-sig"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    source_state = None
+                if (
+                    not isinstance(source_state, dict)
+                    or source_state.get("schema_version") != CURRENT_RUN_STATE_SCHEMA
+                ):
+                    migration = LegacyCheckpointMigrator(
+                        self.project,
+                        config_path=self.config_path,
+                        target_policy_fingerprint=checkpoint_policy_fingerprint(self.config),
+                    ).prepare(
+                        candidate,
+                        expected_target_id=self.target_id,
+                        expected_campaign_id=self.campaign_id,
+                    )
+                    if not migration.resumable:
+                        raise ProjectError(
+                            f"Legacy checkpoint classified {migration.classification}: "
+                            f"{migration.reason}; provenance: {migration.provenance_path}"
+                        )
+                    return migration.runtime_run_dir
             return candidate
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         base = runs_dir / f"{self.target_id}-{timestamp}"
@@ -338,12 +368,10 @@ class ResearchOrchestrator:
                 raise ProjectError("Resume run target does not match --target")
             if state.get("campaign_id") != self.campaign_id:
                 raise ProjectError("Run belongs to a different campaign")
+            if state.get("schema_version") != CURRENT_RUN_STATE_SCHEMA:
+                raise ProjectError("Unsupported run state schema after checkpoint migration")
             if state.get("phase") == "COMPLETE":
                 return state
-            if state.get("schema_version") != 2:
-                raise ProjectError(
-                    "Unsupported run state schema; start a new run instead of migrating it"
-                )
             required = {"routing_state_file", "pipeline_state_file"}
             if not required <= set(state):
                 raise ProjectError(

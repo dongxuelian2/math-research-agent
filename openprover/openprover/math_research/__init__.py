@@ -8,6 +8,15 @@ from .canonical_artifacts import (
     CanonicalResolutionStatus,
     CanonicalSourceRequirement,
 )
+from .checkpoint_migration import (
+    CheckpointClassification,
+    CheckpointInspection,
+    CheckpointMigrationResult,
+    LegacyCheckpointMigrator,
+    MigrationProvenance,
+    checkpoint_policy_fingerprint,
+    inspect_legacy_checkpoint,
+)
 from .gemini_provider import GeminiClient, GeminiProviderError
 from .formalization import run_formalization
 from .observatory import build_snapshot, run_server
@@ -79,6 +88,9 @@ __all__ = [
     "CanonicalResolution",
     "CanonicalResolutionStatus",
     "CanonicalSourceRequirement",
+    "CheckpointClassification",
+    "CheckpointInspection",
+    "CheckpointMigrationResult",
     "ContextBuilder",
     "FoundationRegistry",
     "GeminiClient",
@@ -91,7 +103,9 @@ __all__ = [
     "LiteratureResultSchema",
     "LiteratureSynthesis",
     "LiteratureTaskExecutor",
+    "LegacyCheckpointMigrator",
     "ModelRouter",
+    "MigrationProvenance",
     "NegativeLiteratureMemory",
     "CrossrefProvider",
     "DocumentArtifact",
@@ -117,6 +131,8 @@ __all__ = [
     "WorkerEventSchema",
     "run_formalization",
     "build_snapshot",
+    "checkpoint_policy_fingerprint",
+    "inspect_legacy_checkpoint",
     "resolve_profile",
     "provider_capabilities",
     "run_server",

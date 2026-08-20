@@ -63,3 +63,35 @@
   `>=2.53.0,<3` and currently locks to 2.54.0.
 - Format check, lint, compileall, and `git diff --check` passed. No live
   provider credentials were used. Hosted CI remains `PENDING_PUSH`.
+
+## Legacy checkpoint migration
+
+- Classification, source immutability, idempotent provenance, provider
+  provenance separation, unknown-schema default, hash-only authority, and real
+  orchestrator-resume suite: `8 passed in 1.73s`.
+- Unknown compatibility is `REVALIDATION_REQUIRED`; only a known semantic
+  conflict becomes `INCOMPATIBLE`.
+- Legacy current-trust labels are retained only as `LEGACY_VERIFIED` or
+  `LEGACY_EVIDENCE`; neither the theorem registry nor current trust state is
+  upgraded by migration.
+- Production hash-only canonical resume re-resolves the actual source bytes and
+  retains the original checkpoint byte-for-byte.
+- Final local-safe suite and cross-platform inspection follow after the
+  documentation freeze. Hosted CI remains `PENDING_PUSH`.
+
+## Final pre-Truth-plane acceptance
+
+- Local-safe repository suite: `178 passed in 6.62s`.
+- The managed Windows host still excludes only
+  `openprover/tests/test_interrupt_race.py`, whose import-time subprocess fails
+  during collection with `WinError 1920`; the same limitation was recorded at
+  the frozen baseline.
+- `uv lock --check`: passed with 49 resolved packages.
+- `ruff format --check openprover`: 101 files already formatted.
+- `ruff check openprover`, compileall, and `git diff --check`: passed.
+- Bash bootstrap syntax: passed via `bash -n`.
+- `scripts/bootstrap.ps1` and `run_math_agent.ps1`: PowerShell parser passed.
+- All paths referenced by the Ubuntu and Windows workflow jobs exist. No local
+  standalone YAML parser is installed, so semantic hosted-workflow execution is
+  not claimed.
+- `HOSTED_CI = PENDING_PUSH` because no push was authorized or performed.

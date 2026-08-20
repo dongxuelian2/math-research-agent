@@ -2,7 +2,7 @@
 
 ## Current phase
 
-`V3_2_CURRENT_PHASE = SAFE BASELINE + CANONICAL AUTHORITY P0 + PROVIDER PRESERVATION IMPLEMENTED; CHECKPOINT MIGRATION NEXT; HOSTED CI PENDING_PUSH`
+`V3_2_CURRENT_PHASE = PRE-TRUTH-PLANE MIGRATION BASELINE IMPLEMENTED; LOCAL ACCEPTANCE PASS; HOSTED CI PENDING_PUSH`
 
 ## Completed capabilities
 
@@ -18,6 +18,9 @@
   revalidation, scoped blockers, and promotion prerequisite.
 - Gemini/Vertex/mock preserved and Codex CLI/OpenAI restored through the current
   provider factory, capabilities, typed response, archive, and resume paths.
+- Conservative legacy checkpoint classification, immutable source/provenance,
+  provider provenance separation, and canonical-body revalidation are wired to
+  the production resume path.
 
 ## Partial capabilities
 
@@ -26,7 +29,6 @@
 
 ## Unstarted capabilities
 
-- Explicit legacy checkpoint migration classes and provenance.
 - VerifierIndependenceReceipt.
 - TruthStoreFacade, ClaimSnapshot, identity hash-domain separation, TruthMutation saga.
 - ResearchMap, CoverageAnchor/Transfer, ResearchObligation, DecisionBasis, reverse invalidation.
@@ -40,11 +42,11 @@ No external blocker prevents continued work. The deliberate phase gate prevents 
 
 ## Next safe migration frontier
 
-1. Add checkpoint classification with immutable migration provenance.
-2. Re-run the complete local-safe regression and freeze the checkpoint phase in
+1. Re-run the complete local-safe regression and freeze the checkpoint phase in
    its own local commit.
-3. Stop at the requested boundary. Truth facade/ClaimSnapshot, ResearchMap,
-   Architecture Review, and SQLite remain explicitly not started.
+2. Stop at the requested boundary for user audit. Truth facade/ClaimSnapshot,
+   ResearchMap, ResearchObligation, Architecture Review, and SQLite remain
+   explicitly not started.
 
 ## Preservation statement
 
