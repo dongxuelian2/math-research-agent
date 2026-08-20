@@ -51,6 +51,7 @@ from .scheduler import (
     StrategyFingerprintStore,
 )
 from .state_machine import AuditGate
+from .truth_store import TruthStoreFacade
 
 
 PHASES = ("CREATED", "CONTEXT_READY", "CANDIDATE_READY", "AUDITS_READY", "COMPLETE")
@@ -225,6 +226,7 @@ class ResearchOrchestrator:
         if worker_count < 1:
             raise ProjectError("worker_count must be positive")
         self.project = project
+        self.truth_store = TruthStoreFacade(project)
         self.target_id = target_id
         self.target = project.load_theorem(target_id)
         self.config_path = Path(config_path).resolve()
@@ -253,6 +255,8 @@ class ResearchOrchestrator:
         self.pipeline_runtime: AsynchronousPipelineRuntime | None = None
         self._pipeline_monitor_stop = threading.Event()
         self._pipeline_monitor_thread: threading.Thread | None = None
+        self.claim_snapshot = None
+        self.truth_resume_blocked = False
         self.candidate_engine = CandidateEngine(self)
         self.audit_coordinator = AuditCoordinator(self)
         if self.initial_worker_count < 1 or self.initial_worker_count > self.worker_count:
@@ -288,6 +292,7 @@ class ResearchOrchestrator:
             self.pipeline_scheduler.state_path = self.run_dir / "pipeline_state.json"
             self.pipeline_scheduler._save()
         self._refresh_canonical_authority()
+        self._initialize_claim_snapshot(resume_requested=bool(resume))
         if not immutable_complete:
             self._configure_pipeline_runtime()
         if not immutable_complete:
@@ -520,6 +525,154 @@ class ResearchOrchestrator:
                     requirements=scoped_requirements,
                     resolutions=scoped_resolutions,
                 )
+
+    def _truth_capture_kwargs(self) -> dict:
+        return {
+            "canonical_authority": self.canonical_authority,
+            "replay_policy_hash": self.state.get("replay_policy_hash"),
+            "trust_policy_context": {
+                "truth_policy": self.config.get("truth_policy"),
+                "canonical_authority_policy": 1,
+            },
+        }
+
+    def _initialize_claim_snapshot(self, *, resume_requested: bool) -> None:
+        stored_hash = self.state.get("claim_snapshot_hash")
+        validation_path = self.run_dir / "truth" / "resume_validation.json"
+        if stored_hash:
+            try:
+                stored = self.truth_store.load_claim_snapshot(str(stored_hash))
+                comparison = self.truth_store.compare_claim_snapshot(
+                    stored, **self._truth_capture_kwargs()
+                )
+            except (ProjectError, OSError, ValueError) as exc:
+                self.claim_snapshot = None
+                self.truth_resume_blocked = True
+                result = {
+                    "schema_version": 1,
+                    "object_type": "CLAIM_SNAPSHOT_RESUME_VALIDATION",
+                    "status": "UNKNOWN_COMPATIBILITY",
+                    "disposition": "REVALIDATION_REQUIRED",
+                    "reason": str(exc),
+                    "stored_claim_snapshot_hash": stored_hash,
+                    "validated_at": utc_now(),
+                }
+            else:
+                self.claim_snapshot = stored
+                self.truth_resume_blocked = not comparison.compatible
+                result = {
+                    **comparison.to_dict(),
+                    "validated_at": utc_now(),
+                }
+        elif resume_requested:
+            proposed = self.truth_store.capture_claim_snapshot(
+                self.target_id, **self._truth_capture_kwargs()
+            )
+            self.claim_snapshot = None
+            self.truth_resume_blocked = True
+            result = {
+                "schema_version": 1,
+                "object_type": "CLAIM_SNAPSHOT_RESUME_VALIDATION",
+                "status": "UNKNOWN_COMPATIBILITY",
+                "disposition": "REVALIDATION_REQUIRED",
+                "reason": "resumed checkpoint has no ClaimSnapshot",
+                "stored_claim_snapshot_hash": None,
+                "proposed_current_claim_snapshot_hash": proposed.claim_snapshot_hash,
+                "validated_at": utc_now(),
+            }
+            self.state["legacy_claim_snapshot_classification"] = "REVALIDATION_REQUIRED"
+        else:
+            snapshot = self.truth_store.capture_claim_snapshot(
+                self.target_id, **self._truth_capture_kwargs()
+            )
+            self.claim_snapshot = snapshot
+            self._bind_claim_snapshot(snapshot, event="RUN_CREATED")
+            result = {
+                "schema_version": 1,
+                "object_type": "CLAIM_SNAPSHOT_RESUME_VALIDATION",
+                "status": "MATCH",
+                "disposition": "COMPATIBLE",
+                "reason": "new run captured current truth",
+                "stored_claim_snapshot_hash": snapshot.claim_snapshot_hash,
+                "current_claim_snapshot_hash": snapshot.claim_snapshot_hash,
+                "validated_at": utc_now(),
+            }
+        _write_json(validation_path, result)
+        self.state["truth_resume_validation"] = copy.deepcopy(result)
+        if self.truth_resume_blocked and self.state.get("phase") != "COMPLETE":
+            current_phase = self.state.get("phase", "CREATED")
+            if current_phase == CHECKPOINT_PHASE:
+                current_phase = self.state.get("resume_phase", "CREATED")
+            self.state["resume_phase"] = current_phase
+            self.state["phase"] = CHECKPOINT_PHASE
+            self.state["status"] = (
+                "BLOCKED_CLAIM_SNAPSHOT_STALE"
+                if result["status"] == "ASSERTION_CHANGED"
+                else "REVALIDATION_REQUIRED"
+            )
+            self.state["checkpoint_reason"] = self.state["status"]
+        _write_json(self.state_path, self.state)
+
+    def _bind_claim_snapshot(self, snapshot, *, event: str) -> None:
+        self.claim_snapshot = snapshot
+        self.state["claim_snapshot_hash"] = snapshot.claim_snapshot_hash
+        self.state["assertion_identity_hash"] = snapshot.assertion_identity_hash
+        self.state["semantic_input_hash"] = snapshot.semantic_input_hash
+        self.state["claim_snapshot_file"] = str(
+            self.truth_store.claim_snapshot_path(snapshot.claim_snapshot_hash)
+        )
+        self.state["claim_snapshot_event"] = event
+        self.state["claim_snapshot_bound_at"] = utc_now()
+        _write_json(
+            self.run_dir / "truth" / "claim_snapshot_ref.json",
+            {
+                "schema_version": 1,
+                "object_type": "CLAIM_SNAPSHOT_REF",
+                "claim_snapshot_hash": snapshot.claim_snapshot_hash,
+                "assertion_identity_hash": snapshot.assertion_identity_hash,
+                "semantic_input_hash": snapshot.semantic_input_hash,
+                "event": event,
+                "bound_at": self.state["claim_snapshot_bound_at"],
+            },
+        )
+        _write_json(self.state_path, self.state)
+
+    def _transition_truth(
+        self,
+        new_status: str,
+        *,
+        actor: str,
+        reason: str,
+        gate: AuditGate | None = None,
+        audit_status: str | None = None,
+    ) -> dict:
+        if self.claim_snapshot is None:
+            raise ProjectError("Truth transition requires a validated ClaimSnapshot")
+        theorem, snapshot = self.truth_store.transition_status(
+            self.target_id,
+            new_status,
+            claim_snapshot=self.claim_snapshot,
+            actor=actor,
+            reason=reason,
+            gate=gate,
+            audit_status=audit_status,
+            **self._truth_capture_kwargs(),
+        )
+        self._bind_claim_snapshot(snapshot, event=f"STATUS_{new_status}")
+        return theorem
+
+    def _validate_truth_snapshot(self, operation: str) -> dict:
+        if self.claim_snapshot is None:
+            raise ProjectError(f"{operation} requires a validated ClaimSnapshot")
+        validator = {
+            "AUDIT": self.truth_store.validate_snapshot_for_audit,
+            "PROMOTION": self.truth_store.validate_snapshot_for_promotion,
+            "EXECUTION": self.truth_store.validate_snapshot_for_execution,
+        }[operation]
+        comparison = validator(self.claim_snapshot, **self._truth_capture_kwargs())
+        result = {**comparison.to_dict(), "validated_at": utc_now()}
+        _write_json(self.run_dir / "truth" / f"{operation.casefold()}_validation.json", result)
+        return result
 
     def _configure_pipeline_runtime(self) -> None:
         """Create the single runtime that owns async task futures for this run."""
@@ -923,6 +1076,8 @@ class ResearchOrchestrator:
             )
         if self.state.get("phase") == "COMPLETE":
             return self.state
+        if self.truth_resume_blocked:
+            return self.state
         if self.state.get("phase") == CHECKPOINT_PHASE:
             self.state["phase"] = self.state.get("resume_phase", "CREATED")
             self.state["status"] = "RUNNING"
@@ -942,8 +1097,7 @@ class ResearchOrchestrator:
                     "Target is already PROVED; request re-audit explicitly instead of rerunning research"
                 )
             self.state["reaudit"] = True
-            self.target = self.project.transition(
-                self.target_id,
+            self.target = self._transition_truth(
                 "IN_RESEARCH",
                 actor="Human",
                 reason=f"Explicit re-audit requested for run {self.run_dir.name}",
@@ -952,8 +1106,7 @@ class ResearchOrchestrator:
 
         self.project.set_current_target(self.target_id)
         if self.target["status"] in {"OPEN", "PARTIAL", "REJECTED"}:
-            self.target = self.project.transition(
-                self.target_id,
+            self.target = self._transition_truth(
                 "IN_RESEARCH",
                 actor="MasterPlanner",
                 reason=f"Research run {self.run_dir.name} started",
@@ -964,6 +1117,7 @@ class ResearchOrchestrator:
                 self.target_id,
                 expand=self.expand_context,
                 canonical_authority=self.canonical_authority,
+                claim_snapshot=(self.claim_snapshot.to_dict() if self.claim_snapshot else None),
             )
             ContextBuilder.write(package, self.run_dir / "context")
             if self.hard_submit_gate:
@@ -1027,8 +1181,7 @@ class ResearchOrchestrator:
                         pre_submit_gate=pre_submit,
                     )
                     return self.state
-                self.target = self.project.transition(
-                    self.target_id,
+                self.target = self._transition_truth(
                     "PARTIAL",
                     actor="MasterPlanner",
                     reason="OpenProver ended without a candidate proof",
@@ -1041,8 +1194,7 @@ class ResearchOrchestrator:
                     completed_at=utc_now(),
                 )
                 return self.state
-            self.target = self.project.transition(
-                self.target_id,
+            self.target = self._transition_truth(
                 "CANDIDATE_PROOF",
                 actor="MasterPlanner",
                 reason=f"OpenProver candidate produced in {self.run_dir.name}; not yet audited",
@@ -1061,13 +1213,13 @@ class ResearchOrchestrator:
         )
         if not self._phase_at_least("AUDITS_READY"):
             if self.target["status"] == "CANDIDATE_PROOF":
-                self.target = self.project.transition(
-                    self.target_id,
+                self.target = self._transition_truth(
                     "AUDITING",
                     actor="AuditCoordinator",
                     reason=f"Independent audit suite started for {self.run_dir.name}",
                     audit_status="RUNNING",
                 )
+            self._validate_truth_snapshot("AUDIT")
             verification_task_id = self._claim_target_pipeline_task("verification")
             if verification_task_id:
                 self.state["active_verification_task_id"] = verification_task_id
@@ -1380,8 +1532,7 @@ changed failure condition is explicitly recorded.
             current = self.project.load_theorem(self.target_id)["status"]
             if gate.execution_errors or gate.inconclusive_audits:
                 if current == "AUDITING":
-                    self.target = self.project.transition(
-                        self.target_id,
+                    self.target = self._transition_truth(
                         "PARTIAL",
                         actor="AuditCoordinator",
                         reason="; ".join(reasons),
@@ -1421,8 +1572,7 @@ changed failure condition is explicitly recorded.
                 self._checkpoint(terminal_phase, **checkpoint_updates)
                 return
             if current == "AUDITING":
-                self.target = self.project.transition(
-                    self.target_id,
+                self.target = self._transition_truth(
                     "REJECTED",
                     actor="Final Proof Auditor",
                     reason="; ".join(reasons),

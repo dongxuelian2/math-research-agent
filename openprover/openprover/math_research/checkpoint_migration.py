@@ -460,6 +460,8 @@ def _migrated_state(
         "checkpoint_migration_provenance_file": str(provenance_path),
         "target_policy_fingerprint": target_policy_fingerprint,
         "legacy_evidence_state": legacy_state,
+        "legacy_claim_snapshot_classification": "REVALIDATION_REQUIRED",
+        "legacy_claim_snapshot_reason": "legacy checkpoint has no PHASE 3 ClaimSnapshot",
         "legacy_source_trust_state": copy.deepcopy(source_trust),
         "execution_provider_provenance": execution_provider,
         "evidence_provider_provenance": evidence_provider,

@@ -10,7 +10,7 @@ from pathlib import Path
 from .audit_prompts import AUDITOR_ROLES, auditor_prompt, final_auditor_prompt
 from .audit_protocol import AuditResult, normalize_audit_result, parse_audit_response
 from .providers import create_client, is_mock_config
-from .project import utc_now
+from .project import ProjectError, utc_now
 from .routing import RoutedLLMClient
 from .schemas import AuditResultSchema
 from .state_machine import AuditGate
@@ -110,6 +110,9 @@ class AuditCoordinator(_OwnerComponent):
         secondary_dir.mkdir(parents=True, exist_ok=True)
         context = (self.run_dir / "context" / "CONTEXT.md").read_text(encoding="utf-8")
         candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(encoding="utf-8")
+        claim_snapshot_hash = str(self.state.get("claim_snapshot_hash") or "")
+        if not claim_snapshot_hash:
+            raise ProjectError("Secondary verification requires a bound ClaimSnapshot")
         clients: dict[str, object] = {}
 
         def execute(name: str, directive: str) -> tuple[str, dict, object]:
@@ -150,6 +153,7 @@ class AuditCoordinator(_OwnerComponent):
                 result = parse_audit_response(name, response).to_dict()
             except Exception as exc:
                 result = AuditResult.from_exception(name, exc).to_dict()
+            result["audited_claim_snapshot_hash"] = claim_snapshot_hash
             return name, result, client
 
         results = {}
@@ -231,6 +235,9 @@ class AuditCoordinator(_OwnerComponent):
     def run_audits(self) -> tuple[dict[str, dict], AuditGate]:
         context = (self.run_dir / "context" / "CONTEXT.md").read_text(encoding="utf-8")
         candidate = (self.run_dir / "CANDIDATE_PROOF.md").read_text(encoding="utf-8")
+        claim_snapshot_hash = str(self.state.get("claim_snapshot_hash") or "")
+        if not claim_snapshot_hash:
+            raise ProjectError("Audit execution requires a bound ClaimSnapshot")
         audits_dir = self.run_dir / "audits"
         audits_dir.mkdir(parents=True, exist_ok=True)
         clients = {}
@@ -256,6 +263,7 @@ class AuditCoordinator(_OwnerComponent):
                 data = parse_audit_response(role, response).to_dict()
             except Exception as exc:
                 data = AuditResult.from_exception(role, exc).to_dict()
+            data["audited_claim_snapshot_hash"] = claim_snapshot_hash
             return role, data, client
 
         audits: dict[str, dict] = {}
@@ -299,6 +307,10 @@ class AuditCoordinator(_OwnerComponent):
             working_dir=self.run_dir / "gemini" / "final_auditor",
         )
         system, prompt = final_auditor_prompt(context, candidate, audits)
+        system += (
+            " Your verdict is valid only for the exact ClaimSnapshot hash supplied in the prompt."
+        )
+        prompt += f"\n\n# Audited ClaimSnapshot\n\n`{claim_snapshot_hash}`\n"
         try:
             response = final_client.call(
                 prompt=prompt,
@@ -310,6 +322,7 @@ class AuditCoordinator(_OwnerComponent):
             final = parse_audit_response("final_proof_auditor", response).to_dict()
         except Exception as exc:
             final = AuditResult.from_exception("final_proof_auditor", exc).to_dict()
+        final["audited_claim_snapshot_hash"] = claim_snapshot_hash
         audits["final_proof_auditor"] = final
         _write_json(audits_dir / "final_proof_auditor.json", final)
 
@@ -364,6 +377,7 @@ class AuditCoordinator(_OwnerComponent):
             execution_errors=execution_errors,
             inconclusive_audits=inconclusive_audits,
             dependency_report=dependency_report.to_dict(),
+            audited_claim_snapshot_hash=claim_snapshot_hash,
         )
         self.metrics["specialist_auditors"] = {
             "calls": sum(getattr(client, "call_count", 0) for client in clients.values()),

@@ -22,6 +22,7 @@ from .canonical_artifacts import CanonicalSourceRequirement
 from .project import ProjectError, ProjectStore, utc_now
 from .scheduler import StopController
 from .trust_kernel import DependencyAuthorityResolver
+from .truth_store import TruthStoreFacade
 
 
 CAMPAIGN_SCHEMA_VERSION = 2
@@ -620,6 +621,7 @@ class CampaignStore:
 
     def __init__(self, project: ProjectStore):
         self.project = project
+        self.truth_store = TruthStoreFacade(project)
         self.root = project.root / "campaigns"
         self.root.mkdir(parents=True, exist_ok=True)
 
@@ -654,6 +656,11 @@ class CampaignStore:
         if max_repair_cycles < 0 or infrastructure_retries < 0:
             raise ProjectError("Campaign retry limits must be non-negative")
         now = utc_now()
+        replay_policy_hash = replay_policy.policy_hash if replay_policy else None
+        root_snapshot = self.truth_store.capture_claim_snapshot(
+            target_id,
+            replay_policy_hash=replay_policy_hash,
+        )
         record = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": campaign_id,
@@ -680,6 +687,10 @@ class CampaignStore:
             "secondary_verification": bool(secondary_verification),
             "routing_override": copy.deepcopy(routing_override or {}),
             "pipeline_state": {"schema_version": 3},
+            "root_claim_snapshot_hash": root_snapshot.claim_snapshot_hash,
+            "root_assertion_identity_hash": root_snapshot.assertion_identity_hash,
+            "truth_replay_policy_hash": replay_policy_hash,
+            "truth_canonical_authority": [],
             "created_at": now,
             "last_updated": now,
         }
@@ -810,6 +821,8 @@ class CampaignStore:
         pipeline_state: dict | None = None,
         routing_state: dict | None = None,
         run_id: str | None = None,
+        claim_snapshot_hash: str | None = None,
+        canonical_authority: list[dict] | None = None,
     ) -> dict:
         """Persist durable logical state without copying futures/process handles."""
         record = self.load(campaign_id)
@@ -819,6 +832,14 @@ class CampaignStore:
             record["routing_state"] = copy.deepcopy(routing_state)
         if run_id:
             record["runtime_state_run_id"] = run_id
+        if claim_snapshot_hash:
+            snapshot = self.truth_store.load_claim_snapshot(claim_snapshot_hash)
+            if snapshot.theorem_id != record["target_id"]:
+                raise ProjectError("Campaign ClaimSnapshot belongs to a different theorem")
+            record["root_claim_snapshot_hash"] = claim_snapshot_hash
+            record["root_assertion_identity_hash"] = snapshot.assertion_identity_hash
+        if canonical_authority is not None:
+            record["truth_canonical_authority"] = copy.deepcopy(canonical_authority)
         record["runtime_state_updated_at"] = utc_now()
         return self._save(record)
 
@@ -829,6 +850,16 @@ class CampaignStore:
             "MATHEMATICAL_EXHAUSTION",
         }:
             raise ProjectError("Terminal campaign cannot be resumed")
+        snapshot_hash = record.get("root_claim_snapshot_hash")
+        if not snapshot_hash:
+            raise ProjectError(
+                "Campaign has no ClaimSnapshot; checkpoint migration/revalidation is required"
+            )
+        self.truth_store.validate_snapshot_for_execution(
+            str(snapshot_hash),
+            canonical_authority=record.get("truth_canonical_authority") or [],
+            replay_policy_hash=record.get("truth_replay_policy_hash"),
+        )
         record["status"] = "RUNNING"
         record["resumed_at"] = utc_now()
         StopController(self.project, campaign_id).clear_for_resume()
@@ -908,6 +939,8 @@ class CampaignEngine:
                     pipeline_state=(scheduler.snapshot() if scheduler is not None else None),
                     routing_state=(router.snapshot() if router is not None else None),
                     run_id=current["run_id"],
+                    claim_snapshot_hash=state.get("claim_snapshot_hash"),
+                    canonical_authority=state.get("canonical_authority"),
                 )
             finally:
                 close = getattr(orchestrator, "close", None)

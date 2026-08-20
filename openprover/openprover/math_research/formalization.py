@@ -13,6 +13,7 @@ from .schemas import (
     FormalizationResultSchema,
     parse_structured_response,
 )
+from .truth_store import TruthStoreFacade
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -41,6 +42,21 @@ def run_formalization(
         raise ProjectError(f"Formalization requires research context: {context_path}")
 
     theorem = project.load_theorem(target_id)
+    truth_store = TruthStoreFacade(project)
+    run_state_path = run_path / "state.json"
+    run_state = (
+        json.loads(run_state_path.read_text(encoding="utf-8")) if run_state_path.is_file() else {}
+    )
+    stored_snapshot_hash = run_state.get("claim_snapshot_hash")
+    if stored_snapshot_hash:
+        truth_store.validate_snapshot_for_execution(
+            str(stored_snapshot_hash),
+            canonical_authority=run_state.get("canonical_authority") or [],
+            replay_policy_hash=run_state.get("replay_policy_hash"),
+        )
+        claim_snapshot = truth_store.load_claim_snapshot(str(stored_snapshot_hash))
+    else:
+        claim_snapshot = truth_store.capture_claim_snapshot(target_id)
     candidate = candidate_path.read_text(encoding="utf-8")
     context = context_path.read_text(encoding="utf-8")
     formal_dir = run_path / "formalization"
@@ -73,6 +89,10 @@ unsafe, set_option, or native_decide.
 # Theorem
 {json.dumps(theorem, ensure_ascii=False, indent=2)}
 
+# Exact truth identity
+ClaimSnapshot: {claim_snapshot.claim_snapshot_hash}
+AssertionIdentity: {claim_snapshot.assertion_identity_hash}
+
 # Authorized context
 {context}
 
@@ -100,6 +120,8 @@ unsafe, set_option, or native_decide.
             "schema_version": 3,
             "status": "PENDING_FORMALIZATION",
             "theorem_id": target_id,
+            "claim_snapshot_hash": claim_snapshot.claim_snapshot_hash,
+            "assertion_identity_hash": claim_snapshot.assertion_identity_hash,
             "summary": "Formalization did not produce a typed result.",
             "error": str(exc),
             "created_at": utc_now(),
@@ -132,6 +154,8 @@ unsafe, set_option, or native_decide.
                 "schema_version": 3,
                 "status": "VERIFIED",
                 "theorem_id": target_id,
+                "claim_snapshot_hash": claim_snapshot.claim_snapshot_hash,
+                "assertion_identity_hash": claim_snapshot.assertion_identity_hash,
                 "lean_code": lean_code,
                 "certificate_path": str(proof_path.relative_to(run_path)),
                 "certificate_sha256": digest,
@@ -144,6 +168,8 @@ unsafe, set_option, or native_decide.
                 "schema_version": 3,
                 "status": "FAILED",
                 "theorem_id": target_id,
+                "claim_snapshot_hash": claim_snapshot.claim_snapshot_hash,
+                "assertion_identity_hash": claim_snapshot.assertion_identity_hash,
                 "error": ("Compiler tool returned OK for an empty or forbidden source"),
                 "created_at": utc_now(),
             }
@@ -153,6 +179,8 @@ unsafe, set_option, or native_decide.
             "schema_version": 3,
             "status": "PENDING_FORMALIZATION",
             "theorem_id": target_id,
+            "claim_snapshot_hash": claim_snapshot.claim_snapshot_hash,
+            "assertion_identity_hash": claim_snapshot.assertion_identity_hash,
             "error": ("Model claimed VERIFIED without an observed successful lean_verify call"),
             "created_at": utc_now(),
         }
@@ -161,6 +189,8 @@ unsafe, set_option, or native_decide.
             **typed,
             "schema_version": 3,
             "theorem_id": target_id,
+            "claim_snapshot_hash": claim_snapshot.claim_snapshot_hash,
+            "assertion_identity_hash": claim_snapshot.assertion_identity_hash,
             "created_at": utc_now(),
         }
     _write_json(formal_dir / "formal_status.json", result)
