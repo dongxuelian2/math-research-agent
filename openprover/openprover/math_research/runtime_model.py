@@ -93,6 +93,7 @@ ATTEMPT_TRANSITIONS: Mapping[str, frozenset[str]] = {
     ),
     AttemptState.ORPHANED: frozenset(
         {
+            AttemptState.LEASED,
             AttemptState.RESULT_RECORDED,
             AttemptState.BLOCKED_MISSING_ARTIFACT,
         }
