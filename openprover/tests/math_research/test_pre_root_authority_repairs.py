@@ -9,6 +9,7 @@ import pytest
 
 from openprover.math_research.architecture_patch import PatchAuthorization
 from openprover.math_research.project import ProjectError, ProjectStore
+from openprover.math_research.orchestrator import ResearchOrchestrator
 from openprover.math_research.research_map import MapRevisionReason
 from openprover.math_research.research_store import ResearchStoreFacade
 from openprover.math_research.routing import ModelRouter, RoutedLLMClient
@@ -157,9 +158,14 @@ def test_f007_restart_does_not_accept_without_binding_validator(tmp_path: Path):
     restarted.reconcile()
 
     assert restarted.get_job(job["logical_job_id"])["accepted_result_id"] is None
-    assert next(
-        row for row in restarted.list_rows("attempt_results") if row["result_id"] == result["result_id"]
-    )["authoritative"] == 1
+    assert (
+        next(
+            row
+            for row in restarted.list_rows("attempt_results")
+            if row["result_id"] == result["result_id"]
+        )["authoritative"]
+        == 1
+    )
 
     restarted.reconcile(
         binding_validator=lambda binding: (
@@ -185,7 +191,9 @@ def test_f007_restart_fences_mismatched_binding(tmp_path: Path):
     )
 
     fenced = next(
-        row for row in restarted.list_rows("attempt_results") if row["result_id"] == result["result_id"]
+        row
+        for row in restarted.list_rows("attempt_results")
+        if row["result_id"] == result["result_id"]
     )
     assert fenced["authoritative"] == 0
     assert fenced["ingestion_state"] == "STALE_FENCED"
@@ -243,6 +251,84 @@ def test_f007_configured_standalone_router_accepts_valid_binding(tmp_path: Path)
     assert next(row for row in backend.list_rows("attempt_results"))["authoritative"] == 1
 
 
+def test_f007_current_domain_rejects_root_only_semantic_binding(tmp_path: Path):
+    repository_root = Path(__file__).resolve().parents[3]
+    project = ProjectStore.initialize(tmp_path / "project", "binding completeness")
+    project.add_theorem("T1", "Root", "P holds.")
+    orchestrator = ResearchOrchestrator(
+        project,
+        "T1",
+        config_path=repository_root / "configs" / "models.mock.json",
+        run_id="binding-completeness",
+        worker_count=1,
+    )
+    orchestrator._ensure_research_plane_ready()
+    current = orchestrator._current_execution_binding()
+    assert current is not None and current.research_map_id is not None
+    root_only = CrossPlaneExecutionBinding.capture(
+        root_claim_snapshot_hash=current.root_claim_snapshot_hash
+    )
+
+    assert orchestrator._validate_execution_binding(root_only) is not True
+
+    class Provider:
+        calls = 0
+
+        def call(self, **_: object) -> dict:
+            self.calls += 1
+            return {"structured": {"success": True}}
+
+        def cleanup(self) -> None:
+            return None
+
+    provider = Provider()
+    client = RoutedLLMClient(
+        orchestrator.model_router,
+        client_factory=lambda *_args, **_kwargs: provider,
+        default_role="worker",
+        archive_dir=tmp_path / "archive",
+        working_dir=tmp_path / "working",
+        execution_binding=root_only,
+    )
+    try:
+        with pytest.raises(RuntimeConflict, match="binding rejected"):
+            client.call("[Worker role: worker]", "system", label="root-only")
+    finally:
+        client.cleanup()
+    assert provider.calls == 0
+
+
+def test_nf004_no_backend_required_binding_rejects_before_provider(tmp_path: Path):
+    class Provider:
+        calls = 0
+
+        def call(self, **_: object) -> dict:
+            self.calls += 1
+            return {"structured": {"success": True}}
+
+        def cleanup(self) -> None:
+            return None
+
+    provider = Provider()
+    router = ModelRouter(
+        {"provider": "mock", "model": "mock", "reasoning_effort": "low"},
+        require_execution_binding=True,
+    )
+    client = RoutedLLMClient(
+        router,
+        client_factory=lambda *_args, **_kwargs: provider,
+        default_role="worker",
+        archive_dir=tmp_path / "archive",
+        working_dir=tmp_path / "working",
+    )
+    try:
+        with pytest.raises(RuntimeConflict, match="trusted execution binding"):
+            client.call("[Worker role: worker]", "system", label="no-backend")
+    finally:
+        client.cleanup()
+    assert provider.calls == 0
+
+
 def test_f002_routed_client_cannot_parse_late_rejected_payload(tmp_path: Path, monkeypatch):
     import openprover.math_research.runtime_dispatch as dispatch_module
 
@@ -280,9 +366,12 @@ def test_f002_routed_client_cannot_parse_late_rejected_payload(tmp_path: Path, m
     with pytest.raises(RuntimeResultRejected, match="terminal"):
         client.call("[Worker role: worker]", "system", label="worker")
 
-    assert backend.get_job(backend.list_rows("logical_jobs")[0]["logical_job_id"])[
-        "accepted_result_id"
-    ] is None
+    assert (
+        backend.get_job(backend.list_rows("logical_jobs")[0]["logical_job_id"])[
+            "accepted_result_id"
+        ]
+        is None
+    )
 
 
 def test_f002_rejected_provider_payload_is_terminal_and_non_consumable(tmp_path: Path):
@@ -302,7 +391,7 @@ def test_f002_rejected_provider_payload_is_terminal_and_non_consumable(tmp_path:
         model="mock",
         reasoning_tier="research",
         payload={"prompt": "late"},
-        invoke=lambda: (time.sleep(0.02) or {"structured": {"success": True}}),
+        invoke=lambda: time.sleep(0.02) or {"structured": {"success": True}},
         execution_binding=binding,
         binding_validator=lambda current: current == binding,
     )

@@ -870,20 +870,22 @@ class ResearchOrchestrator:
             research_map_version=research_map.version if research_map else None,
             research_map_hash=research_map.research_map_hash if research_map else None,
             research_obligation_id=(
-                directive.obligation_id if directive else (session.obligation_id if session else None)
+                directive.obligation_id
+                if directive
+                else (session.obligation_id if session else None)
             ),
             directive_id=directive.directive_id if directive else None,
             tactical_session_id=session.tactical_session_id if session else None,
         )
 
-    def _validate_execution_binding(
-        self, binding: CrossPlaneExecutionBinding | None
-    ) -> bool | str:
+    def _validate_execution_binding(self, binding: CrossPlaneExecutionBinding | None) -> bool | str:
         current = self._current_execution_binding()
         if binding is None or current is None:
             return "REVALIDATION_REQUIRED: execution binding is missing"
         if binding.root_claim_snapshot_hash != current.root_claim_snapshot_hash:
             return "STALE_CLAIM_SNAPSHOT: execution binding is not current"
+        if current.research_map_id is not None and binding.research_map_id is None:
+            return "STALE_RESEARCH_MAP: execution binding is missing the current map"
         if binding.research_map_id is not None:
             if (
                 binding.research_map_id != current.research_map_id
@@ -901,6 +903,8 @@ class ResearchOrchestrator:
         ):
             expected = getattr(binding, field)
             current_value = getattr(current, field)
+            if current_value is not None and expected is None:
+                return f"STALE_EXECUTION_BINDING: {field} is missing from the current binding"
             if expected is not None and current_value is not None and expected != current_value:
                 return f"STALE_EXECUTION_BINDING: {field} is not current"
         return True
@@ -927,6 +931,33 @@ class ResearchOrchestrator:
             )
         ):
             return "STALE_CLAIM_SNAPSHOT: truth mutation binding must be root-only"
+        return True
+
+    def _validate_map_execution_binding(
+        self, binding: CrossPlaneExecutionBinding | None
+    ) -> bool | str:
+        """Validate an explicitly map-scoped semantic effect binding.
+
+        Map-level governance effects intentionally do not inherit the active
+        directive/session envelope.  They still require the complete current
+        ResearchMap identity, so this adapter is narrower than the normal
+        semantic execution validator and cannot turn a root-only binding into
+        a wildcard.
+        """
+
+        if binding is None or binding.research_map_id is None:
+            return "REVALIDATION_REQUIRED: ResearchMap binding is missing"
+        try:
+            current = self.research_store.load_current_map(binding.research_map_id)
+        except Exception as exc:
+            return f"REVALIDATION_REQUIRED: current ResearchMap unavailable: {exc}"
+        if (
+            binding.root_claim_snapshot_hash != current.root_claim_snapshot_hash
+            or binding.research_map_id != current.research_map_id
+            or binding.research_map_version != current.version
+            or binding.research_map_hash != current.research_map_hash
+        ):
+            return "STALE_RESEARCH_MAP: exact current map identity is required"
         return True
 
     def _register_runtime_effect_result(
@@ -959,6 +990,7 @@ class ResearchOrchestrator:
             semantic_target=research_map_id,
             payload={"trigger": trigger},
             binding=binding,
+            binding_validator=self._validate_map_execution_binding,
         )
         return self.runtime_effects.signal_governance_review(
             logical_job_id=str(source["logical_job_id"]),
@@ -1966,6 +1998,7 @@ changed failure condition is explicitly recorded.
                     "structural_effect_hash": effect.structural_effect_hash,
                 },
                 binding=effect_binding,
+                binding_validator=self._validate_map_execution_binding,
             )
             self.runtime_effects.apply_structural_effect(
                 logical_job_id=str(effect_source["logical_job_id"]),
@@ -1978,7 +2011,9 @@ changed failure condition is explicitly recorded.
             result = task.get("result") if isinstance(task, dict) else None
             trigger = result.get("governance_review_trigger") if isinstance(result, dict) else None
             if trigger:
-                current_map = self.research_store.load_current_map(self.research_map.research_map_id)
+                current_map = self.research_store.load_current_map(
+                    self.research_map.research_map_id
+                )
                 signal_binding = CrossPlaneExecutionBinding.capture(
                     root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
                     research_map_id=current_map.research_map_id,
@@ -1992,6 +2027,7 @@ changed failure condition is explicitly recorded.
                     semantic_target=current_map.research_map_id,
                     payload={"trigger": str(trigger)},
                     binding=signal_binding,
+                    binding_validator=self._validate_map_execution_binding,
                 )
                 self.runtime_effects.signal_governance_review(
                     logical_job_id=str(signal_source["logical_job_id"]),
@@ -2022,6 +2058,7 @@ changed failure condition is explicitly recorded.
                 "blocked_obligation_ids": list(blocked_ids),
             },
             binding=session_binding,
+            binding_validator=self._validate_map_execution_binding,
         )
         self.runtime_effects.record_governance_session(
             logical_job_id=str(session_source["logical_job_id"]),
@@ -2086,7 +2123,9 @@ changed failure condition is explicitly recorded.
                 theorem_id=self.target_id,
                 claim_snapshot=self.claim_snapshot,
                 snapshot_comparison=snapshot_comparison,
-                research_map=self.research_store.load_current_map(self.research_map.research_map_id),
+                research_map=self.research_store.load_current_map(
+                    self.research_map.research_map_id
+                ),
                 session_closure=session_closure,
                 gate=gate,
                 candidate_path=self.run_dir / "CANDIDATE_PROOF.md",
@@ -2137,7 +2176,9 @@ changed failure condition is explicitly recorded.
             truth_metadata = {
                 "proof_file": self.phase7_store.final_proof_path(
                     final_consolidation.consolidation_hash
-                ).relative_to(self.project.root).as_posix(),
+                )
+                .relative_to(self.project.root)
+                .as_posix(),
                 "proof_type": (
                     "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
                 ),
@@ -2271,7 +2312,9 @@ changed failure condition is explicitly recorded.
                     if item.category not in {"INFRASTRUCTURE_ERROR", "PROVIDER_ERROR", "UNKNOWN"}
                     else item.category.removesuffix("_ERROR")
                 )
-                current_map = self.research_store.load_current_map(self.research_map.research_map_id)
+                current_map = self.research_store.load_current_map(
+                    self.research_map.research_map_id
+                )
                 route_binding = CrossPlaneExecutionBinding.capture(
                     root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
                     research_map_id=current_map.research_map_id,
@@ -2282,9 +2325,7 @@ changed failure condition is explicitly recorded.
                     tactical_session_id=self.tactical_session.tactical_session_id,
                 )
                 route_description = f"{item.affected_branch}: {item.exact_rejected_claim}"
-                exact_failure_condition = (
-                    f"{item.exact_rejected_claim}; {item.repair_suggestion}"
-                )
+                exact_failure_condition = f"{item.exact_rejected_claim}; {item.repair_suggestion}"
                 route_source = self._register_runtime_effect_result(
                     idempotency_key=(
                         f"route-failure:{self.run_dir.name}:{len(route_records)}:"
@@ -2335,12 +2376,11 @@ changed failure condition is explicitly recorded.
                     research_map_hash=governance_map.research_map_hash,
                 )
                 governance_source = self._register_runtime_effect_result(
-                    idempotency_key=(
-                        f"governance-route-failure:{record.route_failure_id}"
-                    ),
+                    idempotency_key=(f"governance-route-failure:{record.route_failure_id}"),
                     semantic_target=obligation_id,
                     payload={"route_failure_id": record.route_failure_id},
                     binding=governance_binding,
+                    binding_validator=self._validate_map_execution_binding,
                 )
                 self.runtime_effects.record_governance_route_failure(
                     logical_job_id=str(governance_source["logical_job_id"]),

@@ -941,15 +941,17 @@ class RoutedLLMClient:
         raw_system_prompt: str | None = None,
         **payload,
     ) -> dict:
-        if self.router.runtime_backend is not None and self.router.require_execution_binding:
+        if self.router.require_execution_binding:
             if self.execution_binding is None:
                 raise RuntimeConflict(
                     "standalone semantic routing requires a trusted execution binding"
                 )
-            if self.router.execution_binding_validator is None:
-                raise RuntimeConflict(
-                    "semantic routing requires an execution binding validator"
-                )
+            binding_validator = self.router.execution_binding_validator
+            if binding_validator is None:
+                raise RuntimeConflict("semantic routing requires an execution binding validator")
+            validation = binding_validator(self.execution_binding)
+            if validation is not True:
+                raise RuntimeConflict(f"semantic routing execution binding rejected: {validation}")
         metadata = self.router.begin_call(route, obligation_id=obligation_id, branch_id=branch_id)
         logical_job_id = None
         if self.router.runtime_backend is not None:
