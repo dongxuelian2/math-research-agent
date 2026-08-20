@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 
-from openprover.math_research.providers import create_client
+from openprover.math_research.providers import (
+    create_client,
+    load_model_config,
+    provider_capabilities,
+)
 from openprover.math_research.routing import ModelRouter, RoutedLLMClient
 
 
@@ -194,3 +199,46 @@ def test_resume_preserves_strategic_obligation_and_completed_call_usage(tmp_path
         "reasoning_tokens": 1,
         "cached_tokens": 3,
     }
+
+
+def test_provider_capabilities_and_mixed_provider_role_routing(tmp_path):
+    assert provider_capabilities("gemini").supports_native_tools is True
+    assert provider_capabilities("vertex_gemini").supports_structured_output is True
+    assert provider_capabilities("codex_cli").supports_interrupt is True
+    assert provider_capabilities("codex_cli").supports_native_tools is False
+    assert provider_capabilities("openai").supports_usage is True
+    assert provider_capabilities("mock").supports_reasoning_tiers is False
+
+    config = {
+        "tiers": {
+            "routine": {"provider": "gemini", "model": "gemini-routine"},
+            "research": {
+                "provider": "codex_cli",
+                "model": None,
+                "reasoning_effort": "high",
+            },
+            "strategic": {
+                "provider": "openai",
+                "model": "gpt-strategic",
+                "reasoning_effort": "high",
+            },
+        },
+        "roles": {
+            "planner": "strategic",
+            "worker": "research",
+            "dependency_auditor": "routine",
+        },
+    }
+    path = tmp_path / "mixed-providers.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    loaded = load_model_config(path)
+    router = ModelRouter(loaded)
+    assert (
+        router.resolve("planner", reserve=False).provider,
+        router.resolve("planner", reserve=False).model,
+    ) == (
+        "openai",
+        "gpt-strategic",
+    )
+    assert router.resolve("worker", reserve=False).provider == "codex_cli"
+    assert router.resolve("dependency_auditor", reserve=False).provider == "gemini"

@@ -50,3 +50,16 @@
   the caller to re-supply the manifest and verifies the immutable body digest.
 - Full-suite and final quality evidence will be refreshed after provider and
   checkpoint phases. Hosted CI remains `PENDING_PUSH`.
+
+## Provider preservation
+
+- Historical Codex CLI and OpenAI adapter source was recovered from
+  `d224491bc75c7499c8670f810e2831511cdf801c` and adapted to the current typed
+  provider contract without replacing the current Gemini/Vertex/mock factory.
+- Focused provider, structured-output, tool-loop, and heterogeneous-routing
+  suite: `38 passed in 2.02s`.
+- Post-restoration local-safe full suite: `170 passed in 6.04s`.
+- `uv lock --check` resolves 49 packages; the OpenAI SDK is pinned to
+  `>=2.53.0,<3` and currently locks to 2.54.0.
+- Format check, lint, compileall, and `git diff --check` passed. No live
+  provider credentials were used. Hosted CI remains `PENDING_PUSH`.

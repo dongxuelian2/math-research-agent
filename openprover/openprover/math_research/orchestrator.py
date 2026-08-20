@@ -21,6 +21,8 @@ from .campaign import (
     classify_provider_exception,
 )
 from .gemini_provider import GeminiProviderError
+from .codex_cli_provider import CodexCLIProviderError
+from .openai_provider import OpenAIProviderError
 from .candidate_engine import CandidateEngine
 from .audit_coordinator import AuditCoordinator
 from .project import ProjectError, ProjectStore, utc_now
@@ -968,7 +970,7 @@ class ResearchOrchestrator:
         if not self._phase_at_least("CANDIDATE_READY"):
             try:
                 self._run_openprover_candidate()
-            except GeminiProviderError as exc:
+            except (GeminiProviderError, CodexCLIProviderError, OpenAIProviderError) as exc:
                 status, details = classify_provider_exception(exc)
                 self._checkpoint(
                     CHECKPOINT_PHASE,

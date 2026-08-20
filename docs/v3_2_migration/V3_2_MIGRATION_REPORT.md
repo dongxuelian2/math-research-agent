@@ -2,7 +2,7 @@
 
 ## Current phase
 
-`V3_2_CURRENT_PHASE = PHASE 1 IMPLEMENTED / LOCAL ACCEPTANCE PASS; HOSTED CI PENDING; PHASE 2 NOT STARTED`
+`V3_2_CURRENT_PHASE = SAFE BASELINE + CANONICAL AUTHORITY P0 + PROVIDER PRESERVATION IMPLEMENTED; CHECKPOINT MIGRATION NEXT; HOSTED CI PENDING_PUSH`
 
 ## Completed capabilities
 
@@ -14,17 +14,19 @@
 - Windows uv bootstrap and PowerShell launcher restored; Bash/uv path preserved.
 - CI definition aligned with both Ubuntu and Windows.
 - Deterministic real production E2E restored, clearly distinct from showcase replay.
+- Canonical artifact authority P0: body-bound digest/provenance, resume
+  revalidation, scoped blockers, and promotion prerequisite.
+- Gemini/Vertex/mock preserved and Codex CLI/OpenAI restored through the current
+  provider factory, capabilities, typed response, archive, and resume paths.
 
 ## Partial capabilities
 
 - OpenProver public lifecycle hooks: Worker/Verifier batch hooks exist; the complete v3.2 `_run_one_step()/step()/StepOutcome` facade is not implemented.
-- Provider abstraction: Gemini/Vertex/mock are current; Codex/OpenAI and optional legacy providers remain absent.
 - CI: definitions and exact local commands pass; hosted GitHub jobs were not run because this branch was not pushed.
 
 ## Unstarted capabilities
 
 - Explicit legacy checkpoint migration classes and provenance.
-- Canonical project artifact body resolver and promotion guard.
 - VerifierIndependenceReceipt.
 - TruthStoreFacade, ClaimSnapshot, identity hash-domain separation, TruthMutation saga.
 - ResearchMap, CoverageAnchor/Transfer, ResearchObligation, DecisionBasis, reverse invalidation.
@@ -38,10 +40,11 @@ No external blocker prevents continued work. The deliberate phase gate prevents 
 
 ## Next safe migration frontier
 
-1. Restore Codex and OpenAI adapters behind the current Provider interface and revive their capability-level contracts.
-2. Add checkpoint classification with immutable migration provenance.
-3. Implement the canonical proof/replay artifact resolver, scoped authority blocking, handoff provenance, resume revalidation, and promotion guard.
-4. Only then start Truth facade/ClaimSnapshot. Do not start ResearchMap or SQLite in the same patch.
+1. Add checkpoint classification with immutable migration provenance.
+2. Re-run the complete local-safe regression and freeze the checkpoint phase in
+   its own local commit.
+3. Stop at the requested boundary. Truth facade/ClaimSnapshot, ResearchMap,
+   Architecture Review, and SQLite remain explicitly not started.
 
 ## Preservation statement
 

@@ -9,7 +9,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from .codex_cli_provider import CodexCLIProviderError
 from .gemini_provider import GeminiProviderError
+from .openai_provider import OpenAIProviderError
 from .formalization import run_formalization
 from .orchestrator import ResearchOrchestrator, build_run_preview
 from .project import ProjectError, ProjectStore
@@ -91,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     smoke = sub.add_parser(
         "provider-smoke",
-        help="send exactly one minimal Gemini request",
+        help="send exactly one minimal configured-provider request",
     )
     smoke.add_argument("--config", required=True)
     smoke.add_argument("--role", default="final_proof_auditor")
@@ -149,8 +151,8 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         config = load_model_config(args.config)
         role = dict(resolve_role_config(config, args.role))
         provider = role.get("provider")
-        if provider not in {"gemini", "vertex_gemini"}:
-            raise ProjectError("provider-smoke requires a Gemini role")
+        if provider not in {"gemini", "vertex_gemini", "codex_cli", "openai", "mock"}:
+            raise ProjectError("provider-smoke requires a supported provider role")
         # Exactly one provider attempt, even if it fails. Unit tests exercise
         # each provider's normal bounded retry path separately.
         role["max_retries"] = 0
@@ -168,7 +170,7 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             role,
             output_dir,
             role_name=args.role,
-            working_dir=output_dir / "gemini" / args.role / stamp,
+            working_dir=output_dir / str(provider) / args.role / stamp,
         )
         started = time.perf_counter()
         try:
@@ -185,14 +187,16 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
                     label=f"{provider}_provider_smoke",
                     archive_path=archive_path,
                 )
-            except GeminiProviderError as exc:
+            except (GeminiProviderError, CodexCLIProviderError, OpenAIProviderError) as exc:
                 failure = {
                     "provider": provider,
                     "role": args.role,
                     "model": role.get("model"),
                     "passed": False,
                     "logical_calls": client.call_count,
-                    "api_requests": client.request_count,
+                    "provider_requests": client.request_count,
+                    "api_requests": (0 if provider == "codex_cli" else client.request_count),
+                    "codex_processes": int(getattr(client, "process_start_attempts", 0)),
                     "duration_ms": int((time.perf_counter() - started) * 1000),
                     "usage": None,
                     "billing_mode": getattr(client, "billing_mode", None),
@@ -217,7 +221,9 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
                 "received": received,
                 "passed": received == args.expect,
                 "logical_calls": client.call_count,
-                "api_requests": client.request_count,
+                "provider_requests": client.request_count,
+                "api_requests": (0 if provider == "codex_cli" else client.request_count),
+                "codex_processes": int(getattr(client, "process_start_attempts", 0)),
                 "duration_ms": response.get(
                     "duration_ms",
                     int((time.perf_counter() - started) * 1000),
@@ -232,10 +238,15 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
                 "archive": str(archive_path),
                 "summary": str(summary_path),
             }
-            if client.request_count != 1:
+            request_count = (
+                int(getattr(client, "process_start_attempts", 0))
+                if provider == "codex_cli"
+                else int(client.request_count)
+            )
+            if request_count != 1:
                 summary["passed"] = False
                 summary["process_count_error"] = (
-                    "Gemini provider smoke must send exactly one API request"
+                    "Provider smoke must execute exactly one provider request"
                 )
             summary_path.write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
