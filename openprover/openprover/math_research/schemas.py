@@ -76,6 +76,7 @@ class AuditResultSchema(StrictSchemaModel):
     criteria: AuditCriteriaSchema = Field(default_factory=AuditCriteriaSchema)
     authority_uses: list[AuthorityUseSchema] = Field(default_factory=list)
     execution_error: StrictStr = ""
+    audited_claim_snapshot_hash: StrictStr = ""
 
 
 class WorkerEventKind(str, Enum):

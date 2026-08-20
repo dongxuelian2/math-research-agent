@@ -89,6 +89,7 @@ from .truth_identity import (
     DependencyEntry,
     DependencySnapshot,
 )
+from .truth_store import CurrentTruth, TruthStoreFacade, TruthValidationError
 
 __all__ = [
     "AuditGate",
@@ -110,6 +111,7 @@ __all__ = [
     "CheckpointInspection",
     "CheckpointMigrationResult",
     "ContextBuilder",
+    "CurrentTruth",
     "AssertionIdentity",
     "AssertionKind",
     "AssumptionSnapshot",
@@ -156,6 +158,8 @@ __all__ = [
     "StrategyFingerprintStore",
     "TaskExecutionContext",
     "TrustKernel",
+    "TruthStoreFacade",
+    "TruthValidationError",
     "WorkerEventSchema",
     "run_formalization",
     "build_snapshot",

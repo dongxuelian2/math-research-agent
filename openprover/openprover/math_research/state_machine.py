@@ -70,6 +70,7 @@ class AuditGate:
     execution_errors: list[str] = field(default_factory=list)
     inconclusive_audits: list[str] = field(default_factory=list)
     dependency_report: dict = field(default_factory=dict)
+    audited_claim_snapshot_hash: str = ""
 
     @property
     def passed(self) -> bool:
@@ -118,6 +119,7 @@ class AuditGate:
             "execution_errors": list(self.execution_errors),
             "inconclusive_audits": list(self.inconclusive_audits),
             "dependency_report": dict(self.dependency_report),
+            "audited_claim_snapshot_hash": self.audited_claim_snapshot_hash,
             "outcome": self.outcome,
             "passed": self.passed,
         }

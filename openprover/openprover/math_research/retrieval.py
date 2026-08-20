@@ -9,6 +9,7 @@ from pathlib import Path
 from .canonical_artifacts import canonical_context_markdown
 from .project import ProjectStore, utc_now
 from .trust_kernel import TrustKernel
+from .truth_identity import prompt_projection_hash
 
 
 @dataclass(slots=True)
@@ -62,6 +63,7 @@ class ContextBuilder:
         *,
         expand: bool = False,
         canonical_authority: list[dict] | None = None,
+        claim_snapshot: dict | None = None,
     ) -> ContextPackage:
         target = self.project.load_theorem(target_id)
         dependency_ids, premise_ids, cycles = self._dependency_closure(target_id)
@@ -158,9 +160,12 @@ class ContextBuilder:
             "added_lemmas": steering.get("added_lemmas", []),
             "sources": sources,
             "canonical_authority": list(canonical_authority or []),
+            "claim_snapshot": dict(claim_snapshot or {}),
             "expanded": expand,
         }
-        return ContextPackage(data=data, markdown=self._to_markdown(data))
+        markdown = self._to_markdown(data)
+        data["prompt_projection_hash"] = prompt_projection_hash(markdown)
+        return ContextPackage(data=data, markdown=markdown)
 
     @staticmethod
     def _theorem_lines(items: list[dict]) -> str:
@@ -252,6 +257,12 @@ class ContextBuilder:
 - Notation scope: `{data["notation_scope"] or "(none)"}`
 - Expanded retrieval: `{str(data["expanded"]).lower()}`
 - Treat OpenProver's output as a CANDIDATE only; it cannot self-promote to PROVED.
+
+## Exact claim identity
+
+- Claim snapshot: `{data.get("claim_snapshot", {}).get("claim_snapshot_hash", "UNBOUND")}`
+- Assertion identity: `{data.get("claim_snapshot", {}).get("assertion_identity_hash", "UNBOUND")}`
+- This prompt projection is not theorem identity or mathematical authority.
 
 ## Frozen branches
 

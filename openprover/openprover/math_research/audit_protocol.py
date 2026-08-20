@@ -25,6 +25,7 @@ class AuditResult:
     criteria: dict[str, bool] = field(default_factory=dict)
     authority_uses: list[dict] = field(default_factory=list)
     execution_error: str = ""
+    audited_claim_snapshot_hash: str = ""
 
     @property
     def passed(self) -> bool:
@@ -48,6 +49,7 @@ class AuditResult:
             "criteria": dict(self.criteria),
             "authority_uses": list(self.authority_uses),
             "execution_error": self.execution_error,
+            "audited_claim_snapshot_hash": self.audited_claim_snapshot_hash,
         }
         return value
 
@@ -87,6 +89,7 @@ def normalize_audit_result(role: str, raw: dict) -> AuditResult:
         criteria=validated.criteria.model_dump(mode="python"),
         authority_uses=[item.model_dump(mode="json") for item in validated.authority_uses],
         execution_error=validated.execution_error,
+        audited_claim_snapshot_hash=validated.audited_claim_snapshot_hash,
     )
 
 
