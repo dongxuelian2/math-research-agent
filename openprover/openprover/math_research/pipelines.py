@@ -14,6 +14,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from .canonical_artifacts import authority_promotion_decision
 from .project import ProjectError, utc_now
 from .pipeline_primitives import (
     AtomicResourceBudget,
@@ -142,6 +143,8 @@ class AsyncDAGScheduler:
         current_tier: str | None = None,
         minimum_inherited_tier: str | None = None,
         fresh_independent_obligation: bool = False,
+        canonical_source_requirements: list[dict] | None = None,
+        canonical_authority: list[dict] | None = None,
     ) -> dict:
         if not obligation_id.strip():
             raise ProjectError("obligation_id is required")
@@ -171,6 +174,13 @@ class AsyncDAGScheduler:
             if fresh_independent_obligation:
                 minimum = requested_tier
             effective_tier = max((requested_tier, minimum), key=lambda value: tier_order[value])
+            canonical_authority = copy.deepcopy(canonical_authority or [])
+            authority_ready, authority_blockers = authority_promotion_decision(canonical_authority)
+            authority_block_reason = (
+                authority_blockers[0]["type"]
+                if not authority_ready and authority_blockers
+                else None
+            )
             obligation = {
                 "obligation_id": obligation_id,
                 "target_statement": target_statement,
@@ -192,16 +202,22 @@ class AsyncDAGScheduler:
                 "verification_status": "PENDING",
                 "priority": int(priority),
                 "context": copy.deepcopy(context or {}),
+                "canonical_source_requirements": copy.deepcopy(canonical_source_requirements or []),
+                "canonical_authority": canonical_authority,
+                "authority_blockers": authority_blockers,
                 "literature_first": bool(literature_first),
                 "dual_track": bool(dual_track),
-                "status": "BLOCKED_DEPENDENCY"
-                if missing
-                else (
-                    "DUAL_TRACK"
-                    if dual_track
-                    else "LITERATURE_READY"
-                    if literature_first
-                    else "PROOF_READY"
+                "status": authority_block_reason
+                or (
+                    "BLOCKED_DEPENDENCY"
+                    if missing
+                    else (
+                        "DUAL_TRACK"
+                        if dual_track
+                        else "LITERATURE_READY"
+                        if literature_first
+                        else "PROOF_READY"
+                    )
                 ),
                 "created_at": utc_now(),
                 "updated_at": utc_now(),
@@ -212,9 +228,16 @@ class AsyncDAGScheduler:
                     self.state["obligations"][dependency].setdefault("dependents", []).append(
                         obligation_id
                     )
-            if missing:
+            if missing or authority_block_reason:
                 self.state["queues"]["BLOCKED_QUEUE"].append(obligation_id)
-                self._event("OBLIGATION_BLOCKED", obligation_id, {"dependencies": missing})
+                self._event(
+                    "OBLIGATION_BLOCKED",
+                    obligation_id,
+                    {
+                        "dependencies": missing,
+                        "authority_blockers": authority_blockers,
+                    },
+                )
             else:
                 self._activate_initial_tracks(obligation)
             self._save()
@@ -308,6 +331,14 @@ class AsyncDAGScheduler:
                 "created_process_id": threading.get_native_id(),
                 "created_at": utc_now(),
             }
+            obligation = self._obligation(obligation_id)
+            authority_sources = [
+                item
+                for item in obligation.get("canonical_authority", [])
+                if item.get("resolution_status") == "RESOLVED_CANONICAL"
+            ]
+            if authority_sources:
+                task["payload"]["canonical_authority_sources"] = copy.deepcopy(authority_sources)
             self.state["tasks"][task_id] = task
             queue = self.state["queues"][QUEUE_NAMES[pipeline]]
             queue.append(task_id)
@@ -902,6 +933,10 @@ class AsyncDAGScheduler:
                 literature_first=bool(payload.get("literature_first", False)),
                 dual_track=bool(payload.get("dual_track", False)),
                 context=payload.get("context") if isinstance(payload.get("context"), dict) else {},
+                canonical_source_requirements=list(
+                    payload.get("canonical_source_requirements") or []
+                ),
+                canonical_authority=list(payload.get("canonical_authority") or []),
             )
         if event_type == "NEW_DEPENDENCY":
             child_id = str(payload.get("obligation_id") or obligation_id)
@@ -940,11 +975,68 @@ class AsyncDAGScheduler:
     def close_obligation(self, obligation_id: str, *, reason: str) -> dict:
         with self._lock:
             obligation = self._obligation(obligation_id)
+            authority_ready, blockers = authority_promotion_decision(
+                obligation.get("canonical_authority", [])
+            )
+            if not authority_ready:
+                obligation["status"] = blockers[0]["type"]
+                obligation["authority_blockers"] = blockers
+                if obligation_id not in self.state["queues"]["BLOCKED_QUEUE"]:
+                    self.state["queues"]["BLOCKED_QUEUE"].append(obligation_id)
+                self._event("AUTHORITY_PROMOTION_BLOCKED", obligation_id, {"blockers": blockers})
+                self._save()
+                return copy.deepcopy(obligation)
             obligation["status"] = "CLOSED"
             obligation["closed_reason"] = reason
             obligation["closed_at"] = utc_now()
             self._event("OBLIGATION_CLOSED", obligation_id, {"reason": reason})
             self._unblock_dependents(obligation_id)
+            self._save()
+            return copy.deepcopy(obligation)
+
+    def bind_canonical_authority(
+        self,
+        obligation_id: str,
+        *,
+        requirements: list[dict],
+        resolutions: list[dict],
+    ) -> dict:
+        """Bind resolved bodies to one obligation and apply a scoped blocker."""
+
+        with self._lock:
+            obligation = self._obligation(obligation_id)
+            obligation["canonical_source_requirements"] = copy.deepcopy(requirements)
+            obligation["canonical_authority"] = copy.deepcopy(resolutions)
+            ready, blockers = authority_promotion_decision(resolutions)
+            obligation["authority_blockers"] = blockers
+            blocked_queue = self.state["queues"]["BLOCKED_QUEUE"]
+            if not ready:
+                obligation["status"] = blockers[0]["type"]
+                if obligation_id not in blocked_queue:
+                    blocked_queue.append(obligation_id)
+                for task in self.state["tasks"].values():
+                    if (
+                        task.get("obligation_id") == obligation_id
+                        and task.get("status") in DISPATCHABLE_TASK_STATUSES
+                    ):
+                        task["status"] = "CANCELLED_BEFORE_START"
+                        queue = self.state["queues"][QUEUE_NAMES[task["pipeline"]]]
+                        if task["task_id"] in queue:
+                            queue.remove(task["task_id"])
+                self._event("AUTHORITY_RESOLUTION_BLOCKED", obligation_id, {"blockers": blockers})
+            elif obligation.get("status", "").startswith("BLOCKED_AUTHORITY_"):
+                if obligation_id in blocked_queue:
+                    blocked_queue.remove(obligation_id)
+                obligation["status"] = (
+                    "DUAL_TRACK"
+                    if obligation.get("dual_track")
+                    else "LITERATURE_READY"
+                    if obligation.get("literature_first")
+                    else "PROOF_READY"
+                )
+                self._activate_initial_tracks(obligation)
+                self._event("AUTHORITY_RESOLUTION_RESTORED", obligation_id)
+            obligation["updated_at"] = utc_now()
             self._save()
             return copy.deepcopy(obligation)
 
