@@ -83,3 +83,18 @@
 | ModelRouter strategy ownership | Router selects compute only | Router owns failures/stall/escalation | production research signals removed; old methods deprecated compute compatibility | IMPLEMENTED | provider/model/reasoning/fallback only in production | routing + R10/R19 | schema-2 state readable | deprecated direct callers remain |
 | ROOT_SYNTHESIS full | exact root evidence synthesis | absent | absent | NOT_STARTED | final audit over candidate | audit tests | future v3 path | later phase |
 | Final Consolidation full | immutable promoted proof and consolidation re-audit | absent | absent | NOT_STARTED | current candidate promotion | audit tests | future v3 path | later phase |
+
+## Pre-root blocker repair addendum
+
+| Finding | After repair | Production seam | Evidence |
+|---|---|---|---|
+| F-001 stale SessionClosure | `CLOSED` | exact closure/map/disposition gate; explicit transfer revalidation | `pre_root_repair/STALE_SESSION_REPAIR_REPORT.md` |
+| F-002 expired lease | `CLOSED` | expired result is retained but `STALE_FENCED` and cannot win | `pre_root_repair/LEASE_FENCING_REPAIR_REPORT.md` |
+| F-003 EffectSlot bypass | `CLOSED` | normal semantic finalization uses `RuntimeEffectCoordinator` | `pre_root_repair/PRODUCTION_EFFECT_SLOT_REPAIR_REPORT.md` |
+| F-004 stranded dispatched execution | `CLOSED` | unknown execution is durable and leaves `DISPATCHED` | `pre_root_repair/DISPATCHED_RECOVERY_REPAIR_REPORT.md` |
+| F-005 thesis bypass | `CLOSED` | strategic thesis changes require typed authorization | `pre_root_repair/GOVERNANCE_BYPASS_REPAIR_REPORT.md` |
+| F-006 same-model critic | `CLOSED` | configured `DIFFERENT_MODEL` policy is enforced | `pre_root_repair/CRITIC_INDEPENDENCE_REPAIR_REPORT.md` |
+| F-007 routed bindings | `CLOSED` | exact root/map/directive/session identity persists through runtime | `pre_root_repair/CROSS_PLANE_BINDING_REPAIR_REPORT.md` |
+
+This addendum records repair state only; ROOT_SYNTHESIS and Final Consolidation
+remain `NOT_STARTED`.

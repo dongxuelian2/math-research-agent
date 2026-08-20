@@ -91,3 +91,22 @@ execution control, while JSON checkpoints remain portable projections.
 
 Local Windows evidence is complete, including the interruption test. Hosted
 Linux/Windows jobs remain `PENDING_PUSH` because no push was authorized.
+
+## RESOLVED IN PRE-ROOT REPAIR: seven frozen blockers
+
+- Stale SessionClosure now fails closed on exact map/disposition identity and
+  has a typed transfer revalidation path.
+- Expired lease results retain artifacts but cannot become authoritative.
+- Routed semantic jobs persist immutable ClaimSnapshot/ResearchMap bindings and
+  validate them at acceptance and EffectSlot preparation.
+- Normal orchestrator semantic finalization uses the durable EffectSlot
+  coordinator; direct domain calls in adapters and explicit admin/migration
+  paths are not normal production semantic bypasses.
+- `AFTER_PROVIDER_RESULT` is classified as `UNKNOWN_EXECUTION` and cannot leave
+  an outbox permanently `DISPATCHED`.
+- Strategic thesis changes require authorized governance; same-model critics
+  fail the configured independence policy.
+
+The complete repair matrix and limitations are in
+`pre_root_repair/PRE_ROOT_BLOCKER_REPAIR_MATRIX.md`. These changes do not
+authorize or begin Phase 7.
