@@ -1338,6 +1338,8 @@ class SQLiteRuntimeBackend:
         generation: int | None = None,
         reconcile_existing: bool = False,
         execution_binding: CrossPlaneExecutionBinding | Mapping[str, Any] | None = None,
+        binding_validator: Callable[[CrossPlaneExecutionBinding | None], bool | str | None]
+        | None = None,
         actor: str = "result-ingestor",
     ) -> dict[str, Any]:
         artifact = self.verify_artifact(artifact_id)
@@ -1362,6 +1364,13 @@ class SQLiteRuntimeBackend:
             binding_mismatch = supplied_binding is not None and not supplied_binding.matches(
                 attempt_binding
             )
+            binding_validation = True
+            if binding_validator is not None:
+                try:
+                    binding_validation = binding_validator(attempt_binding)
+                except Exception as exc:  # validators are a fail-closed boundary
+                    binding_validation = f"execution binding validator failed: {type(exc).__name__}"
+            binding_rejected = binding_validation is not True and binding_validation is not None
             serialized_binding = self._binding_json(attempt_binding)
             authoritative_now = time.time()
             lease_expires_at = attempt.get("lease_expires_at")
@@ -1377,6 +1386,7 @@ class SQLiteRuntimeBackend:
                     (job is not None and job["accepted_result_id"] is not None)
                     or lease_expired
                     or binding_mismatch
+                    or binding_rejected
                 )
                 if job is not None and job["accepted_result_id"] is not None:
                     rejection = "logical job already has an accepted result"
@@ -1389,12 +1399,19 @@ class SQLiteRuntimeBackend:
                     or attempt["state"] not in {AttemptState.RUNNING, AttemptState.CANCEL_REQUESTED}
                     or lease_expired
                     or binding_mismatch
+                    or binding_rejected
                 )
             if fenced and rejection is None:
                 if lease_expired:
                     rejection = "lease expired at authoritative ingestion boundary"
                 elif binding_mismatch:
                     rejection = "cross-plane execution binding mismatch"
+                elif binding_rejected:
+                    rejection = (
+                        str(binding_validation)
+                        if isinstance(binding_validation, str)
+                        else "cross-plane execution binding rejected"
+                    )
                 else:
                     rejection = "stale lease fencing token"
             authoritative = not fenced
@@ -1953,10 +1970,15 @@ class SQLiteRuntimeBackend:
         slot = self.acknowledge_effect(slot["effect_slot_id"])
         return slot, outcome
 
-    def reconcile(self) -> list[dict[str, Any]]:
+    def reconcile(
+        self,
+        *,
+        binding_validator: Callable[[CrossPlaneExecutionBinding | None], bool | str | None]
+        | None = None,
+    ) -> list[dict[str, Any]]:
         from .runtime_reconciler import RuntimeReconciler
 
-        return RuntimeReconciler(self).run()
+        return RuntimeReconciler(self, binding_validator=binding_validator).run()
 
     def list_rows(self, table: str) -> list[dict[str, Any]]:
         allowed = {

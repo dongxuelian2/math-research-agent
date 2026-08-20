@@ -13,6 +13,7 @@ from typing import Any, Callable
 from .project import ProjectError, utc_now
 from .gemini_tools import build_tool_payload
 from .runtime_bindings import CrossPlaneExecutionBinding
+from .runtime_model import RuntimeConflict, RuntimeResultRejected
 
 
 TIERS = ("routine", "research", "strategic")
@@ -262,6 +263,7 @@ class ModelRouter:
         runtime_scope: str | None = None,
         execution_binding: CrossPlaneExecutionBinding | dict | None = None,
         execution_binding_validator=None,
+        require_execution_binding: bool = False,
     ):
         self.config = copy.deepcopy(config)
         self.layers = [
@@ -277,6 +279,7 @@ class ModelRouter:
         self.runtime_scope = runtime_scope or "standalone"
         self.execution_binding = execution_binding
         self.execution_binding_validator = execution_binding_validator
+        self.require_execution_binding = bool(require_execution_binding)
         self._lock = threading.RLock()
         self._save()
 
@@ -938,6 +941,15 @@ class RoutedLLMClient:
         raw_system_prompt: str | None = None,
         **payload,
     ) -> dict:
+        if self.router.runtime_backend is not None and self.router.require_execution_binding:
+            if self.execution_binding is None:
+                raise RuntimeConflict(
+                    "standalone semantic routing requires a trusted execution binding"
+                )
+            if self.router.execution_binding_validator is None:
+                raise RuntimeConflict(
+                    "semantic routing requires an execution binding validator"
+                )
         metadata = self.router.begin_call(route, obligation_id=obligation_id, branch_id=branch_id)
         logical_job_id = None
         if self.router.runtime_backend is not None:
@@ -992,6 +1004,7 @@ class RoutedLLMClient:
         try:
             client = self._client(route)
             response = invoke(route, client)
+            self._raise_if_runtime_result_rejected(response)
         except Exception as exc:
             if route.tier == "routine" and self._is_route_unavailable(exc):
                 self.router.finish_call(metadata["call_id"], error=str(exc))
@@ -1019,6 +1032,7 @@ class RoutedLLMClient:
                         client,
                         fallback_reason=fallback.fallback_reason or "routine route fallback",
                     )
+                    self._raise_if_runtime_result_rejected(response)
                 except Exception as fallback_exc:
                     self.router.finish_call(fallback_meta["call_id"], error=str(fallback_exc))
                     raise
@@ -1039,6 +1053,17 @@ class RoutedLLMClient:
         response = dict(response)
         response["routing"] = {**metadata, **route.to_dict()}
         return response
+
+    @staticmethod
+    def _raise_if_runtime_result_rejected(response: dict) -> None:
+        runtime = response.get("runtime") if isinstance(response, dict) else None
+        if not isinstance(runtime, dict):
+            return
+        if runtime.get("authoritative") is False or runtime.get("accepted") is False:
+            raise RuntimeResultRejected(
+                "runtime result is terminal and cannot enter a semantic consumer: "
+                + str(runtime.get("fencing_rejection") or "result was not accepted")
+            )
 
     def _client(self, route: ModelRoute):
         key = (

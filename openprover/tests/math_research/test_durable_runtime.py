@@ -13,6 +13,7 @@ from openprover.math_research.project import ProjectStore
 from openprover.math_research.research_store import ResearchStoreFacade
 from openprover.math_research.runtime_artifacts import RuntimeArtifactStore
 from openprover.math_research.runtime_backend import SQLiteRuntimeBackend, _MIGRATION_1
+from openprover.math_research.runtime_bindings import CrossPlaneExecutionBinding
 from openprover.math_research.runtime_dispatch import DurableProviderDispatcher
 from openprover.math_research.runtime_model import (
     AttemptState,
@@ -23,6 +24,7 @@ from openprover.math_research.runtime_model import (
     RuntimeConflict,
 )
 from openprover.math_research.truth_store import TruthStoreFacade
+from openprover.math_research.truth_identity import domain_hash
 
 
 def _job(backend: SQLiteRuntimeBackend, key: str = "job") -> dict:
@@ -31,6 +33,9 @@ def _job(backend: SQLiteRuntimeBackend, key: str = "job") -> dict:
         semantic_target="O1",
         idempotency_key=key,
         obligation_id="O1",
+        execution_binding=CrossPlaneExecutionBinding.capture(
+            root_claim_snapshot_hash=domain_hash("test-claim", {"id": "runtime"})
+        ),
     )
 
 
@@ -230,7 +235,9 @@ def test_d6_existing_result_artifact_is_reconciled_without_provider_recall(tmp_p
         producer_attempt_id=attempt["attempt_id"],
         result_metadata={"completion_status": "SUCCESS"},
     )
-    actions = SQLiteRuntimeBackend(root).reconcile()
+    actions = SQLiteRuntimeBackend(root).reconcile(
+        binding_validator=lambda current: current is not None
+    )
     assert any(item["action"] == "INGEST_EXISTING_RESULT" for item in actions)
     assert backend.get_job(job["logical_job_id"])["accepted_result_id"] is not None
 
@@ -557,7 +564,7 @@ def _execute_final_state(root: Path, *, crash: bool) -> dict:
                 fault_injector=FaultInjector(FaultPoint.BEFORE_RESULT_DB_COMMIT),
             )
         backend = SQLiteRuntimeBackend(root)
-        backend.reconcile()
+        backend.reconcile(binding_validator=lambda current: current is not None)
     else:
         dispatcher.execute(
             logical_job_id=job["logical_job_id"],
