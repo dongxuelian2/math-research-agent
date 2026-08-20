@@ -376,8 +376,18 @@ class ResearchStoreFacade:
     def resolve_session_closure(
         self, tactical_session_id: str, *, recorded_by: str
     ) -> tuple[ObligationResolutionDecision, ResearchMap | None]:
-        decision = self.evaluate_session_closure(tactical_session_id)
         closure = self.load_session_closure(tactical_session_id)
+        current = self.load_current_map(closure.research_map_id)
+        current_ref = current.obligation_ref(closure.obligation_id)
+        if current_ref.disposition == ObligationDispositionKind.RESOLVED.value:
+            current_disposition = self.load_disposition(current_ref.disposition_hash)
+            if current_disposition.resolution_basis == (
+                f"SessionClosure {closure.session_closure_id}"
+            ):
+                # A runtime replay after the map projection committed must not
+                # manufacture another RESOLVED disposition or map version.
+                return self.evaluate_session_closure(tactical_session_id), current
+        decision = self.evaluate_session_closure(tactical_session_id)
         decision_path = (
             self.sessions_root
             / tactical_session_id

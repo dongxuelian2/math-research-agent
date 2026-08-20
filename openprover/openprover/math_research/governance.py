@@ -422,11 +422,21 @@ class GovernanceController:
         current_map = self.research_store.load_current_map(review.research_map_id)
         self._validate_review_bindings(review, current_map)
         current_clock = self.ensure_clock(review.research_map_id)
+        review_path = self.reviews_root / f"{review.review_id}.json"
+        if review_path.is_file():
+            existing = self.load_review(review.review_id)
+            if existing != review:
+                raise ProjectError("ArchitectureReview immutable identity collision")
+            if (
+                current_clock.last_review_id == review.review_id
+                and current_clock.last_review_hash == review.review_hash
+            ):
+                return current_clock
         if not current_clock.review_due:
             raise ProjectError("ArchitectureReview commit requires a durable review trigger")
         if not set(review.trigger_reasons) <= set(current_clock.trigger_reasons):
             raise ProjectError("ArchitectureReview trigger reasons are not current")
-        write_immutable_json(self.reviews_root / f"{review.review_id}.json", review.to_dict())
+        write_immutable_json(review_path, review.to_dict())
         reset = ArchitectureReviewClock.capture(
             clock_id=current_clock.clock_id,
             revision=current_clock.revision + 1,
@@ -711,23 +721,44 @@ class GovernanceController:
         if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
             raise ProjectError("PatchAuthorization is not AUTHORIZED")
         patch = self.load_patch(authorization.patch_id)
-        target_map = self.research_store.apply_governed_reframe(
-            patch,
-            authorization,
-            applied_by=applied_by,
-        )
-        application = ArchitecturePatchApplication.capture(
-            patch=patch,
-            authorization=authorization,
-            target_map_hash=target_map.research_map_hash,
-            target_map_version=target_map.version,
-            applied_at=utc_now(),
-            applied_by=applied_by,
-        )
-        write_immutable_json(
-            self.applications_root / f"{application.application_id}.json",
-            application.to_dict(),
-        )
+        existing_application = None
+        for path in sorted(self.applications_root.glob("*.json")):
+            value = read_json(path, "ArchitecturePatchApplication")
+            if value.get("authorization_id") == authorization_id:
+                existing_application = self.load_application(path.stem)
+                break
+        if existing_application is not None:
+            target_map = self.research_store.load_map(existing_application.target_map_hash)
+            application = existing_application
+        else:
+            current_map = self.research_store.load_current_map(patch.source_map_id)
+            already_applied = (
+                current_map.version == patch.source_map_version + 1
+                and current_map.parent_version_ref == patch.source_map_hash
+                and current_map.revision_reason == "ARCHITECTURE_PATCH"
+                and patch.patch_id in current_map.evidence_refs
+            )
+            target_map = (
+                current_map
+                if already_applied
+                else self.research_store.apply_governed_reframe(
+                    patch,
+                    authorization,
+                    applied_by=applied_by,
+                )
+            )
+            application = ArchitecturePatchApplication.capture(
+                patch=patch,
+                authorization=authorization,
+                target_map_hash=target_map.research_map_hash,
+                target_map_version=target_map.version,
+                applied_at=utc_now(),
+                applied_by=applied_by,
+            )
+            write_immutable_json(
+                self.applications_root / f"{application.application_id}.json",
+                application.to_dict(),
+            )
         control = self._control()
         if control.get("pending_architecture_patch_id") == patch.patch_id:
             control["pending_architecture_patch_id"] = None
