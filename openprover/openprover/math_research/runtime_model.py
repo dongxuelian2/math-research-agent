@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any, Callable, Mapping, Protocol
 
 
-RUNTIME_SCHEMA_VERSION = 1
+RUNTIME_SCHEMA_VERSION = 2
 
 
 class RuntimeErrorBase(RuntimeError):

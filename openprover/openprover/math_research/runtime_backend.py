@@ -192,6 +192,14 @@ CREATE TABLE legacy_runtime_imports (
 );
 """
 
+_MIGRATION_2 = """
+CREATE TABLE runtime_migration_history (
+    target_version INTEGER PRIMARY KEY,
+    migration_name TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+)
+"""
+
 
 class SQLiteRuntimeBackend:
     """Project-isolated SQLite current-state authority with an append-only journal."""
@@ -258,7 +266,7 @@ class SQLiteRuntimeBackend:
                 connection.execute(
                     "INSERT INTO runtime_schema(singleton, schema_version, migrated_at) "
                     "VALUES(1, ?, ?)",
-                    (RUNTIME_SCHEMA_VERSION, utc_now()),
+                    (1, utc_now()),
                 )
                 connection.commit()
             version = int(
@@ -271,6 +279,21 @@ class SQLiteRuntimeBackend:
                     f"Runtime database schema {version} is newer than supported "
                     f"{RUNTIME_SCHEMA_VERSION}"
                 )
+            if version == 1:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(_MIGRATION_2)
+                connection.execute(
+                    "INSERT INTO runtime_migration_history(target_version, migration_name, applied_at) "
+                    "VALUES(2, 'add_runtime_migration_history', ?)",
+                    (utc_now(),),
+                )
+                connection.execute(
+                    "UPDATE runtime_schema SET schema_version = 2, migrated_at = ? "
+                    "WHERE singleton = 1 AND schema_version = 1",
+                    (utc_now(),),
+                )
+                connection.commit()
+                version = 2
             if version < RUNTIME_SCHEMA_VERSION:
                 raise RuntimeError(f"No forward migration registered from schema {version}")
         except BaseException:
@@ -1328,31 +1351,36 @@ class SQLiteRuntimeBackend:
                 causal_ref=str(winner["result_id"]),
                 metadata={"result_policy": job["result_policy"]},
             )
-            attempt = connection.execute(
-                "SELECT * FROM attempts WHERE attempt_id = ?", (winner["attempt_id"],)
-            ).fetchone()
-            if attempt is not None and attempt["state"] == AttemptState.RESULT_RECORDED:
+            completed_attempts = connection.execute(
+                "SELECT * FROM attempts WHERE logical_job_id = ? AND state = ?",
+                (logical_job_id, AttemptState.RESULT_RECORDED),
+            ).fetchall()
+            for attempt in completed_attempts:
                 connection.execute(
                     "UPDATE attempts SET state = ?, updated_at = ?, version = version + 1 "
                     "WHERE attempt_id = ? AND version = ?",
                     (
                         AttemptState.COMPLETED,
                         utc_now(),
-                        winner["attempt_id"],
+                        attempt["attempt_id"],
                         attempt["version"],
                     ),
                 )
                 self._journal(
                     connection,
                     object_type="ATTEMPT",
-                    object_id=str(winner["attempt_id"]),
+                    object_id=str(attempt["attempt_id"]),
                     from_state=AttemptState.RESULT_RECORDED,
                     to_state=AttemptState.COMPLETED,
                     transition_kind="WINNING_RESULT_ACCEPTED",
                     actor=actor,
-                    attempt_id=str(winner["attempt_id"]),
+                    attempt_id=str(attempt["attempt_id"]),
                     logical_job_id=logical_job_id,
-                    causal_ref=str(winner["result_id"]),
+                    causal_ref=(
+                        str(winner["result_id"])
+                        if attempt["attempt_id"] == winner["attempt_id"]
+                        else "LOSING_SUCCESS_RETAINED"
+                    ),
                 )
             return dict(winner)
 
@@ -1662,6 +1690,7 @@ class SQLiteRuntimeBackend:
             "effect_slots",
             "reconciliation_actions",
             "legacy_runtime_imports",
+            "runtime_migration_history",
         }
         if table not in allowed:
             raise ValueError(f"Unsupported runtime table: {table}")
