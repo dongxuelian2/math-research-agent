@@ -10,7 +10,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-
+from .canonical_artifacts import (
+    CanonicalArtifactResolver,
+    CanonicalSourceRequirement,
+    authority_promotion_decision,
+)
 from .campaign import (
     FailureMap,
     ReplayPolicy,
@@ -226,6 +230,7 @@ class ResearchOrchestrator:
         self.repair_cycle = int(repair_cycle)
         self.hard_submit_gate = bool(hard_submit_gate)
         self.replay_policy = replay_policy
+        self.canonical_authority: list[dict] = []
         self.infrastructure_retries = max(0, int(infrastructure_retries))
         self.budget_limit_seconds = (
             int(budget_limit_seconds) if budget_limit_seconds is not None else None
@@ -275,6 +280,7 @@ class ResearchOrchestrator:
         if pipeline_state is not None and not immutable_complete:
             self.pipeline_scheduler.state_path = self.run_dir / "pipeline_state.json"
             self.pipeline_scheduler._save()
+        self._refresh_canonical_authority()
         if not immutable_complete:
             self._configure_pipeline_runtime()
         if not immutable_complete:
@@ -372,8 +378,32 @@ class ResearchOrchestrator:
 
     def _ensure_target_pipeline_obligation(self) -> None:
         snapshot = self.pipeline_scheduler.snapshot()
+        all_requirements = (
+            self.replay_policy.canonical_source_requirements
+            if self.replay_policy
+            else tuple(
+                CanonicalSourceRequirement.from_dict(item)
+                for item in self.state.get("canonical_source_requirements", [])
+            )
+        )
         if self.target_id in snapshot["obligations"]:
+            self.pipeline_scheduler.bind_canonical_authority(
+                self.target_id,
+                requirements=[
+                    item.to_dict()
+                    for item in all_requirements
+                    if item.requesting_obligation_id == self.target_id
+                ],
+                resolutions=[
+                    item
+                    for item in self.canonical_authority
+                    if item.get("requesting_obligation_id") == self.target_id
+                ],
+            )
             return
+        requirements = [
+            item for item in all_requirements if item.requesting_obligation_id == self.target_id
+        ]
         self.pipeline_scheduler.add_obligation(
             self.target_id,
             target_statement=self.target["statement"],
@@ -384,7 +414,82 @@ class ResearchOrchestrator:
             literature_first=False,
             dual_track=False,
             context={"existing_campaign_target": True},
+            canonical_source_requirements=[item.to_dict() for item in requirements],
+            canonical_authority=[
+                item
+                for item in self.canonical_authority
+                if item.get("requesting_obligation_id") == self.target_id
+            ],
         )
+
+    def _refresh_canonical_authority(self) -> None:
+        """Resolve or revalidate every declared body on new and resumed runs."""
+
+        requirements = tuple(
+            self.replay_policy.canonical_source_requirements if self.replay_policy else ()
+        )
+        if not requirements:
+            persisted_requirements = self.state.get("canonical_source_requirements", [])
+            if isinstance(persisted_requirements, list):
+                requirements = tuple(
+                    CanonicalSourceRequirement.from_dict(item) for item in persisted_requirements
+                )
+        roots = (
+            list(self.replay_policy.canonical_source_roots)
+            if self.replay_policy
+            else list(self.state.get("canonical_source_roots", []))
+        )
+        project_roots = self.project.load_project().get("canonical_source_roots", [])
+        if isinstance(project_roots, list):
+            roots.extend(project_roots)
+        resolver = CanonicalArtifactResolver(
+            self.project,
+            configured_roots=roots,
+            run_dir=self.run_dir,
+        )
+        previous_resolutions = self.state.get("canonical_authority", [])
+        self.canonical_authority = [
+            item.to_dict()
+            for item in resolver.resolve_all(
+                requirements,
+                previous_resolutions=(
+                    previous_resolutions if isinstance(previous_resolutions, list) else []
+                ),
+            )
+        ]
+        self.state["canonical_source_requirements"] = [item.to_dict() for item in requirements]
+        self.state["canonical_source_roots"] = list(dict.fromkeys(str(item) for item in roots))
+        self.state["canonical_authority"] = copy.deepcopy(self.canonical_authority)
+        self.state["canonical_authority_revalidated_at"] = utc_now()
+        _write_json(
+            self.run_dir / "canonical_authority" / "resolution.json",
+            {
+                "schema_version": 1,
+                "revalidated_at": self.state["canonical_authority_revalidated_at"],
+                "resolutions": self.canonical_authority,
+            },
+        )
+        _write_json(self.state_path, self.state)
+        snapshot = self.pipeline_scheduler.snapshot()
+        for obligation_id in snapshot.get("obligations", {}):
+            scoped_requirements = [
+                item.to_dict()
+                for item in requirements
+                if item.requesting_obligation_id == obligation_id
+            ]
+            scoped_resolutions = [
+                item
+                for item in self.canonical_authority
+                if item.get("requesting_obligation_id") == obligation_id
+            ]
+            if scoped_requirements or snapshot["obligations"][obligation_id].get(
+                "canonical_source_requirements"
+            ):
+                self.pipeline_scheduler.bind_canonical_authority(
+                    obligation_id,
+                    requirements=scoped_requirements,
+                    resolutions=scoped_resolutions,
+                )
 
     def _configure_pipeline_runtime(self) -> None:
         """Create the single runtime that owns async task futures for this run."""
@@ -828,6 +933,7 @@ class ResearchOrchestrator:
             package = ContextBuilder(self.project).build(
                 self.target_id,
                 expand=self.expand_context,
+                canonical_authority=self.canonical_authority,
             )
             ContextBuilder.write(package, self.run_dir / "context")
             if self.hard_submit_gate:
@@ -840,6 +946,23 @@ class ResearchOrchestrator:
                 dependency_cycles=package.data["dependency_cycles"],
             )
         if stop_after == "context":
+            return self.state
+
+        target_obligation = self.pipeline_scheduler.snapshot()["obligations"].get(
+            self.target_id, {}
+        )
+        if str(target_obligation.get("status", "")).startswith("BLOCKED_AUTHORITY_"):
+            # Only the dependent target is blocked.  Any independent tasks
+            # already present in a resumed campaign remain dispatchable.
+            self._drain_async_pipeline_tasks()
+            status = str(target_obligation["status"])
+            self._checkpoint(
+                CHECKPOINT_PHASE,
+                status=status,
+                checkpoint_reason=status,
+                resume_phase="CONTEXT_READY",
+                canonical_authority_blockers=target_obligation.get("authority_blockers", []),
+            )
             return self.state
 
         if not self._phase_at_least("CANDIDATE_READY"):
@@ -1134,6 +1257,29 @@ changed failure condition is explicitly recorded.
 
     def _finalize(self, gate: AuditGate) -> None:
         if gate.passed:
+            self._refresh_canonical_authority()
+            authority_ready, authority_blockers = authority_promotion_decision(
+                self.state.get("canonical_authority", [])
+            )
+            if not authority_ready:
+                status = authority_blockers[0]["type"]
+                _write_json(
+                    self.run_dir / "audits" / "canonical_authority_promotion_guard.json",
+                    {
+                        "passed": False,
+                        "blockers": authority_blockers,
+                        "mathematical_audit_gate": gate.to_dict(),
+                        "checked_at": utc_now(),
+                    },
+                )
+                self._checkpoint(
+                    CHECKPOINT_PHASE,
+                    status=status,
+                    checkpoint_reason=status,
+                    resume_phase="AUDITS_READY",
+                    canonical_authority_blockers=authority_blockers,
+                )
+                return
             report_path = self._write_resolution_report(gate)
             theorem = self.project.load_theorem(self.target_id)
             theorem["proof_file"] = report_path.relative_to(self.project.root).as_posix()

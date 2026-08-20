@@ -32,3 +32,21 @@
 - `git diff --check`: passed (Git emitted only an LF→CRLF working-copy warning for the workflow file).
 - Final git status is intentionally dirty with the documented source, test, CI, PowerShell, and report changes; no unrelated tracked file is modified.
 - Hosted CI remains pending until an authorized push/PR.
+
+## Canonical Artifact Authority P0
+
+- A–H resolver/runtime/provenance suite plus production manifest→orchestrator
+  coverage: `10 passed in 0.91s`.
+- Existing replay, async-pipeline, and retrieval regression slice:
+  `23 passed in 1.03s`.
+- Post-P0 local-safe full suite: `141 passed in 4.27s`; as in the frozen
+  baseline, the import-time Windows interrupt subprocess is excluded because
+  the managed sandbox returns `WinError 1920` before pytest collection.
+- `ruff format --check openprover`, `ruff check openprover`, compileall, and
+  `git diff --check` passed after the P0 change.
+- The production missing-body case checkpoints as
+  `BLOCKED_AUTHORITY_SOURCE_UNAVAILABLE` before candidate construction.
+- The production resume case restores persisted requirements without requiring
+  the caller to re-supply the manifest and verifies the immutable body digest.
+- Full-suite and final quality evidence will be refreshed after provider and
+  checkpoint phases. Hosted CI remains `PENDING_PUSH`.

@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from .canonical_artifacts import canonical_context_markdown
 from .project import ProjectStore, utc_now
 from .trust_kernel import TrustKernel
 
@@ -55,7 +56,13 @@ class ContextBuilder:
         visit(target_id)
         return order, premise_order, cycles
 
-    def build(self, target_id: str, *, expand: bool = False) -> ContextPackage:
+    def build(
+        self,
+        target_id: str,
+        *,
+        expand: bool = False,
+        canonical_authority: list[dict] | None = None,
+    ) -> ContextPackage:
         target = self.project.load_theorem(target_id)
         dependency_ids, premise_ids, cycles = self._dependency_closure(target_id)
         dependencies = [self.project.load_theorem(item) for item in dependency_ids]
@@ -150,6 +157,7 @@ class ContextBuilder:
             "trust_kernel": trust_context,
             "added_lemmas": steering.get("added_lemmas", []),
             "sources": sources,
+            "canonical_authority": list(canonical_authority or []),
             "expanded": expand,
         }
         return ContextPackage(data=data, markdown=self._to_markdown(data))
@@ -233,6 +241,7 @@ class ContextBuilder:
         frozen = ", ".join(data["frozen_branches"]) or "(none)"
         prohibited = ", ".join(data["prohibited_routes"]) or "(none)"
         scope = ", ".join(data["allowed_scope"]) or "current target and its dependency slice only"
+        canonical_authority = canonical_context_markdown(data.get("canonical_authority", []))
         return f"""# Math Research Context Package
 
 ## Scope
@@ -306,6 +315,13 @@ Registry `{data["trust_kernel"]["foundation_registry"]["id"]}` version
 ## Source excerpts
 
 {sources}
+
+## Canonical artifact authority
+
+The JSON provenance below is the authority boundary. A filename, hash, summary,
+manifest, or extract without a resolved body is not proof authority.
+
+{canonical_authority}
 """
 
     @staticmethod

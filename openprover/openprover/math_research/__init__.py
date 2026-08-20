@@ -1,6 +1,13 @@
 """Long-horizon natural-language mathematics project layer for OpenProver."""
 
 from .audit_protocol import AuditResult
+from .canonical_artifacts import (
+    CanonicalArtifactResolver,
+    CanonicalPurpose,
+    CanonicalResolution,
+    CanonicalResolutionStatus,
+    CanonicalSourceRequirement,
+)
 from .gemini_provider import GeminiClient, GeminiProviderError
 from .formalization import run_formalization
 from .observatory import build_snapshot, run_server
@@ -66,6 +73,11 @@ __all__ = [
     "AtomicResourceBudget",
     "CampaignEngine",
     "CampaignStore",
+    "CanonicalArtifactResolver",
+    "CanonicalPurpose",
+    "CanonicalResolution",
+    "CanonicalResolutionStatus",
+    "CanonicalSourceRequirement",
     "ContextBuilder",
     "FoundationRegistry",
     "GeminiClient",

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
+from .canonical_artifacts import CanonicalSourceRequirement
 from .project import ProjectError, ProjectStore, utc_now
 from .scheduler import StopController
 from .trust_kernel import DependencyAuthorityResolver
@@ -306,6 +307,8 @@ class ReplayPolicy:
     target_cutoff: str = ""
     source_manifest: str = ""
     source_manifest_hash: str = ""
+    canonical_source_roots: tuple[str, ...] = ()
+    canonical_source_requirements: tuple[CanonicalSourceRequirement, ...] = ()
 
     @classmethod
     def from_manifest(cls, path: str | Path) -> "ReplayPolicy":
@@ -343,6 +346,17 @@ class ReplayPolicy:
         else:
             approved_items = ()
         raw = path.read_bytes()
+        canonical_roots = []
+        for item in data.get("canonical_source_roots", []):
+            root = Path(item)
+            if not root.is_absolute():
+                root = path.parent / root
+            canonical_roots.append(str(root.resolve()))
+        canonical_roots.append(str(path.parent.resolve()))
+        requirements = tuple(
+            CanonicalSourceRequirement.from_dict(item)
+            for item in data.get("canonical_source_requirements", data.get("canonical_sources", []))
+        )
         return cls(
             allowed_sources=tuple(sorted({_canonical_source(item) for item in allowed if item})),
             forbidden_sources=tuple(
@@ -358,6 +372,8 @@ class ReplayPolicy:
             target_cutoff=str(data.get("target_cutoff", "")),
             source_manifest=str(path),
             source_manifest_hash="sha256:" + hashlib.sha256(raw).hexdigest(),
+            canonical_source_roots=tuple(sorted(set(canonical_roots))),
+            canonical_source_requirements=requirements,
         )
 
     @classmethod
@@ -371,6 +387,11 @@ class ReplayPolicy:
             target_cutoff=str(value.get("target_cutoff", "")),
             source_manifest=str(value.get("source_manifest", "")),
             source_manifest_hash=str(value.get("source_manifest_hash", "")),
+            canonical_source_roots=tuple(value.get("canonical_source_roots", [])),
+            canonical_source_requirements=tuple(
+                CanonicalSourceRequirement.from_dict(item)
+                for item in value.get("canonical_source_requirements", [])
+            ),
         )
 
     @property
@@ -388,6 +409,10 @@ class ReplayPolicy:
             "target_cutoff": self.target_cutoff,
             "source_manifest": self.source_manifest,
             "source_manifest_hash": self.source_manifest_hash,
+            "canonical_source_roots": list(self.canonical_source_roots),
+            "canonical_source_requirements": [
+                item.to_dict() for item in self.canonical_source_requirements
+            ],
         }
         if include_hash:
             value["policy_hash"] = self.policy_hash
@@ -892,12 +917,17 @@ class CampaignEngine:
             phase = str(state.get("phase", "COMPLETE"))
             self.store.mark_run(campaign_id, current["run_id"], status=status, phase=phase)
             if phase == "CHECKPOINT":
-                if stop_after_checkpoint or status in {
-                    "BLOCKED_PROVIDER_QUOTA",
-                    "BLOCKED_INFRASTRUCTURE",
-                    "TIME_BUDGET_EXHAUSTED",
-                    "STOPPED_AT_CHECKPOINT",
-                }:
+                if (
+                    stop_after_checkpoint
+                    or status.startswith("BLOCKED_AUTHORITY_")
+                    or status
+                    in {
+                        "BLOCKED_PROVIDER_QUOTA",
+                        "BLOCKED_INFRASTRUCTURE",
+                        "TIME_BUDGET_EXHAUSTED",
+                        "STOPPED_AT_CHECKPOINT",
+                    }
+                ):
                     if status == "STOPPED_AT_CHECKPOINT":
                         stop_controller.acknowledge(
                             run_id=current["run_id"],
