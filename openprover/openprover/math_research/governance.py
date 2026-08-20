@@ -369,6 +369,9 @@ class GovernanceController:
         self.reviews_root = self.root / "architecture_reviews"
         self.probe_plans_root = self.root / "structural_probes" / "plans"
         self.probes_root = self.root / "structural_probes" / "results"
+        self.patches_root = self.root / "architecture_patches"
+        self.critics_root = self.root / "architecture_critics"
+        self.authorizations_root = self.root / "patch_authorizations"
         self.control_path = self.root / "control.json"
 
     def ensure_clock(self, research_map_id: str) -> ArchitectureReviewClock:
@@ -498,6 +501,200 @@ class GovernanceController:
         plan = self.load_probe_plan(probe_id)
         return StructuralProbe.from_dict(
             read_json(self.probes_root / f"{probe_id}.json", "StructuralProbe"), plan
+        )
+
+    def persist_patch(self, patch):
+        from .architecture_patch import ArchitecturePatch
+        from .architecture_review import ArchitectureReviewVerdict
+        from .structural_probe import StructuralProbeResult
+
+        if not isinstance(patch, ArchitecturePatch):
+            raise ProjectError("persist_patch requires ArchitecturePatch")
+        current_map = self.research_store.load_current_map(patch.source_map_id)
+        review = self.load_review(patch.review_id)
+        if patch.review_hash != review.review_hash:
+            raise ProjectError("ArchitecturePatch review hash mismatch")
+        if patch.root_claim_snapshot_hash != current_map.root_claim_snapshot_hash:
+            raise ProjectError("STALE_REVIEW: ArchitecturePatch root changed")
+        if patch.source_map_hash != current_map.research_map_hash:
+            raise ProjectError("STALE_REVIEW: ArchitecturePatch source map changed")
+        if patch.source_map_version != current_map.version:
+            raise ProjectError("STALE_REVIEW: ArchitecturePatch source map version changed")
+        existing_ids = {item.obligation_id for item in current_map.obligation_refs}
+        addition_ids = {item.obligation_id for item in patch.additions}
+        if existing_ids & addition_ids:
+            raise ProjectError("ArchitecturePatch addition already exists")
+        for obligation_id in patch.affected_obligation_ids:
+            current_map.obligation_ref(obligation_id)
+        for transfer in patch.scope_transfers:
+            unknown_targets = set(transfer.target_obligation_ids) - (existing_ids | addition_ids)
+            if unknown_targets:
+                raise ProjectError(
+                    f"ScopeTransfer targets unknown obligations: {sorted(unknown_targets)}"
+                )
+        if patch.probe_required:
+            if review.verdict not in {
+                ArchitectureReviewVerdict.STRUCTURAL_PROBE_REQUIRED.value,
+                ArchitectureReviewVerdict.DESTRUCTIVE_PATCH_PROPOSED.value,
+            }:
+                raise ProjectError("ArchitectureReview verdict does not support destructive patch")
+            if not patch.probe_ids:
+                raise ProjectError("Destructive ArchitecturePatch requires a StructuralProbe")
+            for probe_id, probe_hash in zip(patch.probe_ids, patch.probe_hashes, strict=True):
+                probe = self.load_probe(probe_id)
+                if probe.probe_hash != probe_hash:
+                    raise ProjectError("ArchitecturePatch probe hash mismatch")
+                if probe.result != StructuralProbeResult.SUPPORTS_PATCH.value:
+                    raise ProjectError("ArchitecturePatch requires supporting probe results")
+        write_immutable_json(self.patches_root / f"{patch.patch_id}.json", patch.to_dict())
+        control = self._control()
+        control["pending_architecture_patch_id"] = patch.patch_id
+        self._write_control(control)
+        return patch
+
+    def load_patch(self, patch_id: str):
+        from .architecture_patch import ArchitecturePatch
+
+        return ArchitecturePatch.from_dict(
+            read_json(self.patches_root / f"{patch_id}.json", "ArchitecturePatch")
+        )
+
+    def persist_critic(self, critic):
+        from .architecture_critic import ArchitectureCritic
+
+        if not isinstance(critic, ArchitectureCritic):
+            raise ProjectError("persist_critic requires ArchitectureCritic")
+        patch = self.load_patch(critic.patch_id)
+        review = self.load_review(critic.review_id)
+        probes = tuple(self.load_probe(probe_id) for probe_id in critic.probe_ids)
+        source_map = self.research_store.load_map(patch.source_map_hash)
+        if critic.patch_hash != patch.patch_hash or critic.review_hash != review.review_hash:
+            raise ProjectError("ArchitectureCritic artifact binding mismatch")
+        # Round-trip through the strict loader before accepting the artifact.
+        reloaded = ArchitectureCritic.from_dict(
+            critic.to_dict(),
+            patch=patch,
+            review=review,
+            current_map=source_map,
+            probes=probes,
+        )
+        write_immutable_json(self.critics_root / f"{critic.critic_id}.json", reloaded.to_dict())
+        return reloaded
+
+    def load_critic(self, critic_id: str):
+        from .architecture_critic import ArchitectureCritic
+
+        value = read_json(self.critics_root / f"{critic_id}.json", "ArchitectureCritic")
+        patch = self.load_patch(value["patch_id"])
+        review = self.load_review(value["review_id"])
+        probes = tuple(self.load_probe(probe_id) for probe_id in value["probe_ids"])
+        source_map = self.research_store.load_map(patch.source_map_hash)
+        return ArchitectureCritic.from_dict(
+            value,
+            patch=patch,
+            review=review,
+            current_map=source_map,
+            probes=probes,
+        )
+
+    def authorize_patch(
+        self,
+        patch_id: str,
+        critic_id: str,
+        *,
+        invalidated_evidence_refs: tuple[str, ...] | list[str] = (),
+        authorized_by: str = "GovernanceController",
+    ):
+        from .architecture_critic import ArchitectureCriticVerdict
+        from .architecture_patch import PatchAuthorization, PatchAuthorizationStatus
+        from .structural_probe import StructuralProbeResult
+
+        patch = self.load_patch(patch_id)
+        review = self.load_review(patch.review_id)
+        critic = self.load_critic(critic_id)
+        probes = tuple(self.load_probe(probe_id) for probe_id in patch.probe_ids)
+        current_map = self.research_store.load_current_map(patch.source_map_id)
+        invalidated = set(
+            string_tuple(
+                invalidated_evidence_refs,
+                "authorize_patch.invalidated_evidence_refs",
+            )
+        )
+        governance_evidence = (
+            set(review.evidence_refs) | set(patch.evidence_refs) | set(critic.evidence_refs)
+        )
+        for probe in probes:
+            governance_evidence.update(probe.evidence_refs)
+        affected_invalidated = tuple(sorted(invalidated & governance_evidence))
+        status = PatchAuthorizationStatus.AUTHORIZED.value
+        reason = "All deterministic architecture-governance gates passed."
+        scope_passed = patch.scope_transfer_complete
+        truth_intact = True
+        try:
+            self.research_store._validate_root_hash(  # noqa: SLF001 - same ownership facade
+                patch.root_claim_snapshot_hash, "PATCH_AUTHORIZATION"
+            )
+        except Exception as exc:
+            status = PatchAuthorizationStatus.STALE.value
+            reason = f"Root ClaimSnapshot is stale: {exc}"
+        if status == PatchAuthorizationStatus.AUTHORIZED.value and (
+            current_map.research_map_hash != patch.source_map_hash
+            or current_map.version != patch.source_map_version
+        ):
+            status = PatchAuthorizationStatus.STALE.value
+            reason = "ResearchMap changed after the patch was proposed."
+        if status == PatchAuthorizationStatus.AUTHORIZED.value and affected_invalidated:
+            status = PatchAuthorizationStatus.REVALIDATION_REQUIRED.value
+            reason = "Governance evidence was invalidated."
+        if status == PatchAuthorizationStatus.AUTHORIZED.value and not scope_passed:
+            status = PatchAuthorizationStatus.REJECTED.value
+            reason = "SCOPE_LOSS: patch does not account for every affected obligation."
+        if status == PatchAuthorizationStatus.AUTHORIZED.value and (
+            critic.patch_id != patch.patch_id
+            or critic.verdict != ArchitectureCriticVerdict.APPROVE.value
+            or not critic.independence_receipt.policy_satisfied
+        ):
+            status = PatchAuthorizationStatus.REJECTED.value
+            reason = "ArchitectureCritic did not independently approve this exact patch."
+        if status == PatchAuthorizationStatus.AUTHORIZED.value and patch.probe_required:
+            if not probes or any(
+                probe.result != StructuralProbeResult.SUPPORTS_PATCH.value for probe in probes
+            ):
+                status = PatchAuthorizationStatus.REJECTED.value
+                reason = "Required StructuralProbe does not support the patch."
+        authorization = PatchAuthorization.capture(
+            patch_id=patch.patch_id,
+            patch_hash=patch.patch_hash,
+            review_id=review.review_id,
+            review_hash=review.review_hash,
+            critic_id=critic.critic_id,
+            critic_hash=critic.critic_hash,
+            probe_ids=patch.probe_ids,
+            probe_hashes=patch.probe_hashes,
+            root_claim_snapshot_hash=patch.root_claim_snapshot_hash,
+            source_map_hash=patch.source_map_hash,
+            status=status,
+            scope_validation_passed=scope_passed,
+            truth_boundary_intact=truth_intact,
+            invalidated_evidence_refs=affected_invalidated,
+            reason=reason,
+            authorized_by=authorized_by,
+            created_at=utc_now(),
+        )
+        write_immutable_json(
+            self.authorizations_root / f"{authorization.authorization_id}.json",
+            authorization.to_dict(),
+        )
+        return authorization
+
+    def load_authorization(self, authorization_id: str):
+        from .architecture_patch import PatchAuthorization
+
+        return PatchAuthorization.from_dict(
+            read_json(
+                self.authorizations_root / f"{authorization_id}.json",
+                "PatchAuthorization",
+            )
         )
 
     def record_effect(self, effect: StructuralEffect) -> ArchitectureReviewClock:
