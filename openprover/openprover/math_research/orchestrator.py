@@ -31,6 +31,7 @@ from .codex_cli_provider import CodexCLIProviderError
 from .openai_provider import OpenAIProviderError
 from .candidate_engine import CandidateEngine
 from .audit_coordinator import AuditCoordinator
+from .phase7 import Phase7Store
 from .project import ProjectError, ProjectStore, utc_now
 from .directive import BudgetProfile
 from .pipelines import AsyncDAGScheduler, AsynchronousPipelineRuntime
@@ -267,6 +268,7 @@ class ResearchOrchestrator:
         self._pipeline_monitor_stop = threading.Event()
         self._pipeline_monitor_thread: threading.Thread | None = None
         self.claim_snapshot = None
+        self.phase7_store: Phase7Store | None = None
         self.truth_resume_blocked = False
         self.research_resume_blocked = False
         self.candidate_engine = CandidateEngine(self)
@@ -333,6 +335,7 @@ class ResearchOrchestrator:
             truth_store=self.truth_store,
             root_validation_kwargs=self._truth_capture_kwargs(),
         )
+        self.phase7_store = Phase7Store(self.project)
         self.governance_controller = GovernanceController(
             self.project, research_store=self.research_store
         )
@@ -1371,6 +1374,10 @@ class ResearchOrchestrator:
                 expand_context=self.expand_context,
             )
         if self.state.get("phase") == "COMPLETE":
+            self._verify_phase7_completion()
+            return self.state
+        if self.state.get("phase7_state") == "TRUTH_PROMOTED":
+            self._resume_phase7_after_truth_promotion()
             return self.state
         if self.truth_resume_blocked or self.research_resume_blocked:
             return self.state
@@ -1737,6 +1744,62 @@ changed failure condition is explicitly recorded.
     def _run_audits(self) -> tuple[dict[str, dict], AuditGate]:
         return self.audit_coordinator.run_audits()
 
+    def _verify_phase7_completion(self) -> None:
+        closure_hash = self.state.get("phase7_promotion_closure_hash")
+        if not closure_hash:
+            return
+        if self.phase7_store is None:
+            raise ProjectError("Completed Phase 7 run has no Phase7Store")
+        closure = self.phase7_store.verify_promotion_closure(
+            str(closure_hash), truth_store=self.truth_store
+        )
+        if closure.theorem_id != self.target_id or closure.resulting_status != "PROVED":
+            raise ProjectError("Completed Phase 7 run has an invalid PromotionClosure")
+
+    def _resume_phase7_after_truth_promotion(self) -> None:
+        if self.phase7_store is None:
+            raise ProjectError("Phase 7 recovery requires an initialized Phase7Store")
+        synthesis_hash = self.state.get("phase7_root_synthesis_hash")
+        consolidation_hash = self.state.get("phase7_final_consolidation_hash")
+        mutation_id = self.state.get("truth_mutation_id")
+        if not synthesis_hash or not consolidation_hash or not mutation_id:
+            raise ProjectError("Phase 7 recovery is missing durable promotion identities")
+        synthesis = self.phase7_store.load_root_synthesis(str(synthesis_hash))
+        consolidation = self.phase7_store.load_final_consolidation(str(consolidation_hash))
+        intent = self.truth_store.load_mutation_intent(str(mutation_id))
+        receipt = self.truth_store.load_mutation_receipt(str(mutation_id))
+        promotion_closure = self.phase7_store.close_promotion(
+            root_synthesis=synthesis,
+            final_consolidation=consolidation,
+            intent=intent,
+            receipt=receipt,
+        )
+        project_meta = self.project.load_project()
+        branch = self.target.get("branch", "main")
+        project_meta.setdefault("branches", {})[branch] = "CLOSED"
+        self.project.save_project(project_meta)
+        self.state.update(
+            {
+                "phase7_promotion_closure_id": promotion_closure.closure_id,
+                "phase7_promotion_closure_hash": promotion_closure.closure_hash,
+                "phase7_promotion_closure_file": str(
+                    self.phase7_store.promotion_closure_path(promotion_closure.closure_hash)
+                ),
+                "phase7_state": "PROMOTION_CLOSED",
+                "phase7_implementation_status": "COMPLETE",
+                "owner_override_phase7_implementation": True,
+                "pre_root_synthesis_certified": False,
+                "phase7_formally_authorized": False,
+                "final_system_certified": False,
+            }
+        )
+        self._checkpoint(
+            "COMPLETE",
+            status="PROVED",
+            failure_reasons=[],
+            completed_at=utc_now(),
+        )
+
     def _close_research_session(
         self, gate: AuditGate, *, extra_artifacts: tuple[Path, ...] = ()
     ) -> None:
@@ -2005,9 +2068,76 @@ changed failure condition is explicitly recorded.
             self._close_research_session(gate, extra_artifacts=(report_path,))
             audit_artifacts = sorted((self.run_dir / "audits").glob("*.json"))
             audit_artifacts.append(self.run_dir / "CANDIDATE_PROOF.md")
+            if self.phase7_store is None:
+                raise ProjectError("Phase 7 finalization requires an initialized Phase7Store")
+            session_closure = self.research_store.load_session_closure(
+                self.tactical_session.tactical_session_id
+            )
+            snapshot_comparison = self.truth_store.compare_claim_snapshot(
+                self.claim_snapshot, **self._truth_capture_kwargs()
+            )
+            _write_json(
+                self.run_dir / "truth" / "root_synthesis_validation.json",
+                {**snapshot_comparison.to_dict(), "validated_at": utc_now()},
+            )
+            self.state["phase7_state"] = "ROOT_SYNTHESIS"
+            _write_json(self.state_path, self.state)
+            root_synthesis = self.phase7_store.synthesize_root(
+                theorem_id=self.target_id,
+                claim_snapshot=self.claim_snapshot,
+                snapshot_comparison=snapshot_comparison,
+                research_map=self.research_store.load_current_map(self.research_map.research_map_id),
+                session_closure=session_closure,
+                gate=gate,
+                candidate_path=self.run_dir / "CANDIDATE_PROOF.md",
+                audit_artifacts=(*audit_artifacts, report_path),
+            )
+            self.state.update(
+                {
+                    "phase7_root_synthesis_id": root_synthesis.synthesis_id,
+                    "phase7_root_synthesis_hash": root_synthesis.synthesis_hash,
+                    "phase7_root_claim_snapshot_hash": root_synthesis.root_claim_snapshot_hash,
+                    "phase7_audited_claim_snapshot_hash": (
+                        root_synthesis.audited_claim_snapshot_hash
+                    ),
+                    "phase7_root_synthesis_file": str(
+                        self.phase7_store.root_synthesis_path(root_synthesis.synthesis_hash)
+                    ),
+                    "phase7_root_synthesis_body_file": str(
+                        self.phase7_store.root_synthesis_body_path(root_synthesis.synthesis_hash)
+                    ),
+                    "phase7_state": "FINAL_CONSOLIDATION",
+                }
+            )
+            _write_json(self.state_path, self.state)
+            final_consolidation = self.phase7_store.consolidate(
+                root_synthesis=root_synthesis,
+                gate=gate,
+                candidate_path=self.run_dir / "CANDIDATE_PROOF.md",
+            )
+            self.state.update(
+                {
+                    "phase7_final_consolidation_id": final_consolidation.consolidation_id,
+                    "phase7_final_consolidation_hash": final_consolidation.consolidation_hash,
+                    "phase7_final_consolidation_file": str(
+                        self.phase7_store.final_consolidation_path(
+                            final_consolidation.consolidation_hash
+                        )
+                    ),
+                    "phase7_final_proof_file": str(
+                        self.phase7_store.final_proof_path(final_consolidation.consolidation_hash)
+                    ),
+                    "phase7_consolidation_reaudit_hash": (
+                        final_consolidation.consolidation_reaudit_hash
+                    ),
+                }
+            )
+            _write_json(self.state_path, self.state)
             truth_reason = f"All audit gates passed in {self.run_dir.name}"
             truth_metadata = {
-                "proof_file": report_path.relative_to(self.project.root).as_posix(),
+                "proof_file": self.phase7_store.final_proof_path(
+                    final_consolidation.consolidation_hash
+                ).relative_to(self.project.root).as_posix(),
                 "proof_type": (
                     "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
                 ),
@@ -2077,11 +2207,34 @@ changed failure condition is explicitly recorded.
             self.state["truth_mutation_receipt_file"] = str(
                 self.truth_store.receipt_path(intent.mutation_id)
             )
+            self.state["phase7_state"] = "TRUTH_PROMOTED"
+            _write_json(self.state_path, self.state)
+            promotion_closure = self.phase7_store.close_promotion(
+                root_synthesis=root_synthesis,
+                final_consolidation=final_consolidation,
+                intent=intent,
+                receipt=receipt,
+            )
             project_meta = self.project.load_project()
             branch = self.target.get("branch", "main")
             project_meta.setdefault("branches", {})[branch] = "CLOSED"
             self.project.save_project(project_meta)
             status = "PROVED"
+            self.state.update(
+                {
+                    "phase7_promotion_closure_id": promotion_closure.closure_id,
+                    "phase7_promotion_closure_hash": promotion_closure.closure_hash,
+                    "phase7_promotion_closure_file": str(
+                        self.phase7_store.promotion_closure_path(promotion_closure.closure_hash)
+                    ),
+                    "phase7_state": "PROMOTION_CLOSED",
+                    "phase7_implementation_status": "COMPLETE",
+                    "owner_override_phase7_implementation": True,
+                    "pre_root_synthesis_certified": False,
+                    "phase7_formally_authorized": False,
+                    "final_system_certified": False,
+                }
+            )
         else:
             reasons = (
                 list(gate.failure_reasons)

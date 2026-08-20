@@ -76,6 +76,7 @@ from .campaign import (
     ReplayPolicy,
 )
 from .project import ProjectStore
+from .phase7 import FinalConsolidation, Phase7Error, Phase7Store, PromotionClosure, RootSynthesis
 from .providers import ProviderCapabilities, provider_capabilities
 from .literature import (
     ExternalAuthorityRegistry,
@@ -221,6 +222,11 @@ __all__ = [
     "ScholarlyRecord",
     "ScholarlySearchAdapter",
     "ProjectStore",
+    "Phase7Error",
+    "Phase7Store",
+    "RootSynthesis",
+    "FinalConsolidation",
+    "PromotionClosure",
     "ProviderCapabilities",
     "PipelineResultSchema",
     "PreSubmitGate",
