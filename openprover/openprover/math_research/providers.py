@@ -95,6 +95,29 @@ CANDIDATE_PROOF pending the outer independent audit gate.
 """
 
 
+def _typed_worker_footer(
+    *,
+    event: str = "COMPLETED",
+    verdict: str = "CORRECT",
+    progress_signals: list[str] | None = None,
+    high_value: bool = False,
+) -> str:
+    payload = {
+        "event": event,
+        "verdict": verdict,
+        "failure_kind": "",
+        "details": [],
+        "progress_signals": progress_signals or [],
+        "literature_request": None,
+        "high_value": high_value,
+    }
+    return (
+        "<!-- OPENPROVER_WORKER_EVENT\n"
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        + "\n-->"
+    )
+
+
 class MockLLMClient:
     """Deterministic OpenProver-compatible client for tests and demo only."""
 
@@ -337,12 +360,34 @@ proof_slug = "candidate-proof"
 </OPENPROVER_ACTION>'''
         if label.startswith("worker_"):
             if label.endswith("_0"):
-                return "Induction proves the identity, with base n=0 and step using (n+1)^2=n^2+2n+1. No computational evidence is needed."
+                body = "Induction proves the identity, with base n=0 and step using (n+1)^2=n^2+2n+1. No computational evidence is needed."
+                return (
+                    body
+                    + "\n\n"
+                    + _typed_worker_footer(
+                        event="PROGRESS",
+                        progress_signals=["VERIFIED_LEMMA"],
+                        high_value=True,
+                    )
+                )
             if label.endswith("_1"):
-                return "The summand is k^2-(k-1)^2, so the finite sum telescopes from 0^2 to n^2. This is independent of the induction route."
-            return "No counterexample occurs at n=0 or n=1. Indexing and the empty-sum convention are consistent; no division or gcd assumptions occur."
+                body = "The summand is k^2-(k-1)^2, so the finite sum telescopes from 0^2 to n^2. This is independent of the induction route."
+                return (
+                    body
+                    + "\n\n"
+                    + _typed_worker_footer(
+                        event="PROGRESS",
+                        progress_signals=["BRANCH_CLOSURE"],
+                    )
+                )
+            body = "No counterexample occurs at n=0 or n=1. Indexing and the empty-sum convention are consistent; no division or gcd assumptions occur."
+            return body + "\n\n" + _typed_worker_footer(event="COMPLETED")
         if label.startswith("verifier_"):
-            return "The worker's claim follows by direct algebra and respects the stated scope.\n\nVERDICT: CORRECT"
+            return (
+                "The worker's claim follows by direct algebra and respects the stated scope."
+                "\n\nVERDICT: CORRECT\n\n"
+                + _typed_worker_footer(event="COMPLETED", verdict="CORRECT")
+            )
         if label.startswith("secondary_"):
             role = label.removeprefix("secondary_")
             return json.dumps(

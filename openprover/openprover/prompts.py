@@ -497,6 +497,19 @@ def worker_system_prompt(*, lean_worker_tools: bool = False) -> str:
         "When writing your response, write the final answer directly — do not re-reason, backtrack, "
         'hedge with "let me reconsider", or narrate your thought process. '
         "Your thinking budget is for exploration; your output is for results.\n"
+        "\n"
+        "Finish with exactly one machine-readable event footer after the mathematical answer. "
+        "The footer is control metadata, not part of the proof, and must have this exact form:\n"
+        "<!-- OPENPROVER_WORKER_EVENT\n"
+        '{"event":"PROGRESS|NO_PROGRESS|FAILED_ROUTE|COMPLETED|ERROR",'
+        '"verdict":"CORRECT|FLAWED|CRITICALLY_FLAWED|UNCERTAIN",'
+        '"failure_kind":"", "details":[], "progress_signals":[],'
+        '"literature_request":null, "high_value":false}\n'
+        "-->\n"
+        "Use PROGRESS only for concrete progress. Use COMPLETED only when the assigned task is "
+        "fully discharged. Use NO_PROGRESS or FAILED_ROUTE with an exact failure_kind when blocked. "
+        "Allowed progress_signals are BRANCH_CLOSURE, PARAMETER_REDUCTION, STRONGER_INVARIANT, "
+        "VERIFIED_LEMMA, and DEPENDENCY_SIMPLIFICATION. Do not put another such footer in the body.\n"
     )
     if lean_worker_tools:
         base += (
@@ -571,6 +584,15 @@ def verifier_system_prompt() -> str:
         "VERDICT: CORRECT\n"
         "VERDICT: CRITICALLY FLAWED - <brief reason>\n"
         "VERDICT: NEEDS MINOR FIXES - <brief reason>\n"
+        "Then append exactly one machine-readable event footer:\n"
+        "<!-- OPENPROVER_WORKER_EVENT\n"
+        '{"event":"COMPLETED|ERROR",'
+        '"verdict":"CORRECT|FLAWED|CRITICALLY_FLAWED|UNCERTAIN",'
+        '"failure_kind":"", "details":[], "progress_signals":[],'
+        '"literature_request":null, "high_value":false}\n'
+        "-->\n"
+        "Map NEEDS MINOR FIXES to FLAWED. If verification cannot be completed, use ERROR and "
+        "UNCERTAIN. Do not put another such footer in the body.\n"
         "\n"
         "Be concise. Use $inline$ and $$display$$ LaTeX.\n"
     )
