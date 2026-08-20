@@ -241,7 +241,13 @@ def initialize_routing_state(raw: dict | None) -> dict:
 
 
 class ModelRouter:
-    """Resolve per-call routes and persist monotone obligation escalation."""
+    """Resolve provider/model/reasoning routes and compute escalation.
+
+    The per-obligation mutation methods remain as deprecated compatibility
+    adapters for schema-2 checkpoints and direct callers. Production Research
+    Plane outcomes are no longer sent to them; RouteFailureRecord and
+    ResearchMap own long-term strategy memory.
+    """
 
     def __init__(
         self,
@@ -302,7 +308,9 @@ class ModelRouter:
     ) -> ModelRoute:
         role = normalize_role(role)
         requested = normalize_tier(requested_tier, default=self.default_tier(role))
-        obligation = self._obligation(obligation_id) if obligation_id else None
+        # Merely resolving a model route must not create durable research state.
+        # Entries exist only for explicit legacy compute-escalation hints.
+        obligation = self.state["obligations"].get(obligation_id) if obligation_id else None
         tier = requested
         if obligation:
             tier = higher_tier(tier, obligation.get("tier", requested))
@@ -516,6 +524,10 @@ class ModelRouter:
             return copy.deepcopy(obligation)
 
     def record_failure(self, obligation_id: str, failure_kind: str, *, detail: str = "") -> dict:
+        """Deprecated compatibility compute-escalation heuristic.
+
+        This method must not be used as Research Plane failure memory.
+        """
         kind = str(failure_kind).strip().upper()
         if kind not in FAILURE_KINDS:
             raise ProjectError(f"Unknown failure kind: {failure_kind}")
@@ -552,6 +564,7 @@ class ModelRouter:
     def record_verifier_disagreement(
         self, obligation_id: str, *, worker_verdict: str, verifier_verdict: str
     ) -> dict:
+        """Deprecated compatibility compute-escalation heuristic."""
         with self._lock:
             obligation = self._obligation(obligation_id)
             obligation["verifier_disagreements"] = (
@@ -569,6 +582,7 @@ class ModelRouter:
         )
 
     def record_frontier_cycle(self, frontier_id: str, *, progress: dict[str, bool]) -> dict:
+        """Deprecated compatibility heuristic; not a research-stall owner."""
         meaningful = any(
             bool(progress.get(key))
             for key in (
@@ -602,6 +616,7 @@ class ModelRouter:
     def promote_high_value(
         self, obligation_id: str, *, theorem_level: bool = False, proof_candidate: bool = False
     ) -> dict:
+        """Deprecated compatibility compute hint for direct legacy callers."""
         minimum = "strategic" if theorem_level or proof_candidate else "research"
         reason = "proof_candidate" if proof_candidate else "high_value_result"
         return self.escalate(obligation_id, reason=reason, minimum_tier=minimum)

@@ -112,7 +112,12 @@ class StrategyFingerprint:
 
 
 class StrategyFingerprintStore:
-    """Freeze a route after the same strategy/failure repeats twice."""
+    """Legacy execution heuristic retained for checkpoint compatibility.
+
+    New production research failures belong to RouteFailureRecord. This store
+    is readable and callable for old clients, but it is no longer the canonical
+    long-term research-strategy owner.
+    """
 
     def __init__(self, project: ProjectStore):
         self.project = project
