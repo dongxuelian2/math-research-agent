@@ -8,6 +8,9 @@ from openprover.math_research.research_evidence import (
     can_resolve_obligation,
 )
 from openprover.math_research.research_store import ResearchStoreFacade
+from openprover.math_research.runtime_backend import SQLiteRuntimeBackend
+from openprover.math_research.runtime_effects import RuntimeEffectCoordinator
+from openprover.math_research.runtime_model import AttemptState
 from openprover.math_research.truth_identity import domain_hash
 from openprover.math_research.truth_store import TruthStoreFacade
 
@@ -149,12 +152,72 @@ def test_r7_r17_trusted_evidence_resolves_and_retains_all_raw_artifacts(tmp_path
     events.unlink()
     assert all(path.is_file() for path in retained)
 
-    decision, v2 = store.resolve_session_closure(session.tactical_session_id, recorded_by="test")
+    runtime = SQLiteRuntimeBackend(project.root)
+    job = runtime.create_logical_job(
+        job_kind="TACTICAL_SESSION",
+        semantic_target="O1",
+        idempotency_key="session-closure-runtime-e2e",
+        obligation_id="O1",
+        claim_snapshot_hash=v1.root_claim_snapshot_hash,
+    )
+    attempt, _ = runtime.create_attempt_intent(
+        logical_job_id=job["logical_job_id"],
+        provider="mock",
+        payload_hash="sha256:session-closure",
+        dispatch_kind="PROVIDER_INVOCATION",
+    )
+    lease = runtime.claim_attempt(attempt["attempt_id"], owner="test", ttl_seconds=60)
+    runtime.transition_attempt(
+        attempt["attempt_id"],
+        AttemptState.RUNNING,
+        actor="test",
+        lease_token=lease["lease_token"],
+        generation=lease["generation"],
+    )
+    closure_path = (
+        project.root / "research" / "sessions" / session.tactical_session_id / "closure.json"
+    )
+    artifact = runtime.register_artifact(
+        closure_path,
+        artifact_kind="SESSION_CLOSURE",
+        producer_attempt_id=attempt["attempt_id"],
+    )
+    result = runtime.record_result(
+        attempt_id=attempt["attempt_id"],
+        artifact_id=artifact["artifact_id"],
+        completion_status="SUCCESS",
+        lease_token=lease["lease_token"],
+        generation=lease["generation"],
+    )
+    runtime.accept_result(job["logical_job_id"])
+    slot, outcome = RuntimeEffectCoordinator(runtime).apply_research_session_closure(
+        logical_job_id=job["logical_job_id"],
+        source_result_id=result["result_id"],
+        research_store=store,
+        tactical_session_id=session.tactical_session_id,
+        recorded_by="test",
+    )
+    decision, v2 = outcome["decision"], outcome["research_map"]
     assert decision.status == "RESOLUTION_ACCEPTED"
     assert v2 is not None
     assert v2.version == v1.version + 1
     assert v2.obligation_ref("O1").disposition == "RESOLVED"
     assert project.load_theorem("T1")["status"] == "OPEN"
+    replay_decision, replay_map = store.resolve_session_closure(
+        session.tactical_session_id, recorded_by="test-replay"
+    )
+    assert replay_decision.decision_hash == decision.decision_hash
+    assert replay_map.research_map_hash == v2.research_map_hash
+    assert store.load_current_map(v1.research_map_id).version == 2
+    replay_slot, _ = RuntimeEffectCoordinator(runtime).apply_research_session_closure(
+        logical_job_id=job["logical_job_id"],
+        source_result_id=result["result_id"],
+        research_store=store,
+        tactical_session_id=session.tactical_session_id,
+        recorded_by="test-replay",
+    )
+    assert replay_slot["effect_slot_id"] == slot["effect_slot_id"]
+    assert len(runtime.list_rows("effect_slots")) == 1
     affected = store.affected_by_reference("authority:gate-1")
     assert affected["obligation_ids"] == ["O1"]
 

@@ -27,65 +27,67 @@ bounded deviations. Later-phase work is not presented as v3.2-complete.
   ResearchObligation binding and are explicitly marked
   `EXECUTION_LINEAGE_ONLY`; each run creates another TacticalSession.
 
-## ARCHITECTURE_DEVIATION: filesystem Truth Plane without authoritative v3 runtime
+## RESOLVED IN PHASE 6: filesystem Truth Plane without authoritative v3 runtime
 
 - 规范要求: Distinct Truth/Research/Execution ownership with SQLite/WAL control state and filesystem artifacts.
-- 当前实现: PHASE 3 now has immutable ClaimSnapshot and a filesystem truth
-  mutation saga over JSON ProjectStore. PHASE 4 adds a separate filesystem
-  Research Plane, while AttemptIntent runtime, SQLite/WAL, outbox, leases, and
-  cross-process transactions remain absent.
-- 不可直接实现的原因: PHASE 3 explicitly requires the thinnest facade and
-  forbids stealing later runtime-plane ownership.
-- 采用的临时设计: content-addressed truth artifacts, per-file atomic replace,
-  and a narrow in-process reentrant compare-and-transition lock. No database or
-  distributed-runtime claim is made.
-- 未来迁移条件: later execution-plane phases provide SQLite/WAL CAS, outbox,
-  recovery, attempt ownership, and parity tests without changing the PHASE 3
-  truth object semantics.
+- PHASE 6 结果: SQLite/WAL now owns execution control while filesystem Truth
+  artifacts retain semantic authority. EffectSlot wraps the existing intent,
+  snapshot-bound CAS, prepared recovery evidence, and receipt protocol. A crash
+  in the theorem/receipt split is repaired without moving theorem truth into SQL.
 
-## ARCHITECTURE_DEVIATION: filesystem Research Plane without authoritative v3 runtime
+## RESOLVED IN PHASE 6: filesystem Research Plane without authoritative v3 runtime
 
 - 规范要求: immutable Research Plane semantics eventually participate in the
   authoritative SQLite/WAL runtime and recovery protocol.
-- 当前实现: strict immutable JSON artifacts, atomic per-file replacement, and
-  mutable rebuildable projections under `research/`.
-- 采用的临时设计: correct semantic ownership and deterministic local
-  invariants without claiming cross-process transactions, outbox publication,
-  leases, or recovery.
-- 未来迁移条件: the later runtime phase provides storage/CAS/recovery parity
-  without changing ResearchMap, obligation, Directive, closure, or route record
-  semantics.
+- PHASE 6 结果: strict Research artifacts remain filesystem-authoritative;
+  accepted runtime results enter a unique EffectSlot and domain recovery finds
+  the existing closure/disposition/map identity instead of creating vN+1.
 
 Legacy checkpoint fingerprints remain compatibility metadata only. Current
-PHASE 5 runs carry real ClaimSnapshot, ResearchMap, and governance identity; legacy
-checkpoints without either remain `REVALIDATION_REQUIRED`. Runtime state remains
-file-backed JSON by explicit scope, and no SQLite/WAL authority was introduced.
+runs carry real ClaimSnapshot, ResearchMap, governance, and runtime identity;
+legacy checkpoints never fabricate runtime history. SQLite owns current
+execution control, while JSON checkpoints remain portable projections.
 
-## ARCHITECTURE_DEVIATION: filesystem Architecture Governance control state
+## RESOLVED IN PHASE 6: filesystem Architecture Governance control state
 
 - 规范要求: PHASE 5 must provide durable review scheduling, immutable reviews,
   bounded probes, independent criticism, authorization, and auditable patch
   application while explicitly not implementing the PHASE 6 runtime.
-- 当前实现: immutable typed JSON artifacts plus atomically replaced clock and
-  active/pending projections under `research/governance/`. Semantics are
-  single-process only; no cross-process lease, CAS, outbox, or reconciliation
-  claim is made.
-- 最小引入面: `GovernanceController` owns scheduling and gate orchestration but
-  owns no mathematical strategy, provider routing, obligation resolution, or
-  Truth mutation. `ScopeTransfer` is the minimal coverage seam needed to prove
-  no scope disappeared during a destructive patch.
-- 未来迁移条件: PHASE 6 moves control projections and effect publication to the
-  authoritative SQLite/WAL runtime while retaining the immutable artifact
-  schemas and exact authorization semantics.
+- PHASE 6 结果: governance artifacts and authorization remain unchanged;
+  accepted runtime work uses EffectSlot, and replay recovers the same review
+  clock or patch application/map identity. SQL success alone cannot authorize a
+  patch or reset a review clock.
 
-## BOUNDED PHASE 5 SEAM: explicit evidence invalidation input
+## BOUNDED SEAM: explicit evidence invalidation input
 
 - 规范要求: stale review/probe/patch evidence must force governance
   revalidation.
 - 当前实现: authorization intersects an explicitly supplied invalidation set
   with all review, probe, patch, and critic evidence; any intersection produces
   `REVALIDATION_REQUIRED` and cannot apply.
-- 边界: PHASE 5 does not invent a cross-process invalidation event bus or
-  journal. Durable authority/dependency invalidation publication and recovery
-  belong to PHASE 6. This does not weaken the authorization gate when current
-  invalidation facts are supplied.
+- 边界: the runtime journal records execution/control causality; it is not a
+  generic domain event bus. Current invalidation facts remain explicit inputs
+  to authorization and unknown partial state fails closed.
+
+## BOUNDED PHASE 6 SEAM: external execution is at-least-once
+
+- Provider delivery cannot be made exactly-once across a process crash and an
+  external service boundary. Duplicate physical Attempts are retained.
+- LogicalJob acceptance and EffectSlot make the semantic consequence
+  exactly-once. Billing/provider provenance is never discarded.
+
+## BOUNDED PHASE 6 SEAM: compatibility projections remain
+
+- Planner/pipeline/routing JSON can still express desired work and portable
+  resume context, but cannot authorize attempt, lease, outbox, accepted-result,
+  or effect transitions.
+- In-scope production external-execution entrypoints have no remaining direct
+  ownership bypass. Provider adapter unit tests may call transports directly;
+  this is test isolation, not a production authority path.
+- Each future cross-store effect kind must supply a deterministic domain
+  recovery adapter. Unknown effects become `MANUAL_REVIEW_REQUIRED`.
+
+## PENDING: hosted CI
+
+Local Windows evidence is complete, including the interruption test. Hosted
+Linux/Windows jobs remain `PENDING_PUSH` because no push was authorized.

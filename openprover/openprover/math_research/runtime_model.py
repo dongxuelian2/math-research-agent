@@ -182,7 +182,9 @@ class RuntimeBackend(Protocol):
 
     def create_attempt_intent(self, **values: Any) -> tuple[dict[str, Any], dict[str, Any]]: ...
 
-    def claim_attempt(self, attempt_id: str, *, owner: str, ttl_seconds: float) -> dict[str, Any]: ...
+    def claim_attempt(
+        self, attempt_id: str, *, owner: str, ttl_seconds: float
+    ) -> dict[str, Any]: ...
 
     def heartbeat(
         self,
