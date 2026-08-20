@@ -2,7 +2,7 @@
 
 ## Current phase
 
-`V3_2_CURRENT_PHASE = PHASE 4 RESEARCH-PLANE FOUNDATION BASELINE ESTABLISHED; LOCAL ACCEPTANCE PASS; HOSTED CI PENDING_PUSH`
+`V3_2_CURRENT_PHASE = PHASE 5 ARCHITECTURE-GOVERNANCE BASELINE ESTABLISHED; LOCAL ACCEPTANCE PASS; HOSTED CI PENDING_PUSH`
 
 ## Completed capabilities
 
@@ -41,6 +41,23 @@
   StrategyFingerprint adapter, and production ModelRouter ownership cleanup.
 - Campaign checkpoints carry map/version/open frontier/directive/session/root
   bindings; legacy checkpoints without a map require revalidation.
+- Evidence-bound StructuralEffect classification separates activity, tactical
+  progress, and structural progress without an aggregate score.
+- Durable logical ArchitectureReview clocks enforce mandatory, repeated-route,
+  long-blocked, tactical-without-structural, map-change, repair-loop,
+  literature, and human triggers. Only a committed typed review resets them.
+- Immutable twelve-dimension ArchitectureReviews and bounded StructuralProbe
+  plan/results are exact-root/map governance artifacts, not WorkerTasks.
+- Exact-patch ArchitectureCritics retain actor/provider/model/context
+  independence provenance and cannot mutate Research or Truth state.
+- ArchitecturePatch, ScopeTransfer, PatchAuthorization, and immutable
+  application history guard destructive ResearchMap reframes; every old
+  obligation remains with an explicit disposition.
+- Run/campaign checkpoints preserve governance due state and active/pending
+  control identity. Legacy checkpoints require a current governance review and
+  never fabricate a past review.
+- Literature mechanism conflicts signal governance through the review clock;
+  ModelRouter remains a compute allocator.
 
 ## Partial capabilities
 
@@ -48,27 +65,28 @@
 - CI: definitions and exact local commands pass; hosted GitHub jobs were not run because this branch was not pushed.
 - PHASE 3 filesystem saga is process-serialized, not a cross-process/database
   transaction; that guarantee belongs to the later SQLite/WAL phase.
+- PHASE 5 evidence invalidation is an explicit typed input to authorization;
+  the cross-process invalidation journal/reconciler belongs to PHASE 6.
 
 ## Unstarted capabilities
 
 - VerifierIndependenceReceipt.
 - Full CoverageAnchor/Transfer and richer DecisionBasis.
-- Mandatory Architecture Review, Structural Probe, Architecture Critic authorization.
 - SQLite/WAL authoritative runtime, outbox, AttemptIntent, lease, reconciliation, effect slots.
 - ROOT_SYNTHESIS and consolidation re-audit.
 
 ## Blockers
 
-No external blocker prevents PHASE 4 completion. The managed Windows interrupt
+No external blocker prevents PHASE 5 completion. The managed Windows interrupt
 subprocess remains an environment-blocked excluded test exactly as documented
 at the baseline; it does not weaken the deterministic in-process truth-race tests.
 
 ## Next safe migration frontier
 
-1. Freeze PHASE 4 local-safe evidence in its own local commit.
-2. Stop for user audit. The exact next safe frontier is PHASE 5 Architecture
-   Review × Structural Probe × Architecture Critic. SQLite/WAL remains a later,
-   explicitly unstarted runtime phase.
+1. Freeze PHASE 5 local-safe evidence in its own local commit.
+2. Stop for user audit. The exact next safe frontier is PHASE 6 Durable Runtime:
+   SQLite/WAL, transition journal, transactional outbox, LogicalJob,
+   AttemptIntent, lease/heartbeat, reconciliation, and idempotent effect slots.
 
 ## Preservation statement
 
