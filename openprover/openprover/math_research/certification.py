@@ -24,6 +24,7 @@ from .project import ProjectError, ProjectStore, utc_now
 from .providers import create_client, load_model_config, resolve_role_config
 from .routing import ModelRouter, RoutedLLMClient
 from .runtime_backend import SQLiteRuntimeBackend
+from .runtime_bindings import CrossPlaneExecutionBinding
 from .schemas import AuditResultSchema, SchemaError, parse_structured_response
 from .state_machine import AuditGate
 from .trust_kernel import (
@@ -31,6 +32,7 @@ from .trust_kernel import (
     FoundationRegistry,
     SemanticRegistry,
 )
+from .truth_store import TruthStoreFacade
 
 
 CERTIFICATION_AUDIT_CONTRACT = """Return exactly one JSON object with these fields:
@@ -117,14 +119,35 @@ class ReplayCertificationRunner:
                 f"Certification output must be outside the read-only {label} root: {protected_root}"
             )
         self.project = ProjectStore(self.repair_root)
+        self.truth_store = TruthStoreFacade(self.project)
+        self.claim_snapshot = self.truth_store.capture_claim_snapshot(
+            self.spec["target_id"], persist=False
+        )
+        self.execution_binding = CrossPlaneExecutionBinding.capture(
+            root_claim_snapshot_hash=self.claim_snapshot.claim_snapshot_hash
+        )
         self.config = load_model_config(self.config_path)
         self.model_router = ModelRouter(
             self.config,
             state_path=self.output_dir / "routing_state.json",
             runtime_backend=SQLiteRuntimeBackend(self.project.root),
             runtime_scope=f"certification:{self.output_dir.name}",
+            execution_binding=self.execution_binding,
+            execution_binding_validator=self._validate_execution_binding,
+            require_execution_binding=True,
         )
         self.clients: list[object] = []
+
+    def _validate_execution_binding(self, binding):
+        if binding is None:
+            return "REVALIDATION_REQUIRED: certification execution binding is missing"
+        if binding != self.execution_binding:
+            return "STALE_CLAIM_SNAPSHOT: certification binding is not current"
+        try:
+            self.truth_store.validate_snapshot_for_execution(self.claim_snapshot)
+        except Exception as exc:
+            return f"STALE_CLAIM_SNAPSHOT: {exc}"
+        return True
 
     def prepare(self) -> PreparedCertification:
         spec = self.spec

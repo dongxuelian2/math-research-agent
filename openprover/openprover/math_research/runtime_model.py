@@ -23,6 +23,10 @@ class RuntimeConflict(RuntimeErrorBase):
     """A conditional state transition or unique ownership claim lost a race."""
 
 
+class RuntimeResultRejected(RuntimeConflict):
+    """A provider payload was durably retained but is not semantic input."""
+
+
 class InvalidRuntimeTransition(RuntimeErrorBase):
     """An object was asked to perform an illegal typed state transition."""
 
@@ -201,7 +205,7 @@ class RuntimeBackend(Protocol):
 
     def record_result(self, **values: Any) -> dict[str, Any]: ...
 
-    def reconcile(self) -> list[dict[str, Any]]: ...
+    def reconcile(self, **kwargs: Any) -> list[dict[str, Any]]: ...
 
     def apply_effect_once(
         self,

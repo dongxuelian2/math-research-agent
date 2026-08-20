@@ -16,7 +16,11 @@ from openprover.math_research.runtime_artifacts import RuntimeArtifactStore
 from openprover.math_research.runtime_backend import SQLiteRuntimeBackend
 from openprover.math_research.runtime_bindings import CrossPlaneExecutionBinding
 from openprover.math_research.runtime_dispatch import DurableProviderDispatcher
-from openprover.math_research.runtime_model import AttemptState, RuntimeConflict
+from openprover.math_research.runtime_model import (
+    AttemptState,
+    RuntimeConflict,
+    RuntimeResultRejected,
+)
 from openprover.math_research.truth_identity import domain_hash
 from openprover.math_research.truth_store import TruthStoreFacade
 
@@ -172,14 +176,13 @@ def test_f007_restart_fences_mismatched_binding(tmp_path: Path):
     assert backend.get_job(job["logical_job_id"])["accepted_result_id"] is None
 
     restarted = SQLiteRuntimeBackend(tmp_path / "project")
-    with pytest.raises(RuntimeConflict, match="no current-compatible"):
-        restarted.reconcile(
-            binding_validator=lambda binding: (
-                True
-                if binding is not None and binding.root_claim_snapshot_hash == c2
-                else "STALE_CLAIM_SNAPSHOT: restart context changed"
-            )
+    restarted.reconcile(
+        binding_validator=lambda binding: (
+            True
+            if binding is not None and binding.root_claim_snapshot_hash == c2
+            else "STALE_CLAIM_SNAPSHOT: restart context changed"
         )
+    )
 
     fenced = next(
         row for row in restarted.list_rows("attempt_results") if row["result_id"] == result["result_id"]
@@ -207,6 +210,79 @@ def test_f007_configured_standalone_router_requires_binding(tmp_path: Path):
 
     with pytest.raises(RuntimeConflict, match="execution binding"):
         client.call("[Worker role: worker]", "system", label="worker")
+
+
+def test_f007_configured_standalone_router_accepts_valid_binding(tmp_path: Path):
+    binding = CrossPlaneExecutionBinding.capture(
+        root_claim_snapshot_hash=domain_hash("claim", {"id": "standalone-valid"})
+    )
+    backend = SQLiteRuntimeBackend(tmp_path / "project")
+    router = ModelRouter(
+        {"provider": "mock", "model": "mock", "reasoning_effort": "low"},
+        runtime_backend=backend,
+        runtime_scope="standalone-valid-test",
+        execution_binding=binding,
+        execution_binding_validator=lambda current: current == binding,
+        require_execution_binding=True,
+    )
+
+    class ValidClient:
+        def call(self, **_: object) -> dict:
+            return {"structured": {"success": True}}
+
+    client = RoutedLLMClient(
+        router,
+        client_factory=lambda *args, **kwargs: ValidClient(),
+        default_role="worker",
+        archive_dir=tmp_path / "archive",
+        working_dir=tmp_path / "working",
+    )
+    response = client.call("[Worker role: worker]", "system", label="worker")
+
+    assert response["runtime"]["accepted"] is True
+    assert next(row for row in backend.list_rows("attempt_results"))["authoritative"] == 1
+
+
+def test_f002_routed_client_cannot_parse_late_rejected_payload(tmp_path: Path, monkeypatch):
+    import openprover.math_research.runtime_dispatch as dispatch_module
+
+    binding = CrossPlaneExecutionBinding.capture(
+        root_claim_snapshot_hash=domain_hash("claim", {"id": "routed-late"})
+    )
+    backend = SQLiteRuntimeBackend(tmp_path / "project")
+    router = ModelRouter(
+        {"provider": "mock", "model": "mock", "reasoning_effort": "low"},
+        runtime_backend=backend,
+        runtime_scope="routed-late-test",
+        execution_binding=binding,
+        execution_binding_validator=lambda current: current == binding,
+        require_execution_binding=True,
+    )
+
+    class SlowClient:
+        def call(self, **_: object) -> dict:
+            time.sleep(0.02)
+            return {"structured": {"success": True, "high_value": True}}
+
+    class SlowDispatcher(DurableProviderDispatcher):
+        def __init__(self, runtime_backend):
+            super().__init__(runtime_backend, lease_ttl_seconds=0.001)
+
+    monkeypatch.setattr(dispatch_module, "DurableProviderDispatcher", SlowDispatcher)
+    client = RoutedLLMClient(
+        router,
+        client_factory=lambda *args, **kwargs: SlowClient(),
+        default_role="worker",
+        archive_dir=tmp_path / "archive",
+        working_dir=tmp_path / "working",
+    )
+
+    with pytest.raises(RuntimeResultRejected, match="terminal"):
+        client.call("[Worker role: worker]", "system", label="worker")
+
+    assert backend.get_job(backend.list_rows("logical_jobs")[0]["logical_job_id"])[
+        "accepted_result_id"
+    ] is None
 
 
 def test_f002_rejected_provider_payload_is_terminal_and_non_consumable(tmp_path: Path):

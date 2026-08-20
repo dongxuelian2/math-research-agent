@@ -14,6 +14,7 @@ from .runtime_model import (
     FaultInjector,
     FaultPoint,
     OutboxState,
+    RuntimeConflict,
     content_hash,
 )
 from .runtime_bindings import CrossPlaneExecutionBinding
@@ -167,25 +168,53 @@ class DurableProviderDispatcher:
                 actor=self.owner,
                 last_error=str(result.get("fencing_rejection") or "STALE_FENCED"),
             )
-            returned = copy.deepcopy(response)
-            returned["runtime"] = {
-                "logical_job_id": logical_job_id,
-                "attempt_id": attempt["attempt_id"],
-                "outbox_id": outbox["outbox_id"],
-                "result_id": result["result_id"],
-                "accepted": False,
-                "authoritative": False,
-                "artifact_id": artifact["artifact_id"],
-                "fencing_rejection": result.get("fencing_rejection"),
+            returned = {
+                "terminal_state": "REJECTED",
+                "runtime": {
+                    "logical_job_id": logical_job_id,
+                    "attempt_id": attempt["attempt_id"],
+                    "outbox_id": outbox["outbox_id"],
+                    "result_id": result["result_id"],
+                    "accepted": False,
+                    "authoritative": False,
+                    "artifact_id": artifact["artifact_id"],
+                    "fencing_rejection": result.get("fencing_rejection"),
+                },
             }
             if on_finished is not None:
                 on_finished(attempt["attempt_id"])
             return returned
-        winner = self.backend.accept_result(
-            logical_job_id,
-            actor=self.owner,
-            binding_validator=binding_validator,
-        )
+        try:
+            winner = self.backend.accept_result(
+                logical_job_id,
+                actor=self.owner,
+                binding_validator=binding_validator,
+            )
+        except RuntimeConflict as exc:
+            self.backend.transition_outbox(
+                outbox["outbox_id"],
+                OutboxState.FAILED_RETRYABLE,
+                claim_token=outbox_claim["claim_token"],
+                claim_generation=outbox_claim["claim_generation"],
+                actor=self.owner,
+                last_error=str(exc),
+            )
+            returned = {
+                "terminal_state": "REJECTED",
+                "runtime": {
+                    "logical_job_id": logical_job_id,
+                    "attempt_id": attempt["attempt_id"],
+                    "outbox_id": outbox["outbox_id"],
+                    "result_id": result["result_id"],
+                    "accepted": False,
+                    "authoritative": False,
+                    "artifact_id": artifact["artifact_id"],
+                    "fencing_rejection": str(exc),
+                },
+            }
+            if on_finished is not None:
+                on_finished(attempt["attempt_id"])
+            return returned
         self.backend.transition_outbox(
             outbox["outbox_id"],
             OutboxState.ACKNOWLEDGED,
@@ -193,6 +222,23 @@ class DurableProviderDispatcher:
             claim_generation=outbox_claim["claim_generation"],
             actor=self.owner,
         )
+        if winner["result_id"] != result["result_id"]:
+            returned = {
+                "terminal_state": "NOT_ACCEPTED",
+                "runtime": {
+                    "logical_job_id": logical_job_id,
+                    "attempt_id": attempt["attempt_id"],
+                    "outbox_id": outbox["outbox_id"],
+                    "result_id": result["result_id"],
+                    "accepted": False,
+                    "authoritative": True,
+                    "artifact_id": artifact["artifact_id"],
+                    "accepted_result_id": winner["result_id"],
+                },
+            }
+            if on_finished is not None:
+                on_finished(attempt["attempt_id"])
+            return returned
         returned = copy.deepcopy(response)
         returned["runtime"] = {
             "logical_job_id": logical_job_id,

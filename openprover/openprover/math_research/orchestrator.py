@@ -316,6 +316,7 @@ class ResearchOrchestrator:
             project_override=project_override,
             runtime_backend=self.runtime_backend,
             runtime_scope=self.run_dir.name,
+            require_execution_binding=True,
         )
         self.pipeline_scheduler = AsyncDAGScheduler(
             state=(pipeline_state if pipeline_state is not None else None),
@@ -342,6 +343,13 @@ class ResearchOrchestrator:
             self._ensure_target_pipeline_obligation()
         self.model_router.execution_binding = self._current_execution_binding()
         self.model_router.execution_binding_validator = self._validate_execution_binding
+        runtime_reconciliation.extend(
+            self.runtime_backend.reconcile(binding_validator=self._validate_execution_binding)
+        )
+        self.state["runtime_control_plane"]["last_reconciliation_ids"] = [
+            item["reconciliation_id"] for item in runtime_reconciliation
+        ]
+        _write_json(self.state_path, self.state)
 
     def _resolve_run_dir(self, resume: str | Path | None, *, run_id: str | None = None) -> Path:
         runs_dir = self.project.root / "runs"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Callable
 
 from .runtime_artifacts import RuntimeArtifactStore
 from .runtime_backend import SQLiteRuntimeBackend
@@ -18,8 +18,14 @@ from .runtime_model import (
 
 
 class RuntimeReconciler:
-    def __init__(self, backend: SQLiteRuntimeBackend):
+    def __init__(
+        self,
+        backend: SQLiteRuntimeBackend,
+        *,
+        binding_validator: Callable[[Any], bool | str | None] | None = None,
+    ):
         self.backend = backend
+        self.binding_validator = binding_validator
         self.artifacts = RuntimeArtifactStore(backend.project_root)
         self.actions: list[dict[str, Any]] = []
 
@@ -183,6 +189,14 @@ class RuntimeReconciler:
             if not isinstance(result, dict) or not result.get("completion_status"):
                 continue
             try:
+                if self.binding_validator is None:
+                    self._record(
+                        ReconciliationAction.MANUAL_REVIEW_REQUIRED,
+                        "ATTEMPT_RESULT",
+                        artifact_id,
+                        "existing result requires a trusted execution binding validator",
+                    )
+                    continue
                 recorded = self.backend.record_result(
                     attempt_id=str(manifest["producer_attempt_id"]),
                     artifact_id=artifact["artifact_id"],
@@ -190,6 +204,7 @@ class RuntimeReconciler:
                     idempotency_key=result.get("idempotency_key"),
                     provider_metadata=result.get("provider_metadata") or {},
                     reconcile_existing=True,
+                    binding_validator=self.binding_validator,
                     actor="reconciler",
                 )
             except (ArtifactIntegrityError, RuntimeConflict) as exc:
@@ -250,8 +265,29 @@ class RuntimeReconciler:
         for job in self.backend.list_rows("logical_jobs"):
             if job["accepted_result_id"] is not None:
                 continue
+            candidates = [
+                result
+                for result in self.backend.list_rows("attempt_results")
+                if result["logical_job_id"] == job["logical_job_id"]
+                and result["authoritative"]
+                and result["completion_status"] in {"SUCCESS", "COMPLETED", "PASS"}
+            ]
+            if not candidates:
+                continue
+            if self.binding_validator is None:
+                self._record(
+                    ReconciliationAction.MANUAL_REVIEW_REQUIRED,
+                    "LOGICAL_JOB",
+                    job["logical_job_id"],
+                    "pending result requires a trusted execution binding validator",
+                )
+                continue
             try:
-                winner = self.backend.accept_result(job["logical_job_id"], actor="reconciler")
+                winner = self.backend.accept_result(
+                    job["logical_job_id"],
+                    actor="reconciler",
+                    binding_validator=self.binding_validator,
+                )
             except RuntimeConflict:
                 continue
             self._record(

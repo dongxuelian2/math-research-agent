@@ -10,6 +10,7 @@ from .project import ProjectError, ProjectStore, utc_now
 from .providers import create_client, load_model_config
 from .routing import ModelRouter, RoutedLLMClient
 from .runtime_backend import SQLiteRuntimeBackend
+from .runtime_bindings import CrossPlaneExecutionBinding
 from .schemas import (
     FormalizationResultSchema,
     parse_structured_response,
@@ -63,11 +64,33 @@ def run_formalization(
     formal_dir = run_path / "formalization"
     formal_dir.mkdir(parents=True, exist_ok=True)
     config = load_model_config(config_path)
+    binding = CrossPlaneExecutionBinding.capture(
+        root_claim_snapshot_hash=claim_snapshot.claim_snapshot_hash
+    )
+
+    def validate_binding(current):
+        if current is None:
+            return "REVALIDATION_REQUIRED: formalization execution binding is missing"
+        if current != binding:
+            return "STALE_CLAIM_SNAPSHOT: formalization binding is not current"
+        try:
+            truth_store.validate_snapshot_for_execution(
+                claim_snapshot,
+                canonical_authority=run_state.get("canonical_authority") or [],
+                replay_policy_hash=run_state.get("replay_policy_hash"),
+            )
+        except Exception as exc:
+            return f"STALE_CLAIM_SNAPSHOT: {exc}"
+        return True
+
     router = ModelRouter(
         config,
         state_path=run_path / "routing_state.json",
         runtime_backend=SQLiteRuntimeBackend(project.root),
         runtime_scope=f"{run_path.name}:formalization",
+        execution_binding=binding,
+        execution_binding_validator=validate_binding,
+        require_execution_binding=True,
     )
     client = RoutedLLMClient(
         router,
