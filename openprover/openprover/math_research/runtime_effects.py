@@ -41,7 +41,9 @@ class RuntimeEffectCoordinator:
                 for row in self.backend.list_rows("attempt_results")
                 if row["result_id"] == job["accepted_result_id"]
             )
-        response = DurableProviderDispatcher(self.backend, owner="runtime-effect-coordinator").execute(
+        response = DurableProviderDispatcher(
+            self.backend, owner="runtime-effect-coordinator"
+        ).execute(
             logical_job_id=job["logical_job_id"],
             provider="internal",
             model="semantic-effect",
@@ -295,7 +297,9 @@ class RuntimeEffectCoordinator:
         )
 
     @staticmethod
-    def _map_binding_is_current(research_store, binding: CrossPlaneExecutionBinding | None) -> bool | str:
+    def _map_binding_is_current(
+        research_store, binding: CrossPlaneExecutionBinding | None
+    ) -> bool | str:
         if binding is None or binding.research_map_id is None:
             return "REVALIDATION_REQUIRED: ResearchMap binding is missing"
         try:
@@ -371,9 +375,7 @@ class RuntimeEffectCoordinator:
             recover=recover,
             claim_snapshot_hash=closure.root_claim_snapshot_hash,
             execution_binding=binding,
-            binding_validator=lambda current: self._map_binding_is_current(
-                research_store, current
-            ),
+            binding_validator=lambda current: self._map_binding_is_current(research_store, current),
             fault_injector=fault_injector,
         )
 
@@ -469,6 +471,7 @@ class RuntimeEffectCoordinator:
             governance_object_id=review.review_id,
             governance_source_hash=review.review_hash,
         )
+
         def recover(_slot_id: str):
             clock = governance_controller.ensure_clock(review.research_map_id)
             if (

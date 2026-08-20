@@ -158,9 +158,7 @@ def test_f001_stale_closure_isolated_and_explicit_transfer_revalidates(tmp_path)
     assert store.load_current_map(v3.research_map_id).obligation_ref("O1").disposition == (
         "SUPERSEDED"
     )
-    assert store.load_current_map(v3.research_map_id).obligation_ref("O2").disposition == (
-        "OPEN"
-    )
+    assert store.load_current_map(v3.research_map_id).obligation_ref("O2").disposition == ("OPEN")
 
     transfer = ScopeTransfer.capture(
         source_obligation_ids=("O1",),
@@ -276,7 +274,9 @@ def test_f002_expired_result_is_retained_but_cannot_be_accepted(tmp_path):
     )
     assert result["authoritative"] == 0
     assert result["ingestion_state"] == "STALE_FENCED"
-    assert backend.verify_artifact(artifact["artifact_id"])["artifact_id"] == artifact["artifact_id"]
+    assert (
+        backend.verify_artifact(artifact["artifact_id"])["artifact_id"] == artifact["artifact_id"]
+    )
     with pytest.raises(RuntimeConflict, match="no current-compatible"):
         backend.accept_result(job["logical_job_id"])
     assert not backend.list_rows("effect_slots")
@@ -333,10 +333,16 @@ def test_f007_stale_binding_is_fenced_at_acceptance(tmp_path):
                 else "STALE_CLAIM_SNAPSHOT: C1 is no longer current"
             ),
         )
-    fenced = next(row for row in backend.list_rows("attempt_results") if row["result_id"] == result["result_id"])
+    fenced = next(
+        row
+        for row in backend.list_rows("attempt_results")
+        if row["result_id"] == result["result_id"]
+    )
     assert fenced["authoritative"] == 0
     assert fenced["ingestion_state"] == "STALE_FENCED"
-    assert backend.verify_artifact(artifact["artifact_id"])["artifact_id"] == artifact["artifact_id"]
+    assert (
+        backend.verify_artifact(artifact["artifact_id"])["artifact_id"] == artifact["artifact_id"]
+    )
     assert not backend.list_rows("effect_slots")
 
 
@@ -398,21 +404,20 @@ def test_f007_binding_survives_job_attempt_result_and_effect_persistence(tmp_pat
         binding_validator=lambda current: True,
     )
     assert created is True
-    assert CrossPlaneExecutionBinding.from_dict(
-        json.loads(job["cross_plane_binding"])
-    ) == binding
-    assert CrossPlaneExecutionBinding.from_dict(
-        json.loads(attempt["cross_plane_binding"])
-    ) == binding
-    persisted_result = next(
-        row for row in backend.list_rows("attempt_results") if row["result_id"] == result["result_id"]
+    assert CrossPlaneExecutionBinding.from_dict(json.loads(job["cross_plane_binding"])) == binding
+    assert (
+        CrossPlaneExecutionBinding.from_dict(json.loads(attempt["cross_plane_binding"])) == binding
     )
-    assert CrossPlaneExecutionBinding.from_dict(
-        json.loads(persisted_result["cross_plane_binding"])
-    ) == binding
-    assert CrossPlaneExecutionBinding.from_dict(
-        json.loads(slot["cross_plane_binding"])
-    ) == binding
+    persisted_result = next(
+        row
+        for row in backend.list_rows("attempt_results")
+        if row["result_id"] == result["result_id"]
+    )
+    assert (
+        CrossPlaneExecutionBinding.from_dict(json.loads(persisted_result["cross_plane_binding"]))
+        == binding
+    )
+    assert CrossPlaneExecutionBinding.from_dict(json.loads(slot["cross_plane_binding"])) == binding
 
 
 def test_f003_domain_apply_before_ack_reconciles_by_effect_identity(tmp_path):
@@ -488,9 +493,7 @@ def test_production_semantic_effects_use_effect_slots_and_exact_bindings(tmp_pat
         for row in backend.list_rows("logical_jobs")
         if row["idempotency_key"] == f"session-closure:{state['session_closure_id']}"
     )
-    binding = CrossPlaneExecutionBinding.from_dict(
-        json.loads(closure_job["cross_plane_binding"])
-    )
+    binding = CrossPlaneExecutionBinding.from_dict(json.loads(closure_job["cross_plane_binding"]))
     current_map = ResearchStoreFacade(ProjectStore(project_root)).load_current_map(
         state["research_map_id"]
     )

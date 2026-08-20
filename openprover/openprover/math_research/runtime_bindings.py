@@ -76,13 +76,9 @@ class CrossPlaneExecutionBinding:
         if any(value is not None for value in governance_values) and not all(
             value is not None for value in governance_values
         ):
-            raise ProjectError(
-                "CrossPlaneExecutionBinding requires complete governance identity"
-            )
+            raise ProjectError("CrossPlaneExecutionBinding requires complete governance identity")
         return cls(
-            root_claim_snapshot_hash=_hash(
-                root_claim_snapshot_hash, "root_claim_snapshot_hash"
-            )
+            root_claim_snapshot_hash=_hash(root_claim_snapshot_hash, "root_claim_snapshot_hash")
             or "",
             research_map_id=_text(research_map_id, "research_map_id"),
             research_map_version=research_map_version,
@@ -156,4 +152,3 @@ def binding_json(value: CrossPlaneExecutionBinding | None) -> str | None:
     import json
 
     return json.dumps(value.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
