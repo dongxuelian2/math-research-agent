@@ -16,6 +16,7 @@ from .runtime_model import (
     OutboxState,
     content_hash,
 )
+from .runtime_bindings import CrossPlaneExecutionBinding
 
 
 class DurableProviderDispatcher:
@@ -45,6 +46,8 @@ class DurableProviderDispatcher:
         retry_fallback_reason: str | None = None,
         claim_snapshot_hash: str | None = None,
         directive_context_refs: tuple[str, ...] = (),
+        execution_binding: CrossPlaneExecutionBinding | dict[str, Any] | None = None,
+        binding_validator=None,
         fault_injector: FaultInjector | None = None,
         on_started: Callable[[dict[str, Any]], None] | None = None,
         on_finished: Callable[[str], None] | None = None,
@@ -60,6 +63,7 @@ class DurableProviderDispatcher:
             dispatch_kind="PROVIDER_INVOCATION",
             claim_snapshot_hash=claim_snapshot_hash,
             directive_context_refs=directive_context_refs,
+            execution_binding=execution_binding,
             retry_fallback_reason=retry_fallback_reason,
         )
         if fault_injector is not None:
@@ -151,9 +155,37 @@ class DurableProviderDispatcher:
             },
             lease_token=lease["lease_token"],
             generation=lease["generation"],
+            execution_binding=execution_binding,
             actor=self.owner,
         )
-        winner = self.backend.accept_result(logical_job_id, actor=self.owner)
+        if not result["authoritative"]:
+            self.backend.transition_outbox(
+                outbox["outbox_id"],
+                OutboxState.FAILED_RETRYABLE,
+                claim_token=outbox_claim["claim_token"],
+                claim_generation=outbox_claim["claim_generation"],
+                actor=self.owner,
+                last_error=str(result.get("fencing_rejection") or "STALE_FENCED"),
+            )
+            returned = copy.deepcopy(response)
+            returned["runtime"] = {
+                "logical_job_id": logical_job_id,
+                "attempt_id": attempt["attempt_id"],
+                "outbox_id": outbox["outbox_id"],
+                "result_id": result["result_id"],
+                "accepted": False,
+                "authoritative": False,
+                "artifact_id": artifact["artifact_id"],
+                "fencing_rejection": result.get("fencing_rejection"),
+            }
+            if on_finished is not None:
+                on_finished(attempt["attempt_id"])
+            return returned
+        winner = self.backend.accept_result(
+            logical_job_id,
+            actor=self.owner,
+            binding_validator=binding_validator,
+        )
         self.backend.transition_outbox(
             outbox["outbox_id"],
             OutboxState.ACKNOWLEDGED,

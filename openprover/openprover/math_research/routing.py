@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from .project import ProjectError, utc_now
 from .gemini_tools import build_tool_payload
+from .runtime_bindings import CrossPlaneExecutionBinding
 
 
 TIERS = ("routine", "research", "strategic")
@@ -259,6 +260,8 @@ class ModelRouter:
         project_override: dict | None = None,
         runtime_backend=None,
         runtime_scope: str | None = None,
+        execution_binding: CrossPlaneExecutionBinding | dict | None = None,
+        execution_binding_validator=None,
     ):
         self.config = copy.deepcopy(config)
         self.layers = [
@@ -272,6 +275,8 @@ class ModelRouter:
         self.state = initialize_routing_state(state)
         self.runtime_backend = runtime_backend
         self.runtime_scope = runtime_scope or "standalone"
+        self.execution_binding = execution_binding
+        self.execution_binding_validator = execution_binding_validator
         self._lock = threading.RLock()
         self._save()
 
@@ -793,12 +798,18 @@ class RoutedLLMClient:
         default_role: str,
         archive_dir: Path,
         working_dir: Path,
+        execution_binding: CrossPlaneExecutionBinding | dict | None = None,
     ):
         self.router = router
         self.client_factory = client_factory
         self.default_role = normalize_role(default_role)
         self.archive_dir = Path(archive_dir)
         self.working_dir = Path(working_dir)
+        self.execution_binding = (
+            execution_binding
+            if execution_binding is not None
+            else getattr(router, "execution_binding", None)
+        )
         self._clients: dict[tuple, Any] = {}
         self._lock = threading.RLock()
         self.call_count = 0
@@ -944,6 +955,7 @@ class RoutedLLMClient:
                 semantic_target=obligation_id or branch_id or route.role,
                 idempotency_key=f"{self.router.runtime_scope}:{metadata['call_id']}",
                 obligation_id=obligation_id,
+                execution_binding=self.execution_binding,
                 result_policy="FIRST_VALID_ACCEPTED_RESULT",
                 actor="model-router",
             )
@@ -969,6 +981,8 @@ class RoutedLLMClient:
                 },
                 invoke=lambda: getattr(active_client, method)(**payload, **kwargs),
                 retry_fallback_reason=fallback_reason,
+                execution_binding=self.execution_binding,
+                binding_validator=getattr(self.router, "execution_binding_validator", None),
                 on_started=lambda attempt: self._runtime_attempts.__setitem__(
                     attempt["attempt_id"], attempt
                 ),

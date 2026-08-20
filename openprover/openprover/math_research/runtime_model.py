@@ -12,7 +12,7 @@ from enum import StrEnum
 from typing import Any, Callable, Mapping, Protocol
 
 
-RUNTIME_SCHEMA_VERSION = 2
+RUNTIME_SCHEMA_VERSION = 3
 
 
 class RuntimeErrorBase(RuntimeError):
@@ -56,6 +56,7 @@ class AttemptState(StrEnum):
     CANCEL_REQUESTED = "CANCEL_REQUESTED"
     CANCELLED = "CANCELLED"
     ORPHANED = "ORPHANED"
+    UNKNOWN_EXECUTION = "UNKNOWN_EXECUTION"
     BLOCKED_MISSING_ARTIFACT = "BLOCKED_MISSING_ARTIFACT"
 
 
@@ -95,9 +96,11 @@ ATTEMPT_TRANSITIONS: Mapping[str, frozenset[str]] = {
         {
             AttemptState.LEASED,
             AttemptState.RESULT_RECORDED,
+            AttemptState.UNKNOWN_EXECUTION,
             AttemptState.BLOCKED_MISSING_ARTIFACT,
         }
     ),
+    AttemptState.UNKNOWN_EXECUTION: frozenset(),
     AttemptState.RESULT_RECORDED: frozenset(
         {AttemptState.COMPLETED, AttemptState.BLOCKED_MISSING_ARTIFACT}
     ),
@@ -135,6 +138,7 @@ class ReconciliationAction(StrEnum):
     BLOCK_MISSING_ARTIFACT = "BLOCK_MISSING_ARTIFACT"
     REPAIR_PROJECTION = "REPAIR_PROJECTION"
     MANUAL_REVIEW_REQUIRED = "MANUAL_REVIEW_REQUIRED"
+    UNKNOWN_EXECUTION = "UNKNOWN_EXECUTION"
 
 
 class FaultPoint(StrEnum):
