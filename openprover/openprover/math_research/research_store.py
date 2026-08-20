@@ -497,9 +497,7 @@ class ResearchStoreFacade:
         if not isinstance(transfer, ScopeTransfer):
             raise ProjectError("TRANSFER_REVALIDATION requires a typed ScopeTransfer")
         if not isinstance(authorization, PatchAuthorization):
-            raise ProjectError(
-                "TRANSFER_REVALIDATION requires a typed PatchAuthorization"
-            )
+            raise ProjectError("TRANSFER_REVALIDATION requires a typed PatchAuthorization")
         if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
             raise ProjectError("TRANSFER_REVALIDATION requires AUTHORIZED PatchAuthorization")
         if transfer.disposition not in {
@@ -572,8 +570,7 @@ class ResearchStoreFacade:
         if target_ref.disposition == ObligationDispositionKind.RESOLVED.value:
             disposition = self.load_disposition(target_ref.disposition_hash)
             expected_basis = (
-                f"TRANSFER_REVALIDATION {closure.session_closure_id}"
-                f" -> {target_obligation_id}"
+                f"TRANSFER_REVALIDATION {closure.session_closure_id} -> {target_obligation_id}"
             )
             if disposition.resolution_basis != expected_basis:
                 return self._closure_decision(
@@ -589,12 +586,9 @@ class ResearchStoreFacade:
             disposition=ObligationDispositionKind.RESOLVED.value,
             evidence_refs=decision.accepted_evidence_ids,
             resolution_basis=(
-                f"TRANSFER_REVALIDATION {closure.session_closure_id}"
-                f" -> {target_obligation_id}"
+                f"TRANSFER_REVALIDATION {closure.session_closure_id} -> {target_obligation_id}"
             ),
-            reason=(
-                "accepted only after explicit authorized ScopeTransfer revalidation"
-            ),
+            reason=("accepted only after explicit authorized ScopeTransfer revalidation"),
             recorded_by=recorded_by,
             revision_reason=MapRevisionReason.OBLIGATION_RESOLVED.value,
         )
@@ -783,11 +777,16 @@ class ResearchStoreFacade:
                 raise ProjectError("durable probe identity mismatch")
             for probe_id, probe_hash in zip(patch.probe_ids, patch.probe_hashes, strict=True):
                 probe = controller.load_probe(probe_id)
-                if probe.probe_hash != probe_hash or probe.result != StructuralProbeResult.SUPPORTS_PATCH.value:
+                if (
+                    probe.probe_hash != probe_hash
+                    or probe.result != StructuralProbeResult.SUPPORTS_PATCH.value
+                ):
                     raise ProjectError("durable probe does not support this patch")
 
             expected_thesis = patch.structural_thesis_change or prior.strategic_thesis
-            requested_thesis = prior.strategic_thesis if strategic_thesis is None else strategic_thesis
+            requested_thesis = (
+                prior.strategic_thesis if strategic_thesis is None else strategic_thesis
+            )
             if requested_thesis != expected_thesis:
                 raise ProjectError("durable authorization is not bound to the requested thesis")
             if tuple(patch.removed_or_reframed_scope) != tuple(removed_or_reframed_scope):
@@ -830,9 +829,11 @@ class ResearchStoreFacade:
         strategic_thesis_changed = (
             strategic_thesis is not None and strategic_thesis != prior.strategic_thesis
         )
-        destructive_revision = bool(removed_or_reframed_scope) or (
-            revision_reason == MapRevisionReason.ARCHITECTURE_PATCH.value
-        ) or strategic_thesis_changed
+        destructive_revision = (
+            bool(removed_or_reframed_scope)
+            or (revision_reason == MapRevisionReason.ARCHITECTURE_PATCH.value)
+            or strategic_thesis_changed
+        )
         if destructive_revision:
             if not isinstance(governance_authorization, _TrustedGovernedReframe):
                 raise ProjectError(

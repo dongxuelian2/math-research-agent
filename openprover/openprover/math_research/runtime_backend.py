@@ -451,7 +451,10 @@ class SQLiteRuntimeBackend:
     ) -> dict[str, Any]:
         binding = coerce_binding(execution_binding)
         if binding is not None:
-            if claim_snapshot_hash is not None and claim_snapshot_hash != binding.root_claim_snapshot_hash:
+            if (
+                claim_snapshot_hash is not None
+                and claim_snapshot_hash != binding.root_claim_snapshot_hash
+            ):
                 raise RuntimeConflict("LogicalJob claim binding does not match execution context")
             claim_snapshot_hash = binding.root_claim_snapshot_hash
             directive_id = binding.directive_id or directive_id
@@ -588,8 +591,13 @@ class SQLiteRuntimeBackend:
             job_value = dict(job)
             binding = coerce_binding(execution_binding) or self._binding_from_row(job_value)
             if binding is not None:
-                if claim_snapshot_hash is not None and claim_snapshot_hash != binding.root_claim_snapshot_hash:
-                    raise RuntimeConflict("AttemptIntent claim binding does not match execution context")
+                if (
+                    claim_snapshot_hash is not None
+                    and claim_snapshot_hash != binding.root_claim_snapshot_hash
+                ):
+                    raise RuntimeConflict(
+                        "AttemptIntent claim binding does not match execution context"
+                    )
                 claim_snapshot_hash = binding.root_claim_snapshot_hash
             serialized_binding = self._binding_json(binding)
             number = attempt_number
@@ -1209,7 +1217,11 @@ class SQLiteRuntimeBackend:
                 "SELECT * FROM logical_jobs WHERE logical_job_id = ?",
                 (attempt["logical_job_id"],),
             ).fetchone()
-            if job is not None and job["accepted_result_id"] is None and job["state"] != JobState.BLOCKED:
+            if (
+                job is not None
+                and job["accepted_result_id"] is None
+                and job["state"] != JobState.BLOCKED
+            ):
                 connection.execute(
                     "UPDATE logical_jobs SET state = ?, updated_at = ?, version = version + 1 "
                     "WHERE logical_job_id = ? AND accepted_result_id IS NULL",
@@ -1717,7 +1729,9 @@ class SQLiteRuntimeBackend:
                 if existing["source_result_id"] != source_result_id:
                     raise RuntimeConflict("Effect slot already belongs to another accepted result")
                 existing_binding = self._binding_from_row(existing)
-                if requested_binding is not None and not requested_binding.matches(existing_binding):
+                if requested_binding is not None and not requested_binding.matches(
+                    existing_binding
+                ):
                     raise RuntimeConflict("Effect slot has a different cross-plane binding")
                 # A replay may occur after the domain store committed but before
                 # the runtime ACK.  The current ResearchMap/ClaimSnapshot can

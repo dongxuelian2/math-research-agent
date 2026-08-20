@@ -129,9 +129,10 @@ def test_d1_forward_migration_from_previous_runtime_schema(tmp_path: Path):
     connection.close()
     backend = SQLiteRuntimeBackend(root)
     assert backend.check()["schema_version"] == 3
-    assert [
-        row["target_version"] for row in backend.list_rows("runtime_migration_history")
-    ] == [2, 3]
+    assert [row["target_version"] for row in backend.list_rows("runtime_migration_history")] == [
+        2,
+        3,
+    ]
 
 
 def test_d2_logical_job_is_stable_across_multiple_attempts(tmp_path: Path):
