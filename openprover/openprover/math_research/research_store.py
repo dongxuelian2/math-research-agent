@@ -6,6 +6,7 @@ import copy
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .directive import BudgetProfile, Directive, TacticalSession
 from .project import ProjectError, ProjectStore, utc_now
 from .research_common import (
     digest_part,
@@ -48,15 +49,123 @@ class ResearchStoreFacade:
     does not claim database transactions or cross-process reconciliation.
     """
 
-    def __init__(self, project: ProjectStore, *, truth_store: TruthStoreFacade | None = None):
+    def __init__(
+        self,
+        project: ProjectStore,
+        *,
+        truth_store: TruthStoreFacade | None = None,
+        root_validation_kwargs: Mapping[str, Any] | None = None,
+    ):
         self.project = project
         self.truth_store = truth_store or TruthStoreFacade(project)
+        self.root_validation_kwargs = dict(root_validation_kwargs or {})
         self.root = project.root / "research"
         self.maps_root = self.root / "maps"
         self.obligations_root = self.root / "obligations"
         self.dispositions_root = self.root / "dispositions"
         self.rebases_root = self.root / "rebases"
+        self.directives_root = self.root / "directives"
+        self.sessions_root = self.root / "sessions"
         self.index_root = self.root / "indexes"
+
+    def create_directive(
+        self,
+        research_map_id: str,
+        obligation_id: str,
+        *,
+        tactical_goal: str,
+        allowed_scope: Iterable[str],
+        created_by: str,
+        prohibited_routes: Iterable[str] = (),
+        relevant_evidence_refs: Iterable[str] = (),
+        failed_route_refs: Iterable[str] = (),
+        requested_worker_roles: Iterable[str] = ("constructive",),
+        budget_profile: BudgetProfile | None = None,
+    ) -> Directive:
+        current = self.load_current_map(research_map_id)
+        self._validate_root_hash(current.root_claim_snapshot_hash, "CREATE_DIRECTIVE")
+        ref = current.obligation_ref(obligation_id)
+        if ref.disposition not in {
+            ObligationDispositionKind.OPEN.value,
+            ObligationDispositionKind.BLOCKED.value,
+        }:
+            raise ProjectError(
+                f"Directive requires an OPEN/BLOCKED obligation, got {ref.disposition}"
+            )
+        directive = Directive.capture(
+            research_map_id=current.research_map_id,
+            research_map_version=current.version,
+            research_map_hash=current.research_map_hash,
+            obligation_id=ref.obligation_id,
+            obligation_hash=ref.obligation_hash,
+            root_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            tactical_goal=tactical_goal,
+            allowed_scope=tuple(allowed_scope),
+            prohibited_routes=tuple(prohibited_routes),
+            relevant_evidence_refs=tuple(relevant_evidence_refs),
+            failed_route_refs=tuple(failed_route_refs),
+            requested_worker_roles=tuple(requested_worker_roles),
+            budget_profile=budget_profile
+            or BudgetProfile.capture(
+                wall_clock_seconds=900,
+                max_workers=3,
+                max_provider_calls=100,
+                reasoning_tier="standard",
+            ),
+            created_at=utc_now(),
+            created_by=created_by,
+        )
+        path = self.directives_root / f"{directive.directive_id}.json"
+        if path.exists():
+            return self.load_directive(directive.directive_id)
+        write_immutable_json(path, directive.to_dict())
+        return directive
+
+    def bind_tactical_session(
+        self,
+        directive_id: str,
+        *,
+        execution_run_id: str,
+        parent_execution_run_id: str | None = None,
+        execution_status: str = "CREATED",
+    ) -> TacticalSession:
+        directive = self.load_directive(directive_id)
+        current = self.load_current_map(directive.research_map_id)
+        self._validate_root_hash(directive.root_claim_snapshot_hash, "BIND_TACTICAL_SESSION")
+        if current.research_map_hash != directive.research_map_hash:
+            raise ProjectError("Directive map version is no longer current")
+        if current.obligation_ref(directive.obligation_id).obligation_hash != (
+            directive.obligation_hash
+        ):
+            raise ProjectError("Directive obligation semantic revision is no longer current")
+        session = TacticalSession.capture(
+            directive=directive,
+            execution_run_id=execution_run_id,
+            parent_execution_run_id=parent_execution_run_id,
+            execution_status=execution_status,
+            created_at=utc_now(),
+        )
+        path = self.sessions_root / session.tactical_session_id / "binding.json"
+        if path.exists():
+            return self.load_tactical_session(session.tactical_session_id)
+        write_immutable_json(path, session.to_dict())
+        return session
+
+    def load_directive(self, directive_id: str) -> Directive:
+        path = self.directives_root / f"{require_id(directive_id, 'directive_id')}.json"
+        result = Directive.from_dict(read_json(path, "Directive"))
+        if result.directive_id != directive_id:
+            raise ProjectError("Directive filename/id mismatch")
+        return result
+
+    def load_tactical_session(self, tactical_session_id: str) -> TacticalSession:
+        session_id = require_id(tactical_session_id, "tactical_session_id")
+        value = read_json(self.sessions_root / session_id / "binding.json", "TacticalSession")
+        directive = self.load_directive(value.get("directive_id", ""))
+        result = TacticalSession.from_dict(value, directive)
+        if result.tactical_session_id != session_id:
+            raise ProjectError("TacticalSession filename/id mismatch")
+        return result
 
     def create_initial_map(
         self,
@@ -536,7 +645,9 @@ class ResearchStoreFacade:
     def _validate_root_hash(self, root_hash: str, operation: str) -> None:
         require_hash(root_hash, "root_claim_snapshot_hash")
         try:
-            self.truth_store.validate_snapshot_for_execution(root_hash)
+            self.truth_store.validate_snapshot_for_execution(
+                root_hash, **self.root_validation_kwargs
+            )
         except TruthValidationError as exc:
             raise ResearchMapRootStale(
                 operation,

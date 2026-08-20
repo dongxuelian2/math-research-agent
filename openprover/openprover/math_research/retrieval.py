@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .canonical_artifacts import canonical_context_markdown
-from .project import ProjectStore, utc_now
+from .directive import Directive
+from .project import ProjectError, ProjectStore, utc_now
 from .trust_kernel import TrustKernel
 from .truth_identity import prompt_projection_hash
 
@@ -64,6 +65,7 @@ class ContextBuilder:
         expand: bool = False,
         canonical_authority: list[dict] | None = None,
         claim_snapshot: dict | None = None,
+        directive: Directive | None = None,
     ) -> ContextPackage:
         target = self.project.load_theorem(target_id)
         dependency_ids, premise_ids, cycles = self._dependency_closure(target_id)
@@ -141,6 +143,13 @@ class ContextBuilder:
             | set(steering.get("prohibit_routes", []))
         )
         scope = steering.get("allowed_scope") or project_meta.get("allowed_scope", [])
+        if directive is not None:
+            if directive.root_claim_snapshot_hash != (claim_snapshot or {}).get(
+                "claim_snapshot_hash"
+            ):
+                raise ProjectError("Directive and context ClaimSnapshot do not match")
+            scope = list(directive.allowed_scope)
+            prohibited = sorted(set(prohibited) | set(directive.prohibited_routes))
         data = {
             "schema_version": 1,
             "generated_at": utc_now(),
@@ -161,6 +170,7 @@ class ContextBuilder:
             "sources": sources,
             "canonical_authority": list(canonical_authority or []),
             "claim_snapshot": dict(claim_snapshot or {}),
+            "tactical_context": directive.tactical_context() if directive else None,
             "expanded": expand,
         }
         markdown = self._to_markdown(data)
@@ -247,6 +257,16 @@ class ContextBuilder:
         prohibited = ", ".join(data["prohibited_routes"]) or "(none)"
         scope = ", ".join(data["allowed_scope"]) or "current target and its dependency slice only"
         canonical_authority = canonical_context_markdown(data.get("canonical_authority", []))
+        tactical = data.get("tactical_context")
+        tactical_text = "- Source Directive: `(legacy/unbound)`"
+        if tactical:
+            tactical_text = (
+                f"- Source Directive: `{tactical['source_directive_id']}`\n"
+                f"- Obligation: `{tactical['obligation_id']}`\n"
+                f"- Tactical goal: {tactical['tactical_goal']}\n"
+                f"- Requested worker roles: "
+                f"{', '.join(tactical['requested_worker_roles']) or '(none)'}"
+            )
         return f"""# Math Research Context Package
 
 ## Scope
@@ -263,6 +283,13 @@ class ContextBuilder:
 - Claim snapshot: `{data.get("claim_snapshot", {}).get("claim_snapshot_hash", "UNBOUND")}`
 - Assertion identity: `{data.get("claim_snapshot", {}).get("assertion_identity_hash", "UNBOUND")}`
 - This prompt projection is not theorem identity or mathematical authority.
+
+## Tactical Directive projection
+
+{tactical_text}
+
+- The Planner coordinates this immutable session scope. Planner output cannot
+  mutate the ResearchMap or create long-term research dispositions.
 
 ## Frozen branches
 
