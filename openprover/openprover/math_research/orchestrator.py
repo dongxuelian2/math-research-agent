@@ -51,7 +51,7 @@ from .scheduler import (
     StrategyFingerprintStore,
 )
 from .state_machine import AuditGate
-from .truth_store import TruthStoreFacade
+from .truth_store import TruthMutationBlocked, TruthStoreFacade
 
 
 PHASES = ("CREATED", "CONTEXT_READY", "CANDIDATE_READY", "AUDITS_READY", "COMPLETE")
@@ -1463,19 +1463,49 @@ changed failure condition is explicitly recorded.
                 )
                 return
             report_path = self._write_resolution_report(gate)
-            theorem = self.project.load_theorem(self.target_id)
-            theorem["proof_file"] = report_path.relative_to(self.project.root).as_posix()
-            theorem["proof_type"] = (
-                "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
+            audit_artifacts = sorted((self.run_dir / "audits").glob("*.json"))
+            audit_artifacts.append(self.run_dir / "CANDIDATE_PROOF.md")
+            try:
+                self.target, snapshot, intent, receipt = self.truth_store.compare_and_transition(
+                    self.target_id,
+                    claim_snapshot=self.claim_snapshot,
+                    gate=gate,
+                    actor="Archivist",
+                    reason=f"All audit gates passed in {self.run_dir.name}",
+                    audit_artifacts=audit_artifacts,
+                    metadata_updates={
+                        "proof_file": report_path.relative_to(self.project.root).as_posix(),
+                        "proof_type": (
+                            "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
+                        ),
+                    },
+                    **self._truth_capture_kwargs(),
+                )
+            except TruthMutationBlocked as exc:
+                blocked = json.loads(exc.blocked_path.read_text(encoding="utf-8"))
+                checkpoint_status = (
+                    "BLOCKED_CLAIM_SNAPSHOT_STALE"
+                    if blocked.get("status") == "ASSERTION_CHANGED"
+                    else "REVALIDATION_REQUIRED"
+                )
+                self._checkpoint(
+                    CHECKPOINT_PHASE,
+                    status=checkpoint_status,
+                    checkpoint_reason=checkpoint_status,
+                    resume_phase="AUDITS_READY",
+                    truth_mutation_id=exc.mutation_id,
+                    truth_mutation_blocked_file=str(exc.blocked_path),
+                    truth_mutation_blocked=blocked,
+                )
+                return
+            self._bind_claim_snapshot(snapshot, event="PROMOTION_RECEIPT")
+            self.state["truth_mutation_id"] = intent.mutation_id
+            self.state["truth_mutation_receipt_hash"] = receipt.receipt_hash
+            self.state["truth_mutation_intent_file"] = str(
+                self.truth_store.intent_path(intent.mutation_id)
             )
-            self.project.update_theorem(theorem)
-            self.target = self.project.transition(
-                self.target_id,
-                "PROVED",
-                actor="Archivist",
-                reason=f"All audit gates passed in {self.run_dir.name}",
-                gate=gate,
-                audit_status="PASS",
+            self.state["truth_mutation_receipt_file"] = str(
+                self.truth_store.receipt_path(intent.mutation_id)
             )
             project_meta = self.project.load_project()
             branch = self.target.get("branch", "main")

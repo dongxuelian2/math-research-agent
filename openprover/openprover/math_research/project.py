@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +18,7 @@ from .state_machine import AuditGate, THEOREM_STATUSES, validate_transition
 SCHEMA_VERSION = 1
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 PREMISE_NODE_TYPES = {"PROJECT_PREMISE", "ROOT_PROBLEM", "ASSUMPTION"}
+_PROJECT_TRUTH_LOCK = threading.RLock()
 
 
 class ProjectError(ValueError):
@@ -155,8 +159,9 @@ class ProjectStore:
         return data
 
     def save_project(self, data: dict) -> None:
-        data["last_updated"] = utc_now()
-        _write_json(self.project_file, data)
+        with _PROJECT_TRUTH_LOCK:
+            data["last_updated"] = utc_now()
+            _write_json(self.project_file, data)
 
     def theorem_path(self, theorem_id: str) -> Path:
         self.validate_id(theorem_id)
@@ -365,11 +370,12 @@ class ProjectStore:
         return theorem
 
     def update_theorem(self, theorem: dict) -> None:
-        theorem_id = theorem.get("id", "")
-        self.validate_id(theorem_id)
-        theorem["last_updated"] = utc_now()
-        _write_json(self.theorem_path(theorem_id), theorem)
-        self.rebuild_index(update_theorem_files=False)
+        with _PROJECT_TRUTH_LOCK:
+            theorem_id = theorem.get("id", "")
+            self.validate_id(theorem_id)
+            theorem["last_updated"] = utc_now()
+            _write_json(self.theorem_path(theorem_id), theorem)
+            self.rebuild_index(update_theorem_files=False)
 
     def transition(
         self,
@@ -381,7 +387,87 @@ class ProjectStore:
         gate: AuditGate | None = None,
         audit_status: str | None = None,
     ) -> dict:
-        theorem = self.load_theorem(theorem_id)
+        with _PROJECT_TRUTH_LOCK:
+            return self._transition_locked(
+                theorem_id,
+                new_status,
+                actor=actor,
+                reason=reason,
+                gate=gate,
+                audit_status=audit_status,
+            )
+
+    @contextmanager
+    def truth_transaction(self):
+        """Serialize in-process truth comparison and its filesystem transition."""
+
+        with _PROJECT_TRUTH_LOCK:
+            yield
+
+    def compare_and_transition(
+        self,
+        theorem_id: str,
+        new_status: str,
+        *,
+        expected_status: str,
+        expected_identity: dict[str, str],
+        actor: str,
+        reason: str,
+        gate: AuditGate | None = None,
+        audit_status: str | None = None,
+        metadata_updates: dict[str, Any] | None = None,
+    ) -> tuple[dict, dict]:
+        """Apply one serialized status CAS after exact root-identity comparison."""
+
+        with _PROJECT_TRUTH_LOCK:
+            before = self.load_theorem(theorem_id)
+            if before["status"] != expected_status:
+                raise ProjectError(
+                    f"Truth compare failed: expected status {expected_status}, "
+                    f"found {before['status']}"
+                )
+            mismatches = [
+                key
+                for key, expected in expected_identity.items()
+                if before.get(key, "") != expected
+            ]
+            if mismatches:
+                raise ProjectError(
+                    "Truth compare failed for identity fields: " + ", ".join(sorted(mismatches))
+                )
+            forbidden = {"id", "statement", "claim_type", "notation_scope"}.intersection(
+                metadata_updates or {}
+            )
+            if forbidden:
+                raise ProjectError(
+                    "compare_and_transition metadata cannot change truth identity: "
+                    + ", ".join(sorted(forbidden))
+                )
+            before_record = copy.deepcopy(before)
+            after = copy.deepcopy(before)
+            after.update(dict(metadata_updates or {}))
+            return before_record, self._transition_locked(
+                theorem_id,
+                new_status,
+                actor=actor,
+                reason=reason,
+                gate=gate,
+                audit_status=audit_status,
+                theorem=after,
+            )
+
+    def _transition_locked(
+        self,
+        theorem_id: str,
+        new_status: str,
+        *,
+        actor: str,
+        reason: str,
+        gate: AuditGate | None,
+        audit_status: str | None,
+        theorem: dict | None = None,
+    ) -> dict:
+        theorem = theorem if theorem is not None else self.load_theorem(theorem_id)
         current = theorem["status"]
         validate_transition(current, new_status, actor=actor, gate=gate)
         if current == new_status:
