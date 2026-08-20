@@ -14,6 +14,7 @@ from .research_common import (
     require_hash,
     require_id,
     write_immutable_json,
+    write_immutable_bytes,
     write_projection_json,
 )
 from .research_map import (
@@ -21,6 +22,15 @@ from .research_map import (
     ObligationRef,
     ResearchMap,
     ResearchMapRebase,
+)
+from .research_evidence import (
+    EvidenceProjection,
+    ObligationResolutionDecision,
+    ProviderProvenance,
+    RawArtifactRef,
+    ResolutionStatus,
+    SessionClosure,
+    can_resolve_obligation,
 )
 from .research_obligation import (
     ObligationDisposition,
@@ -32,6 +42,7 @@ from .route_failure import (
     RouteFailureRecord,
     route_failure_from_legacy_fingerprint,
 )
+from .truth_identity import source_artifact_sha256
 from .truth_store import TruthStoreFacade, TruthValidationError
 
 
@@ -256,6 +267,140 @@ class ResearchStoreFacade:
         if result.tactical_session_id != session_id:
             raise ProjectError("TacticalSession filename/id mismatch")
         return result
+
+    def close_tactical_session(
+        self,
+        tactical_session_id: str,
+        *,
+        execution_status: str,
+        raw_artifacts: Iterable[Mapping[str, Any]],
+        evidence_specs: Iterable[Mapping[str, Any]],
+        unresolved_findings: Iterable[str] = (),
+        provider_provenance: Iterable[ProviderProvenance] = (),
+        closed_by: str,
+    ) -> SessionClosure:
+        session = self.load_tactical_session(tactical_session_id)
+        self._validate_root_hash(session.root_claim_snapshot_hash, "CLOSE_TACTICAL_SESSION")
+        retained: list[RawArtifactRef] = []
+        by_original: dict[str, RawArtifactRef] = {}
+        for item in raw_artifacts:
+            if not isinstance(item, Mapping):
+                raise ProjectError("Session raw artifact specifications must be objects")
+            source = self._project_artifact_path(item.get("path"))
+            digest = source_artifact_sha256(source)
+            suffix = source.suffix if len(source.suffix) <= 16 else ""
+            destination = (
+                self.sessions_root
+                / session.tactical_session_id
+                / "raw"
+                / f"{digest.removeprefix('sha256:')}{suffix}"
+            )
+            write_immutable_bytes(destination, source.read_bytes())
+            retained_path = destination.relative_to(self.project.root).as_posix()
+            ref = RawArtifactRef.capture(
+                artifact_kind=str(item.get("artifact_kind") or "OTHER"),
+                retained_path=retained_path,
+                artifact_sha256=digest,
+                original_path=source.relative_to(self.project.root).as_posix(),
+                producer=str(item.get("producer") or "unknown"),
+            )
+            retained.append(ref)
+            by_original[str(source)] = ref
+        evidence: list[EvidenceProjection] = []
+        for item in evidence_specs:
+            if not isinstance(item, Mapping):
+                raise ProjectError("Session evidence specifications must be objects")
+            source = self._project_artifact_path(item.get("artifact_path"))
+            raw = by_original.get(str(source))
+            if raw is None:
+                raise ProjectError("Evidence projection source was not retained as a raw artifact")
+            evidence.append(
+                EvidenceProjection.capture(
+                    evidence_kind=item["evidence_kind"],
+                    obligation_id=session.obligation_id,
+                    obligation_hash=session.obligation_hash,
+                    root_claim_snapshot_hash=session.root_claim_snapshot_hash,
+                    artifact_sha256=raw.artifact_sha256,
+                    retained_artifact_path=raw.retained_path,
+                    scope_obligation_ids=item.get(
+                        "scope_obligation_ids", (session.obligation_id,)
+                    ),
+                    verifier_status=item.get("verifier_status", "NOT_APPLICABLE"),
+                    audit_status=item.get("audit_status", "NOT_APPLICABLE"),
+                    authority_status=item.get("authority_status", "NOT_APPLICABLE"),
+                    authority_refs=item.get("authority_refs", ()),
+                    summary=item.get("summary", ""),
+                )
+            )
+        closure = SessionClosure.capture(
+            session=session,
+            execution_status=execution_status,
+            raw_artifacts=retained,
+            validated_evidence=evidence,
+            unresolved_findings=tuple(unresolved_findings),
+            provider_provenance=tuple(provider_provenance),
+            closed_at=utc_now(),
+            closed_by=closed_by,
+        )
+        path = self.sessions_root / session.tactical_session_id / "closure.json"
+        if path.exists():
+            return self.load_session_closure(session.tactical_session_id)
+        write_immutable_json(path, closure.to_dict())
+        for item in closure.validated_evidence:
+            self._index_references(
+                {
+                    item.evidence_id,
+                    item.evidence_hash,
+                    item.artifact_sha256,
+                    item.root_claim_snapshot_hash,
+                    *item.authority_refs,
+                },
+                obligation_id=item.obligation_id,
+                research_map_id=closure.research_map_id,
+            )
+        return closure
+
+    def load_session_closure(self, tactical_session_id: str) -> SessionClosure:
+        session = self.load_tactical_session(tactical_session_id)
+        path = self.sessions_root / session.tactical_session_id / "closure.json"
+        return SessionClosure.from_dict(read_json(path, "SessionClosure"), session)
+
+    def evaluate_session_closure(
+        self, tactical_session_id: str
+    ) -> ObligationResolutionDecision:
+        closure = self.load_session_closure(tactical_session_id)
+        current = self.load_current_map(closure.research_map_id)
+        self._validate_root_hash(current.root_claim_snapshot_hash, "EVALUATE_SESSION_CLOSURE")
+        current_ref = current.obligation_ref(closure.obligation_id)
+        obligation = self.load_obligation(current_ref.obligation_hash)
+        return can_resolve_obligation(
+            obligation,
+            closure,
+            current_claim_snapshot_hash=current.root_claim_snapshot_hash,
+        )
+
+    def resolve_session_closure(
+        self, tactical_session_id: str, *, recorded_by: str
+    ) -> tuple[ObligationResolutionDecision, ResearchMap | None]:
+        decision = self.evaluate_session_closure(tactical_session_id)
+        closure = self.load_session_closure(tactical_session_id)
+        decision_path = (
+            self.sessions_root / tactical_session_id / f"resolution-{decision.decision_hash.removeprefix('sha256:')}.json"
+        )
+        write_immutable_json(decision_path, decision.to_dict())
+        if decision.status != ResolutionStatus.RESOLUTION_ACCEPTED.value:
+            return decision, None
+        _, revised = self.record_disposition(
+            closure.research_map_id,
+            closure.obligation_id,
+            disposition=ObligationDispositionKind.RESOLVED.value,
+            evidence_refs=decision.accepted_evidence_ids,
+            resolution_basis=f"SessionClosure {closure.session_closure_id}",
+            reason="accepted by deterministic Evidence-to-Obligation gate",
+            recorded_by=recorded_by,
+            revision_reason=MapRevisionReason.OBLIGATION_RESOLVED.value,
+        )
+        return decision, revised
 
     def create_initial_map(
         self,
@@ -862,11 +1007,32 @@ class ResearchStoreFacade:
                 root_hash, **self.root_validation_kwargs
             )
         except TruthValidationError as exc:
+            # The theorem lifecycle is orthogonal to Research Plane scope.
+            # A status-only change (OPEN -> IN_RESEARCH -> AUDITING, etc.) does
+            # not alter the assertion/dependency/assumption/authority identity
+            # that the map binds. All semantic comparison statuses still fail.
+            if exc.comparison.status == "TARGET_STATUS_CHANGED":
+                return
             raise ResearchMapRootStale(
                 operation,
                 f"{exc.comparison.status}/{exc.comparison.disposition}: "
                 f"{exc.comparison.reason}",
             ) from exc
+
+    def _project_artifact_path(self, value: Any) -> Path:
+        if not isinstance(value, (str, Path)) or not str(value).strip():
+            raise ProjectError("Session artifact path is required")
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = self.project.root / candidate
+        candidate = candidate.resolve()
+        try:
+            candidate.relative_to(self.project.root)
+        except ValueError as exc:
+            raise ProjectError("Session artifact must be inside the project") from exc
+        if not candidate.is_file():
+            raise ProjectError(f"Session artifact not found: {candidate}")
+        return candidate
 
     @staticmethod
     def _ref(

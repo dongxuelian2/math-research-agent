@@ -90,11 +90,14 @@ class CandidateEngine(_OwnerComponent):
             holders["worker"] = client
             return client
 
+        active_obligation_id = (
+            self.directive.obligation_id if self.directive is not None else self.target_id
+        )
         planner_route = self.model_router.resolve(
-            "planner", obligation_id=self.target_id, reserve=False
+            "planner", obligation_id=active_obligation_id, reserve=False
         )
         worker_route = self.model_router.resolve(
-            "worker", obligation_id=self.target_id, reserve=False
+            "worker", obligation_id=active_obligation_id, reserve=False
         )
 
         budget_cfg = self.config.get("budget", {})
@@ -168,7 +171,7 @@ class CandidateEngine(_OwnerComponent):
         # ModelRouter owns per-call compute selection only. Typed worker outcomes
         # are retained by the tactical/session path and must not become durable
         # research-strategy counters inside the router.
-        policy_kwargs["root_obligation_id"] = self.target_id
+        policy_kwargs["root_obligation_id"] = active_obligation_id
         prover_kwargs["research_policy"] = ResearchPolicy(**policy_kwargs)
         active_proof_task = self._claim_target_pipeline_task("proof")
         # Literature and verification tasks belong to the same run lifetime as
