@@ -33,3 +33,9 @@ These are explicit pre-existing production deviations retained temporarily; none
 - 不可直接实现的原因: Phase 0/1 are preservation gates and explicitly forbid a wholesale runtime rewrite.
 - 采用的临时设计: Narrow hooks/adapters only; existing authority semantics remain unchanged.
 - 未来迁移条件: Phase 2 deterministic runtime and Phase 3 Truth schemas/tests pass crash, race, stale, and migration acceptance matrices.
+
+The checkpoint work does not widen this deviation. Its minimal assertion and
+policy fingerprints are compatibility metadata only; they do not claim
+ClaimSnapshot identity or Truth/Research/Execution-plane ownership. Migrated
+runtime state remains file-backed JSON by explicit scope, and no SQLite/WAL
+authority was introduced.
