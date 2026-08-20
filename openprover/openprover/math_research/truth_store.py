@@ -8,6 +8,7 @@ semantics belong here.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -78,6 +79,7 @@ class TruthStoreFacade:
         self.snapshot_dir = self.truth_root / "claim_snapshots"
         self.mutation_root = self.truth_root / "mutations"
         self.intent_dir = self.mutation_root / "intents"
+        self.prepared_dir = self.mutation_root / "prepared"
         self.receipt_dir = self.mutation_root / "receipts"
         self.blocked_dir = self.mutation_root / "blocked"
 
@@ -251,6 +253,7 @@ class TruthStoreFacade:
         replay_policy_hash: str | None = None,
         trust_policy_context: Mapping[str, Any] | None = None,
         before_compare_hook: Callable[[], None] | None = None,
+        after_transition_hook: Callable[[], None] | None = None,
     ) -> tuple[dict[str, Any], ClaimSnapshot, TruthMutationIntent, TruthMutationReceipt]:
         """Promote one exactly audited snapshot through an intent-first serialized CAS."""
 
@@ -290,6 +293,16 @@ class TruthStoreFacade:
             theorem = self.project.load_theorem(theorem_id)
             resulting_snapshot = self.load_claim_snapshot(receipt.resulting_claim_snapshot_hash)
             return theorem, resulting_snapshot, intent, receipt
+        recovered = self._recover_prepared_mutation(
+            intent,
+            snapshot=snapshot,
+            metadata_updates=metadata_updates,
+            canonical_authority=canonical_authority,
+            replay_policy_hash=replay_policy_hash,
+            trust_policy_context=trust_policy_context,
+        )
+        if recovered is not None:
+            return recovered
         if before_compare_hook is not None:
             before_compare_hook()
 
@@ -314,6 +327,23 @@ class TruthStoreFacade:
                     blocked_path=blocked_path,
                 )
             current_record = self.project.load_theorem(theorem_id)
+            prepared = {
+                "schema_version": 1,
+                "object_type": "TRUTH_MUTATION_PREPARED",
+                "mutation_id": intent.mutation_id,
+                "theorem_id": theorem_id,
+                "from_status": snapshot.captured_status,
+                "requested_to_status": "PROVED",
+                "claim_snapshot_hash": snapshot.claim_snapshot_hash,
+                "assertion_identity_hash": snapshot.assertion_identity_hash,
+                "trust_policy_fingerprint": snapshot.trust_policy_fingerprint,
+                "project_record_hash_before": project_record_hash(current_record),
+                "actor": actor,
+                "reason": reason,
+                "metadata_updates": dict(metadata_updates or {}),
+                "prepared_at": utc_now(),
+            }
+            self._write_immutable_json(self.prepared_path(intent.mutation_id), prepared)
             try:
                 before, theorem = self.project.compare_and_transition(
                     theorem_id,
@@ -348,6 +378,8 @@ class TruthStoreFacade:
                 replay_policy_hash=replay_policy_hash,
                 trust_policy_context=trust_policy_context,
             )
+            if after_transition_hook is not None:
+                after_transition_hook()
 
         receipt = TruthMutationReceipt.capture(
             mutation_id=intent.mutation_id,
@@ -356,7 +388,7 @@ class TruthStoreFacade:
             resulting_status=str(theorem["status"]),
             claim_snapshot_hash=snapshot.claim_snapshot_hash,
             resulting_claim_snapshot_hash=resulting_snapshot.claim_snapshot_hash,
-            project_record_hash_before=project_record_hash(before),
+            project_record_hash_before=str(prepared["project_record_hash_before"]),
             project_record_hash_after=project_record_hash(theorem),
             actor=actor,
             applied_at=utc_now(),
@@ -374,6 +406,9 @@ class TruthStoreFacade:
     def receipt_path(self, mutation_id: str) -> Path:
         return self.receipt_dir / f"{_digest_part(mutation_id)}.json"
 
+    def prepared_path(self, mutation_id: str) -> Path:
+        return self.prepared_dir / f"{_digest_part(mutation_id)}.json"
+
     def load_mutation_intent(self, mutation_id: str) -> TruthMutationIntent:
         value = self._read_truth_json(self.intent_path(mutation_id), "TruthMutationIntent")
         intent = TruthMutationIntent.from_dict(value)
@@ -387,6 +422,106 @@ class TruthStoreFacade:
         if receipt.mutation_id != mutation_id:
             raise ProjectError("TruthMutationReceipt filename/mutation mismatch")
         return receipt
+
+    def _recover_prepared_mutation(
+        self,
+        intent: TruthMutationIntent,
+        *,
+        snapshot: ClaimSnapshot,
+        metadata_updates: Mapping[str, Any] | None,
+        canonical_authority: Iterable[Mapping[str, Any]],
+        replay_policy_hash: str | None,
+        trust_policy_context: Mapping[str, Any] | None,
+    ) -> tuple[dict[str, Any], ClaimSnapshot, TruthMutationIntent, TruthMutationReceipt] | None:
+        """Close the theorem-write/receipt-write crash window from durable evidence."""
+
+        path = self.prepared_path(intent.mutation_id)
+        if not path.exists():
+            return None
+        prepared = self._read_truth_json(path, "TruthMutationPrepared")
+        expected_keys = {
+            "schema_version",
+            "object_type",
+            "mutation_id",
+            "theorem_id",
+            "from_status",
+            "requested_to_status",
+            "claim_snapshot_hash",
+            "assertion_identity_hash",
+            "trust_policy_fingerprint",
+            "project_record_hash_before",
+            "actor",
+            "reason",
+            "metadata_updates",
+            "prepared_at",
+        }
+        if set(prepared) != expected_keys:
+            raise ProjectError("TruthMutationPrepared fields do not match schema 1")
+        expected = {
+            "schema_version": 1,
+            "object_type": "TRUTH_MUTATION_PREPARED",
+            "mutation_id": intent.mutation_id,
+            "theorem_id": intent.theorem_id,
+            "from_status": intent.from_status,
+            "requested_to_status": intent.requested_to_status,
+            "claim_snapshot_hash": intent.claim_snapshot_hash,
+            "assertion_identity_hash": intent.assertion_identity_hash,
+            "trust_policy_fingerprint": intent.trust_policy_fingerprint,
+            "actor": intent.requested_by,
+            "reason": intent.reason,
+            "metadata_updates": dict(metadata_updates or {}),
+        }
+        mismatches = [key for key, value in expected.items() if prepared.get(key) != value]
+        if mismatches:
+            raise ProjectError(
+                "TruthMutationPrepared does not match replay request: "
+                + ", ".join(sorted(mismatches))
+            )
+        theorem = self.project.load_theorem(intent.theorem_id)
+        if theorem.get("status") == intent.from_status:
+            if project_record_hash(theorem) != prepared["project_record_hash_before"]:
+                raise ProjectError("Prepared truth mutation source record changed before replay")
+            return None
+        history = theorem.get("status_history")
+        transition = history[-1] if isinstance(history, list) and history else None
+        if (
+            theorem.get("status") != intent.requested_to_status
+            or not isinstance(transition, dict)
+            or transition.get("from") != intent.from_status
+            or transition.get("to") != intent.requested_to_status
+            or transition.get("actor") != intent.requested_by
+            or transition.get("reason") != intent.reason
+            or theorem.get("last_updated") != transition.get("at")
+        ):
+            raise ProjectError("Prepared truth mutation cannot be recovered from current theorem")
+        if any(theorem.get(key) != value for key, value in dict(metadata_updates or {}).items()):
+            raise ProjectError("Prepared truth mutation metadata does not match current theorem")
+        resulting_snapshot = self.capture_claim_snapshot(
+            intent.theorem_id,
+            canonical_authority=canonical_authority,
+            replay_policy_hash=replay_policy_hash,
+            trust_policy_context=trust_policy_context,
+        )
+        if (
+            resulting_snapshot.assertion_identity_hash != intent.assertion_identity_hash
+            or resulting_snapshot.trust_policy_fingerprint != intent.trust_policy_fingerprint
+            or resulting_snapshot.captured_status != intent.requested_to_status
+        ):
+            raise ProjectError("Prepared truth mutation recovery failed truth-identity validation")
+        receipt = TruthMutationReceipt.capture(
+            mutation_id=intent.mutation_id,
+            theorem_id=intent.theorem_id,
+            previous_status=intent.from_status,
+            resulting_status=intent.requested_to_status,
+            claim_snapshot_hash=snapshot.claim_snapshot_hash,
+            resulting_claim_snapshot_hash=resulting_snapshot.claim_snapshot_hash,
+            project_record_hash_before=str(prepared["project_record_hash_before"]),
+            project_record_hash_after=project_record_hash(theorem),
+            actor=intent.requested_by,
+            applied_at=str(transition["at"]),
+        )
+        self._write_immutable_json(self.receipt_path(intent.mutation_id), receipt.to_dict())
+        return theorem, resulting_snapshot, intent, receipt
 
     def _validate(self, operation: str, *args, **kwargs) -> SnapshotComparison:
         comparison = self.compare_claim_snapshot(*args, **kwargs)
@@ -711,8 +846,17 @@ class TruthStoreFacade:
                 raise ProjectError(f"Immutable truth artifact collision: {path}")
             return
         temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_bytes(raw)
+        with temporary.open("wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
         temporary.replace(path)
+        if os.name != "nt":
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
 
 
 def _registry_identity(value: Any) -> dict[str, Any] | None:
