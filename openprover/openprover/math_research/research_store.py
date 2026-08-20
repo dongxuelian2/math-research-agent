@@ -59,6 +59,30 @@ class ResearchMapRootStale(ProjectError):
         super().__init__(f"{self.code}: {operation}: {detail}")
 
 
+_TRUSTED_GOVERNANCE_TOKEN = object()
+
+
+class _TrustedGovernedReframe:
+    """In-process capability issued only after durable patch validation."""
+
+    __slots__ = ("authorization", "expected_obligation_refs", "_token")
+
+    def __init__(self, *, authorization, expected_obligation_refs, token) -> None:
+        if token is not _TRUSTED_GOVERNANCE_TOKEN:
+            raise ProjectError("Trusted governed-reframe capability cannot be forged")
+        self.authorization = authorization
+        self.expected_obligation_refs = tuple(expected_obligation_refs)
+        self._token = token
+
+    @classmethod
+    def issue(cls, *, authorization, expected_obligation_refs):
+        return cls(
+            authorization=authorization,
+            expected_obligation_refs=expected_obligation_refs,
+            token=_TRUSTED_GOVERNANCE_TOKEN,
+        )
+
+
 class ResearchStoreFacade:
     """Canonical owner of PHASE 4 maps, obligations, and their projections.
 
@@ -810,16 +834,21 @@ class ResearchStoreFacade:
             revision_reason == MapRevisionReason.ARCHITECTURE_PATCH.value
         ) or strategic_thesis_changed
         if destructive_revision:
-            if not isinstance(governance_authorization, PatchAuthorization):
+            if not isinstance(governance_authorization, _TrustedGovernedReframe):
                 raise ProjectError(
-                    "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: PatchAuthorization missing"
+                    "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: trusted governed reframe capability missing"
                 )
-            if governance_authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
+            authorization = governance_authorization.authorization
+            if not isinstance(authorization, PatchAuthorization):
+                raise ProjectError(
+                    "DESTRUCTIVE_REFRAME_REQUIRES_TRUSTED_AUTHORIZATION: capability payload is not typed"
+                )
+            if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
                 raise ProjectError(
                     "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: authorization is not AUTHORIZED"
                 )
             self._require_durable_patch_authorization(
-                governance_authorization,
+                authorization,
                 prior,
                 strategic_thesis=strategic_thesis,
                 removed_or_reframed_scope=removed_or_reframed_scope,
@@ -830,6 +859,10 @@ class ResearchStoreFacade:
             raise ProjectError("Root changes require explicit rebase_research_map")
         self._validate_root_hash(prior.root_claim_snapshot_hash, "REVISE_RESEARCH_MAP")
         refs = tuple(obligation_refs) if obligation_refs is not None else prior.obligation_refs
+        if destructive_revision and refs != governance_authorization.expected_obligation_refs:
+            raise ProjectError(
+                "DESTRUCTIVE_REFRAME_REQUIRES_TRUSTED_AUTHORIZATION: obligation projection mismatch"
+            )
         prior_ids = {item.obligation_id for item in prior.obligation_refs}
         next_ids = {item.obligation_id for item in refs}
         missing = sorted(prior_ids - next_ids)
@@ -1017,6 +1050,10 @@ class ResearchStoreFacade:
                 )
             )
         )
+        trusted_reframe = _TrustedGovernedReframe.issue(
+            authorization=authorization,
+            expected_obligation_refs=refs,
+        )
         return self.revise_map(
             current,
             obligation_refs=refs,
@@ -1031,7 +1068,7 @@ class ResearchStoreFacade:
             route_memory_changes=patch.route_memory_changes,
             evidence_refs=evidence_refs,
             strategic_thesis=(patch.structural_thesis_change or current.strategic_thesis),
-            governance_authorization=authorization,
+            governance_authorization=trusted_reframe,
         )
 
     def record_disposition(
