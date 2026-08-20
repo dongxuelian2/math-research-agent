@@ -49,3 +49,30 @@ jobs:
         env:
           OBSERVATORY_PROJECT: ${{ runner.temp }}/observatory-demo
         run: uv run --project openprover python -m openprover.math_research demo --project "$OBSERVATORY_PROJECT"
+
+  windows-bootstrap:
+    name: Windows bootstrap and launcher
+    runs-on: windows-latest
+    env:
+      UV_PYTHON: "3.12"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: openprover/uv.lock
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Bootstrap Windows environment
+        shell: pwsh
+        run: .\scripts\bootstrap.ps1
+
+      - name: Exercise PowerShell launcher
+        shell: pwsh
+        run: .\run_math_agent.ps1 -Command status -Project demo -Target demo-odd-sum

@@ -10,6 +10,7 @@ models first.
 from __future__ import annotations
 
 import json
+import re
 from enum import Enum
 from typing import Any, Literal, TypeVar
 
@@ -118,6 +119,34 @@ class WorkerEventSchema(StrictSchemaModel):
             return value if isinstance(value, WorkerVerdict) else WorkerVerdict(value)
         except (TypeError, ValueError) as exc:
             raise ValueError("verdict must be an exact WorkerVerdict value") from exc
+
+
+WORKER_EVENT_FOOTER_START = "<!-- OPENPROVER_WORKER_EVENT"
+WORKER_EVENT_FOOTER_END = "-->"
+_WORKER_EVENT_FOOTER = re.compile(
+    r"<!--\s*OPENPROVER_WORKER_EVENT\s*(\{.*?\})\s*-->",
+    re.DOTALL,
+)
+
+
+def parse_worker_event_footer(text: str) -> WorkerEventSchema:
+    """Parse the one explicit typed event footer from a Worker/Verifier body.
+
+    Free-form prose is never interpreted as control state.  Exactly one
+    delimited JSON object must be present and must satisfy the strict schema.
+    """
+
+    matches = _WORKER_EVENT_FOOTER.findall(text or "")
+    if len(matches) != 1:
+        raise SchemaError("Worker output must contain exactly one OPENPROVER_WORKER_EVENT footer")
+    try:
+        payload = json.loads(matches[0])
+    except json.JSONDecodeError as exc:
+        raise SchemaError("Worker event footer is not complete JSON") from exc
+    try:
+        return WorkerEventSchema.model_validate(payload)
+    except ValidationError as exc:
+        raise SchemaError(f"Worker event footer failed validation: {exc}") from exc
 
 
 class LiteratureResultSchema(StrictSchemaModel):

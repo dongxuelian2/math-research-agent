@@ -1597,8 +1597,24 @@ class Prover:
             )
             return "continue"
 
-        # Limit to max_workers
-        tasks = tasks[: self.max_workers]
+        # A Planner over-capacity proposal must be replanned explicitly.  Silent
+        # truncation loses tactical scope and makes the durable record lie about
+        # which tasks were actually executed.
+        if len(tasks) > self.max_workers:
+            message = (
+                f"PLAN_OVER_CAPACITY: proposed {len(tasks)} tasks but max_workers="
+                f"{self.max_workers}; replan a legal batch"
+            )
+            self.tui.log(message, color="yellow")
+            self._push_output(message)
+            self._save_step_meta(
+                step_dir,
+                status="rejected",
+                action="spawn",
+                resp=planner_resp,
+                error=message,
+            )
+            return "continue"
 
         self._workers_active = True
         self._interrupt_count = 0
@@ -1671,6 +1687,14 @@ class Prover:
         self.tui.set_waiting_status("")
         self._workers_active = False
 
+        if self.research_policy is not None and hasattr(self.research_policy, "after_worker_batch"):
+            self.research_policy.after_worker_batch(
+                self,
+                plan,
+                step_dir,
+                worker_resps,
+            )
+
         # Check if any workers were interrupted
         any_interrupted = any(w and w.get("error") == "interrupted" for w in worker_resps)
         if any_interrupted:
@@ -1691,6 +1715,16 @@ class Prover:
             verifier_resps = self._run_verifiers(tasks, worker_resps, workers_dir)
         else:
             verifier_resps = {}
+
+        if self.research_policy is not None and hasattr(
+            self.research_policy, "after_verifier_batch"
+        ):
+            self.research_policy.after_verifier_batch(
+                self,
+                plan,
+                step_dir,
+                verifier_resps,
+            )
 
         # Build combined output: merge completed_workers (from prior run)
         # with freshly-spawned worker results.

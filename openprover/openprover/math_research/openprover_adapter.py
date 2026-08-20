@@ -8,7 +8,7 @@ from pathlib import Path
 from .campaign import PreSubmitGate
 from .project import ProjectError, utc_now
 from .scheduler import RoleScheduler, StopController
-from .schemas import WorkerEventSchema
+from .schemas import SchemaError, WorkerEventSchema, parse_worker_event_footer, structured_payload
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -98,6 +98,65 @@ class ResearchPolicy:
     def after_spawn(self, prover, plan: dict, step_dir: Path, status: str) -> None:
         self._record_worker_events(prover, plan, step_dir)
 
+    def after_worker_batch(
+        self,
+        prover,
+        plan: dict,
+        step_dir: Path,
+        worker_responses: list[dict | None],
+    ) -> None:
+        """Materialize validated Worker events before any state consumer runs."""
+
+        workers_dir = step_dir / "workers"
+        tasks = list(plan.get("tasks", []))
+        for index, response in enumerate(worker_responses):
+            artifact_index = int(tasks[index].get("_original_index", index))
+            self._materialize_event(
+                workers_dir / f"event_{artifact_index}.json",
+                response,
+                role="worker",
+            )
+
+    def after_verifier_batch(
+        self,
+        prover,
+        plan: dict,
+        step_dir: Path,
+        verifier_responses: dict[int, dict],
+    ) -> None:
+        """Materialize validated Verifier events keyed by Worker index."""
+
+        workers_dir = step_dir / "workers"
+        tasks = list(plan.get("tasks", []))
+        for index, task in enumerate(tasks):
+            artifact_index = int(task.get("_original_index", index))
+            self._materialize_event(
+                workers_dir / f"verifier_event_{artifact_index}.json",
+                verifier_responses.get(index),
+                role="verifier",
+            )
+
+    @staticmethod
+    def _materialize_event(path: Path, response: dict | None, *, role: str) -> None:
+        error = str((response or {}).get("error") or "").strip()
+        output = str((response or {}).get("result") or "")
+        if error:
+            event = WorkerEventSchema(
+                event="ERROR",
+                failure_kind="WORKER_EXECUTION_ERROR" if role == "worker" else "VERIFIER_ERROR",
+                details=[error],
+            )
+        else:
+            try:
+                event = parse_worker_event_footer(output)
+            except SchemaError as exc:
+                event = WorkerEventSchema(
+                    event="ERROR",
+                    failure_kind="MISSING_OR_INVALID_TYPED_EVENT",
+                    details=[str(exc)],
+                )
+        _write_json(path, structured_payload(event))
+
     def _record_worker_events(self, prover, plan: dict, step_dir: Path) -> None:
         """Bridge only typed Worker event artifacts into routing and the DAG."""
         tasks = list(plan.get("tasks", []))
@@ -118,11 +177,14 @@ class ResearchPolicy:
         }
 
         for index, task in enumerate(tasks):
+            artifact_index = int(task.get("_original_index", index))
             obligation_id = str(
                 task.get("obligation_id") or task.get("obligation") or prover.work_dir.name
             )
-            event = self._load_worker_event(workers_dir / f"event_{index}.json")
-            verifier_event = self._load_worker_event(workers_dir / f"verifier_event_{index}.json")
+            event = self._load_worker_event(workers_dir / f"event_{artifact_index}.json")
+            verifier_event = self._load_worker_event(
+                workers_dir / f"verifier_event_{artifact_index}.json"
+            )
             if event.literature_request and self.pipeline_scheduler is not None:
                 request = dict(event.literature_request)
                 request.setdefault("obligation_id", obligation_id)
@@ -173,7 +235,11 @@ class ResearchPolicy:
     @staticmethod
     def _load_worker_event(path: Path) -> WorkerEventSchema:
         if not path.exists():
-            return WorkerEventSchema(event="COMPLETED")
+            return WorkerEventSchema(
+                event="ERROR",
+                failure_kind="MISSING_TYPED_EVENT_SIDECAR",
+                details=[f"missing typed event sidecar: {path.name}"],
+            )
         try:
             return WorkerEventSchema.model_validate(json.loads(path.read_text(encoding="utf-8")))
         except Exception as exc:
