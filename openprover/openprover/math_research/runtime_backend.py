@@ -313,7 +313,9 @@ class SQLiteRuntimeBackend:
                         "SELECT schema_version FROM runtime_schema WHERE singleton = 1"
                     ).fetchone()[0]
                 ),
-                "journal_mode": str(connection.execute("PRAGMA journal_mode").fetchone()[0]).upper(),
+                "journal_mode": str(
+                    connection.execute("PRAGMA journal_mode").fetchone()[0]
+                ).upper(),
                 "foreign_keys": bool(connection.execute("PRAGMA foreign_keys").fetchone()[0]),
                 "synchronous": int(connection.execute("PRAGMA synchronous").fetchone()[0]),
                 "integrity_check": integrity,
@@ -362,7 +364,9 @@ class SQLiteRuntimeBackend:
             ),
         )
 
-    def journal(self, *, object_type: str | None = None, object_id: str | None = None) -> list[dict]:
+    def journal(
+        self, *, object_type: str | None = None, object_id: str | None = None
+    ) -> list[dict]:
         query = "SELECT * FROM transition_journal WHERE 1=1"
         params: list[Any] = []
         if object_type is not None:
@@ -967,12 +971,9 @@ class SQLiteRuntimeBackend:
                 },
             }[target]
             if record["state"] not in valid_from:
-                raise InvalidRuntimeTransition(
-                    f"Outbox {record['state']} -> {target} is not legal"
-                )
-            if (
-                record["claim_token"] != claim_token
-                or int(record["claim_generation"]) != int(claim_generation)
+                raise InvalidRuntimeTransition(f"Outbox {record['state']} -> {target} is not legal")
+            if record["claim_token"] != claim_token or int(record["claim_generation"]) != int(
+                claim_generation
             ):
                 raise RuntimeConflict("stale outbox claim fencing token")
             now = utc_now()
@@ -1218,8 +1219,7 @@ class SQLiteRuntimeBackend:
                     or generation is None
                     or attempt["lease_token"] != lease_token
                     or int(attempt["generation"]) != int(generation)
-                    or attempt["state"]
-                    not in {AttemptState.RUNNING, AttemptState.CANCEL_REQUESTED}
+                    or attempt["state"] not in {AttemptState.RUNNING, AttemptState.CANCEL_REQUESTED}
                 )
                 rejection = "stale lease fencing token" if fenced else None
             authoritative = not fenced
@@ -1298,7 +1298,9 @@ class SQLiteRuntimeBackend:
                 ).fetchone()
             )
 
-    def accept_result(self, logical_job_id: str, *, actor: str = "result-selector") -> dict[str, Any]:
+    def accept_result(
+        self, logical_job_id: str, *, actor: str = "result-selector"
+    ) -> dict[str, Any]:
         """Serialize FIRST_VALID_ACCEPTED_RESULT selection for one LogicalJob."""
 
         with self._transaction() as connection:
@@ -1667,7 +1669,10 @@ class SQLiteRuntimeBackend:
             slot = self.mark_effect_domain_applied(
                 slot["effect_slot_id"],
                 effect_artifact_ref=(str(artifact_ref) if artifact_ref else None),
-                metadata={"outcome_type": type(outcome).__name__, "recovered": recovered is not None},
+                metadata={
+                    "outcome_type": type(outcome).__name__,
+                    "recovered": recovered is not None,
+                },
             )
         if fault_injector is not None:
             fault_injector.hit(FaultPoint.AFTER_DOMAIN_APPLY_BEFORE_ACK)

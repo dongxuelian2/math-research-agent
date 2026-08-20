@@ -974,6 +974,7 @@ class RoutedLLMClient:
                 ),
                 on_finished=lambda attempt_id: self._runtime_attempts.pop(attempt_id, None),
             )
+
         try:
             client = self._client(route)
             response = invoke(route, client)

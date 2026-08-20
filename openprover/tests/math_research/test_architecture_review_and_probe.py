@@ -11,6 +11,10 @@ from openprover.math_research.architecture_review import (
 from openprover.math_research.governance import GovernanceController
 from openprover.math_research.project import ProjectError, ProjectStore, utc_now
 from openprover.math_research.research_store import ResearchStoreFacade
+from openprover.math_research.runtime_artifacts import RuntimeArtifactStore
+from openprover.math_research.runtime_backend import SQLiteRuntimeBackend
+from openprover.math_research.runtime_effects import RuntimeEffectCoordinator
+from openprover.math_research.runtime_model import AttemptState
 from openprover.math_research.structural_probe import (
     ProbeBudget,
     StructuralProbe,
@@ -116,15 +120,69 @@ def _plan(review):
 
 
 def test_g4_formal_review_commit_is_the_only_clock_reset(tmp_path):
-    _, _, _, research_map, controller = _setup(tmp_path)
+    project, _, _, research_map, controller = _setup(tmp_path)
     due = controller.signal_review(research_map.research_map_id, "HUMAN_REQUEST")
     assert due.review_due is True
     review = _review(research_map)
-    reset = controller.commit_review(review)
+    runtime = SQLiteRuntimeBackend(project.root)
+    job = runtime.create_logical_job(
+        job_kind="ARCHITECTURE_REVIEW",
+        semantic_target=research_map.research_map_id,
+        idempotency_key="governance-runtime-e2e",
+        claim_snapshot_hash=research_map.root_claim_snapshot_hash,
+        governance_ref=due.clock_hash,
+    )
+    attempt, _ = runtime.create_attempt_intent(
+        logical_job_id=job["logical_job_id"],
+        provider="mock",
+        payload_hash="sha256:architecture-review",
+        dispatch_kind="PROVIDER_INVOCATION",
+    )
+    lease = runtime.claim_attempt(attempt["attempt_id"], owner="test", ttl_seconds=60)
+    runtime.transition_attempt(
+        attempt["attempt_id"],
+        AttemptState.RUNNING,
+        actor="test",
+        lease_token=lease["lease_token"],
+        generation=lease["generation"],
+    )
+    artifact = RuntimeArtifactStore(project.root).persist_and_register(
+        runtime,
+        review.to_dict(),
+        artifact_kind="ARCHITECTURE_REVIEW_RESULT",
+        producer_attempt_id=attempt["attempt_id"],
+    )
+    result = runtime.record_result(
+        attempt_id=attempt["attempt_id"],
+        artifact_id=artifact["artifact_id"],
+        completion_status="SUCCESS",
+        lease_token=lease["lease_token"],
+        generation=lease["generation"],
+    )
+    runtime.accept_result(job["logical_job_id"])
+    coordinator = RuntimeEffectCoordinator(runtime)
+    slot, outcome = coordinator.commit_architecture_review(
+        logical_job_id=job["logical_job_id"],
+        source_result_id=result["result_id"],
+        governance_controller=controller,
+        review=review,
+    )
+    reset = outcome["clock"]
     assert reset.review_due is False
     assert reset.sessions_since_last_review == 0
     assert reset.last_review_id == review.review_id
     assert controller.load_review(review.review_id) == review
+    replay_reset = controller.commit_review(review)
+    assert replay_reset.clock_hash == reset.clock_hash
+    assert replay_reset.revision == reset.revision
+    replay_slot, _ = coordinator.commit_architecture_review(
+        logical_job_id=job["logical_job_id"],
+        source_result_id=result["result_id"],
+        governance_controller=controller,
+        review=review,
+    )
+    assert replay_slot["effect_slot_id"] == slot["effect_slot_id"]
+    assert len(runtime.list_rows("effect_slots")) == 1
 
 
 def test_g10_review_is_strict_and_cannot_mutate_truth(tmp_path):

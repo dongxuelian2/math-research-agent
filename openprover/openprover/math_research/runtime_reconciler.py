@@ -49,9 +49,10 @@ class RuntimeReconciler:
 
     def _reconcile_outbox(self) -> None:
         for record in self.backend.list_rows("outbox"):
-            if record["state"] == OutboxState.CLAIMED and float(
-                record["claim_expires_at"] or 0
-            ) <= time.time():
+            if (
+                record["state"] == OutboxState.CLAIMED
+                and float(record["claim_expires_at"] or 0) <= time.time()
+            ):
                 with self.backend._transaction() as connection:
                     cursor = connection.execute(
                         """UPDATE outbox SET state = ?, last_error = ?, retry_count = retry_count + 1,

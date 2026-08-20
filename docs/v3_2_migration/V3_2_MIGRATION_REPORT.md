@@ -2,7 +2,7 @@
 
 ## Current phase
 
-`V3_2_CURRENT_PHASE = PHASE 5 ARCHITECTURE-GOVERNANCE BASELINE ESTABLISHED; LOCAL ACCEPTANCE PASS; HOSTED CI PENDING_PUSH`
+`V3_2_CURRENT_PHASE = PHASE 6 DURABLE-RUNTIME BASELINE ESTABLISHED; LOCAL ACCEPTANCE PASS; HOSTED CI PENDING_PUSH`
 
 ## Completed capabilities
 
@@ -58,35 +58,58 @@
   never fabricate a past review.
 - Literature mechanism conflicts signal governance through the review clock;
   ModelRouter remains a compute allocator.
+- Project-local SQLite schema 2 with WAL, foreign keys, FULL synchronous
+  durability, transactional schema migration, integrity inspection, and strict
+  control-plane-only ownership.
+- RuntimeBackend, stable LogicalJob identity, immutable physical
+  AttemptIntent, transactional outbox, typed attempt state machine,
+  append-only transition journal, lease/heartbeat, generation fencing, and
+  durable cancellation.
+- Filesystem-first, hash-verified result artifacts with idempotent DB ingestion,
+  one accepted result across duplicate successes, and deterministic
+  reconciliation for every modeled DB/filesystem split.
+- EffectSlot cross-store sagas for real Research closure, Truth promotion, and
+  Architecture Governance effects. Domain replay recovers existing identities
+  and never treats execution failure or lease expiry as mathematical failure.
+- Truth promotion now persists prepared recovery evidence before theorem CAS;
+  a crash after theorem transition and before receipt is validated and repaired
+  without a second status transition.
+- Shared Windows/POSIX process-tree control and a durable cancel/complete race
+  policy; the formerly blocked interruption test runs on Windows without skips.
+- Runtime ownership is wired through orchestrator, routed providers,
+  formalization, certification, and provider-smoke production paths. Startup
+  migrates/reconciles before Truth, Research, and governance resume checks.
 
 ## Partial capabilities
 
 - OpenProver public lifecycle hooks: Worker/Verifier batch hooks exist; the complete v3.2 `_run_one_step()/step()/StepOutcome` facade is not implemented.
 - CI: definitions and exact local commands pass; hosted GitHub jobs were not run because this branch was not pushed.
-- PHASE 3 filesystem saga is process-serialized, not a cross-process/database
-  transaction; that guarantee belongs to the later SQLite/WAL phase.
-- PHASE 5 evidence invalidation is an explicit typed input to authorization;
-  the cross-process invalidation journal/reconciler belongs to PHASE 6.
+- External provider dispatch remains deliberately at-least-once; semantic
+  effects are exactly-once through accepted-result identity and EffectSlot.
+- Planner/pipeline/routing JSON remains a portable compatibility and desired-
+  work projection. It is not current authority for attempts, leases, outbox,
+  accepted results, or effects.
+- A domain-specific recovery adapter is required for any new cross-store
+  semantic effect; unknown partial state fails to manual review.
 
 ## Unstarted capabilities
 
 - VerifierIndependenceReceipt.
 - Full CoverageAnchor/Transfer and richer DecisionBasis.
-- SQLite/WAL authoritative runtime, outbox, AttemptIntent, lease, reconciliation, effect slots.
 - ROOT_SYNTHESIS and consolidation re-audit.
 
 ## Blockers
 
-No external blocker prevents PHASE 5 completion. The managed Windows interrupt
-subprocess remains an environment-blocked excluded test exactly as documented
-at the baseline; it does not weaken the deterministic in-process truth-race tests.
+No external blocker prevents PHASE 6 local completion. Hosted Linux/Windows CI
+cannot be claimed because no push was authorized. The previous Windows
+interrupt blocker is retired: its three-test file passes locally.
 
 ## Next safe migration frontier
 
-1. Freeze PHASE 5 local-safe evidence in its own local commit.
-2. Stop for user audit. The exact next safe frontier is PHASE 6 Durable Runtime:
-   SQLite/WAL, transition journal, transactional outbox, LogicalJob,
-   AttemptIntent, lease/heartbeat, reconciliation, and idempotent effect slots.
+1. Stop for user audit of the frozen PHASE 6 local commits and evidence.
+2. After explicit authorization, the exact next safe frontier is PHASE 7:
+   ROOT_SYNTHESIS × Final Consolidation × Promotion Closure.
+3. Do not infer PHASE 7 completion from the durable-runtime baseline.
 
 ## Preservation statement
 

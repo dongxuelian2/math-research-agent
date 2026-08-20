@@ -79,7 +79,10 @@ class RuntimeEffectCoordinator:
     ):
         def recover(_slot_id: str):
             clock = governance_controller.ensure_clock(review.research_map_id)
-            if clock.last_review_id != review.review_id or clock.last_review_hash != review.review_hash:
+            if (
+                clock.last_review_id != review.review_id
+                or clock.last_review_hash != review.review_hash
+            ):
                 return None
             return {"clock": clock, "clock_hash": clock.clock_hash, "review_id": review.review_id}
 

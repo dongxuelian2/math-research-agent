@@ -9,6 +9,7 @@ import threading
 import time
 
 from openprover.math_research.process_control import ProcessTerminationBackend
+from openprover.math_research import process_control
 
 
 def check(label: str, ok: bool):
@@ -139,6 +140,36 @@ def test_multiworker_race():
     print(f"     broken: {broken_wrong}/{TRIALS} Worker-1 RuntimeError ({pct:.0f}%)")
     check("race is observable in broken version", broken_wrong > 0)
     check("fixed version: no RuntimeError", fixed_wrong == 0)
+
+
+def test_posix_process_group_path_is_preserved(monkeypatch):
+    calls = []
+
+    class FakeProcess:
+        pid = 42
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout):
+            self.returncode = -9
+            return self.returncode
+
+    monkeypatch.setattr(process_control.os, "name", "posix")
+    monkeypatch.setattr(process_control.signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(process_control.signal, "SIGTERM", 15, raising=False)
+    monkeypatch.setattr(
+        process_control.os,
+        "killpg",
+        lambda pid, requested_signal: calls.append((pid, requested_signal)),
+        raising=False,
+    )
+    process = FakeProcess()
+    result = ProcessTerminationBackend().terminate_tree(process)
+    assert calls and calls[0][0] == process.pid
+    assert result["method"] == "posix-process-group"
+    assert process.returncode == -9
 
 
 # ── main ──────────────────────────────────────────────────────────────────────

@@ -215,3 +215,37 @@
   JSON.
 - `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
 - `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.
+
+## PHASE 6 Durable Runtime
+
+- Audit-first ordering: `PHASE6_RUNTIME_PATH_AUDIT.md` was committed as
+  `630098d` before any Phase 6 production runtime source change.
+- D1–D22 and D25 durable-runtime/fault tests, plus the Truth internal
+  theorem-transition/receipt crash test: `27 passed in 4.60s` when run with the
+  full Truth mutation file.
+- Repository-wide suite, now including the repaired Windows interruption file:
+  `268 passed in 20.79s`. The only warning was pytest's inability to write its
+  optional cache under the parent workspace; collection and tests completed.
+- `tests/test_interrupt_race.py`: `3 passed in 3.79s` on Windows. This executes
+  a real Windows process-tree termination, the multi-worker cancellation race,
+  and the mocked POSIX process-group branch. No skip exists.
+- Current Truth Plane focused slice: `22 passed in 2.31s`.
+- Current Research Plane focused slice: `21 passed in 5.17s`.
+- Current Architecture Governance focused slice: `22 passed in 6.04s`.
+- Provider, checkpoint, canonical authority, typed Worker-event, and explicit
+  plan-capacity combined regression slice: `64 passed in 5.44s`.
+- Real domain EffectSlot paths execute SessionClosure→ResearchMap,
+  TruthMutation→receipt, and ArchitectureReview→clock twice and preserve one
+  semantic result. The Truth crash hook proves recovery after theorem CAS and
+  before receipt without a second status-history entry.
+- Actual schema-1 database migration to schema 2 preserves data and records its
+  migration. Runtime CLI `runtime-check` and `reconcile` pass on Windows.
+- Production orchestrator/provider, formalization, certification, and
+  provider-smoke paths use durable dispatch. Full-suite production E2E remains
+  green and D25 proves no-crash/recovered final-state equivalence.
+- `uv lock --check`: PASS with 49 resolved packages.
+- `ruff format --check`, `ruff check`, compileall, and `git diff --check`: PASS
+  at final verification; Git emitted only expected LF→CRLF notices.
+- `bash -n` for the Bash entrypoints: PASS. PowerShell parser, actual bootstrap,
+  and actual status launcher: PASS.
+- `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.
