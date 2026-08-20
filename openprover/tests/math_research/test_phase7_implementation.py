@@ -110,9 +110,7 @@ def test_phase7_recovery_closes_after_durable_truth_promotion(tmp_path):
     ).run()
     assert recovered["phase"] == "COMPLETE"
     assert recovered["phase7_implementation_status"] == "COMPLETE"
-    assert recovered["phase7_promotion_closure_hash"] == state[
-        "phase7_promotion_closure_hash"
-    ]
+    assert recovered["phase7_promotion_closure_hash"] == state["phase7_promotion_closure_hash"]
 
 
 def test_phase7_rejects_stale_root_open_frontier_and_failed_gate(tmp_path):
@@ -140,11 +138,7 @@ def test_phase7_rejects_stale_root_open_frontier_and_failed_gate(tmp_path):
     )
     gate_data = json.loads((orchestrator.run_dir / "audits" / "gate.json").read_text())
     gate = AuditGate(
-        **{
-            key: value
-            for key, value in gate_data.items()
-            if key in AuditGate.__dataclass_fields__
-        }
+        **{key: value for key, value in gate_data.items() if key in AuditGate.__dataclass_fields__}
     )
     current_map = research.load_current_map(state["research_map_id"])
     closure = research.load_session_closure(state["tactical_session_id"])

@@ -845,8 +845,7 @@ class Phase7Store:
             or domain_hash("phase7_consolidation_reaudit", identity)
             != consolidation.consolidation_reaudit_hash
             or identity.get("theorem_id") != consolidation.theorem_id
-            or identity.get("root_claim_snapshot_hash")
-            != consolidation.root_claim_snapshot_hash
+            or identity.get("root_claim_snapshot_hash") != consolidation.root_claim_snapshot_hash
             or identity.get("root_synthesis_hash") != consolidation.root_synthesis_hash
             or identity.get("candidate_artifact_sha256") != consolidation.candidate_artifact_sha256
             or identity.get("consolidated_proof_sha256") != consolidation.consolidated_proof_sha256
