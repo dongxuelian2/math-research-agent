@@ -269,19 +269,13 @@ class TruthStoreFacade:
             raise ProjectError("Truth mutation requires a passing audit gate")
         if gate.audited_claim_snapshot_hash != snapshot.claim_snapshot_hash:
             raise ProjectError("Final audit is not bound to the exact promotion ClaimSnapshot")
-        artifact_refs = capture_artifact_refs(audit_artifacts, project_root=self.project.root)
-        intent = TruthMutationIntent.capture(
+        intent = self.build_mutation_intent(
             theorem_id=theorem_id,
-            from_status=snapshot.captured_status,
-            requested_to_status="PROVED",
-            claim_snapshot_hash=snapshot.claim_snapshot_hash,
-            assertion_identity_hash=snapshot.assertion_identity_hash,
-            audited_claim_snapshot_hash=gate.audited_claim_snapshot_hash,
-            trust_policy_fingerprint=snapshot.trust_policy_fingerprint,
-            audit_artifacts=artifact_refs,
-            requested_by=actor,
+            snapshot=snapshot,
+            gate=gate,
+            actor=actor,
             reason=reason,
-            created_at=utc_now(),
+            audit_artifacts=audit_artifacts,
         )
         intent_path = self.intent_path(intent.mutation_id)
         if intent_path.exists():
@@ -404,6 +398,33 @@ class TruthStoreFacade:
         )
         self._write_immutable_json(self.receipt_path(intent.mutation_id), receipt.to_dict())
         return theorem, resulting_snapshot, intent, receipt
+
+    def build_mutation_intent(
+        self,
+        *,
+        theorem_id: str,
+        snapshot: ClaimSnapshot,
+        gate: AuditGate,
+        actor: str,
+        reason: str,
+        audit_artifacts: Iterable[str | Path],
+    ) -> TruthMutationIntent:
+        """Compute the stable Truth mutation identity before effect-slot wiring."""
+
+        artifact_refs = capture_artifact_refs(audit_artifacts, project_root=self.project.root)
+        return TruthMutationIntent.capture(
+            theorem_id=theorem_id,
+            from_status=snapshot.captured_status,
+            requested_to_status="PROVED",
+            claim_snapshot_hash=snapshot.claim_snapshot_hash,
+            assertion_identity_hash=snapshot.assertion_identity_hash,
+            audited_claim_snapshot_hash=gate.audited_claim_snapshot_hash,
+            trust_policy_fingerprint=snapshot.trust_policy_fingerprint,
+            audit_artifacts=artifact_refs,
+            requested_by=actor,
+            reason=reason,
+            created_at=utc_now(),
+        )
 
     def claim_snapshot_path(self, claim_snapshot_hash: str) -> Path:
         digest = _digest_part(claim_snapshot_hash)
