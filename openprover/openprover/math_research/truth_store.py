@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from .claim_snapshot import ClaimSnapshot, SnapshotComparison, compare_claim_snapshots
 from .project import ProjectError, ProjectStore, utc_now
@@ -26,6 +26,11 @@ from .truth_identity import (
     project_record_hash,
     source_artifact_sha256,
     trust_policy_fingerprint,
+)
+from .truth_mutation import (
+    TruthMutationIntent,
+    TruthMutationReceipt,
+    capture_artifact_refs,
 )
 
 
@@ -49,6 +54,15 @@ class TruthValidationError(ProjectError):
         )
 
 
+class TruthMutationBlocked(ProjectError):
+    """A persisted mutation intent failed its final compare-and-transition."""
+
+    def __init__(self, message: str, *, mutation_id: str, blocked_path: Path):
+        self.mutation_id = mutation_id
+        self.blocked_path = blocked_path
+        super().__init__(message)
+
+
 @dataclass(frozen=True, slots=True)
 class CurrentTruth:
     theorem: dict[str, Any]
@@ -62,6 +76,10 @@ class TruthStoreFacade:
         self.project = project
         self.truth_root = project.root / "truth"
         self.snapshot_dir = self.truth_root / "claim_snapshots"
+        self.mutation_root = self.truth_root / "mutations"
+        self.intent_dir = self.mutation_root / "intents"
+        self.receipt_dir = self.mutation_root / "receipts"
+        self.blocked_dir = self.mutation_root / "blocked"
 
     def capture_assertion_identity(self, theorem_id: str) -> AssertionIdentity:
         theorem = self.project.load_theorem(theorem_id)
@@ -219,15 +237,202 @@ class TruthStoreFacade:
         )
         return theorem, refreshed
 
+    def compare_and_transition(
+        self,
+        theorem_id: str,
+        *,
+        claim_snapshot: str | ClaimSnapshot,
+        gate: AuditGate,
+        actor: str,
+        reason: str,
+        audit_artifacts: Iterable[str | Path],
+        metadata_updates: Mapping[str, Any] | None = None,
+        canonical_authority: Iterable[Mapping[str, Any]] = (),
+        replay_policy_hash: str | None = None,
+        trust_policy_context: Mapping[str, Any] | None = None,
+        before_compare_hook: Callable[[], None] | None = None,
+    ) -> tuple[dict[str, Any], ClaimSnapshot, TruthMutationIntent, TruthMutationReceipt]:
+        """Promote one exactly audited snapshot through an intent-first serialized CAS."""
+
+        snapshot = (
+            self.load_claim_snapshot(claim_snapshot)
+            if isinstance(claim_snapshot, str)
+            else claim_snapshot
+        )
+        if snapshot.theorem_id != theorem_id:
+            raise ProjectError("Truth mutation snapshot belongs to a different theorem")
+        if not gate.passed:
+            raise ProjectError("Truth mutation requires a passing audit gate")
+        if gate.audited_claim_snapshot_hash != snapshot.claim_snapshot_hash:
+            raise ProjectError("Final audit is not bound to the exact promotion ClaimSnapshot")
+        artifact_refs = capture_artifact_refs(audit_artifacts, project_root=self.project.root)
+        intent = TruthMutationIntent.capture(
+            theorem_id=theorem_id,
+            from_status=snapshot.captured_status,
+            requested_to_status="PROVED",
+            claim_snapshot_hash=snapshot.claim_snapshot_hash,
+            assertion_identity_hash=snapshot.assertion_identity_hash,
+            audited_claim_snapshot_hash=gate.audited_claim_snapshot_hash,
+            trust_policy_fingerprint=snapshot.trust_policy_fingerprint,
+            audit_artifacts=artifact_refs,
+            requested_by=actor,
+            reason=reason,
+            created_at=utc_now(),
+        )
+        intent_path = self.intent_path(intent.mutation_id)
+        if intent_path.exists():
+            intent = self.load_mutation_intent(intent.mutation_id)
+        else:
+            self._write_immutable_json(intent_path, intent.to_dict())
+        receipt_path = self.receipt_path(intent.mutation_id)
+        if receipt_path.exists():
+            receipt = self.load_mutation_receipt(intent.mutation_id)
+            theorem = self.project.load_theorem(theorem_id)
+            resulting_snapshot = self.load_claim_snapshot(receipt.resulting_claim_snapshot_hash)
+            return theorem, resulting_snapshot, intent, receipt
+        if before_compare_hook is not None:
+            before_compare_hook()
+
+        with self.project.truth_transaction():
+            comparison = self.compare_claim_snapshot(
+                snapshot,
+                canonical_authority=canonical_authority,
+                replay_policy_hash=replay_policy_hash,
+                trust_policy_context=trust_policy_context,
+            )
+            if not comparison.compatible:
+                blocked_path = self._write_mutation_blocked(
+                    intent,
+                    status=comparison.status,
+                    disposition=comparison.disposition,
+                    reason=comparison.reason,
+                    current_claim_snapshot_hash=comparison.current_claim_snapshot_hash,
+                )
+                raise TruthMutationBlocked(
+                    f"Truth mutation blocked: {comparison.status} [{comparison.disposition}]",
+                    mutation_id=intent.mutation_id,
+                    blocked_path=blocked_path,
+                )
+            current_record = self.project.load_theorem(theorem_id)
+            try:
+                before, theorem = self.project.compare_and_transition(
+                    theorem_id,
+                    "PROVED",
+                    expected_status=snapshot.captured_status,
+                    expected_identity={
+                        key: str(current_record.get(key) or "")
+                        for key in ("id", "statement", "claim_type", "notation_scope")
+                    },
+                    actor=actor,
+                    reason=reason,
+                    gate=gate,
+                    audit_status="PASS",
+                    metadata_updates=dict(metadata_updates or {}),
+                )
+            except ProjectError as exc:
+                blocked_path = self._write_mutation_blocked(
+                    intent,
+                    status="COMPARE_AND_TRANSITION_REJECTED",
+                    disposition="BLOCKED",
+                    reason=str(exc),
+                    current_claim_snapshot_hash=None,
+                )
+                raise TruthMutationBlocked(
+                    f"Truth mutation compare-and-transition failed: {exc}",
+                    mutation_id=intent.mutation_id,
+                    blocked_path=blocked_path,
+                ) from exc
+            resulting_snapshot = self.capture_claim_snapshot(
+                theorem_id,
+                canonical_authority=canonical_authority,
+                replay_policy_hash=replay_policy_hash,
+                trust_policy_context=trust_policy_context,
+            )
+
+        receipt = TruthMutationReceipt.capture(
+            mutation_id=intent.mutation_id,
+            theorem_id=theorem_id,
+            previous_status=str(before["status"]),
+            resulting_status=str(theorem["status"]),
+            claim_snapshot_hash=snapshot.claim_snapshot_hash,
+            resulting_claim_snapshot_hash=resulting_snapshot.claim_snapshot_hash,
+            project_record_hash_before=project_record_hash(before),
+            project_record_hash_after=project_record_hash(theorem),
+            actor=actor,
+            applied_at=utc_now(),
+        )
+        self._write_immutable_json(self.receipt_path(intent.mutation_id), receipt.to_dict())
+        return theorem, resulting_snapshot, intent, receipt
+
     def claim_snapshot_path(self, claim_snapshot_hash: str) -> Path:
         digest = _digest_part(claim_snapshot_hash)
         return self.snapshot_dir / f"{digest}.json"
+
+    def intent_path(self, mutation_id: str) -> Path:
+        return self.intent_dir / f"{_digest_part(mutation_id)}.json"
+
+    def receipt_path(self, mutation_id: str) -> Path:
+        return self.receipt_dir / f"{_digest_part(mutation_id)}.json"
+
+    def load_mutation_intent(self, mutation_id: str) -> TruthMutationIntent:
+        value = self._read_truth_json(self.intent_path(mutation_id), "TruthMutationIntent")
+        intent = TruthMutationIntent.from_dict(value)
+        if intent.mutation_id != mutation_id:
+            raise ProjectError("TruthMutationIntent filename/hash mismatch")
+        return intent
+
+    def load_mutation_receipt(self, mutation_id: str) -> TruthMutationReceipt:
+        value = self._read_truth_json(self.receipt_path(mutation_id), "TruthMutationReceipt")
+        receipt = TruthMutationReceipt.from_dict(value)
+        if receipt.mutation_id != mutation_id:
+            raise ProjectError("TruthMutationReceipt filename/mutation mismatch")
+        return receipt
 
     def _validate(self, operation: str, *args, **kwargs) -> SnapshotComparison:
         comparison = self.compare_claim_snapshot(*args, **kwargs)
         if not comparison.compatible:
             raise TruthValidationError(operation, comparison)
         return comparison
+
+    def _write_mutation_blocked(
+        self,
+        intent: TruthMutationIntent,
+        *,
+        status: str,
+        disposition: str,
+        reason: str,
+        current_claim_snapshot_hash: str | None,
+    ) -> Path:
+        identity = {
+            "mutation_id": intent.mutation_id,
+            "status": status,
+            "disposition": disposition,
+            "reason": reason,
+            "current_claim_snapshot_hash": current_claim_snapshot_hash,
+        }
+        block_id = domain_hash("truth_mutation_blocked", identity)
+        value = {
+            "schema_version": 1,
+            "object_type": "TRUTH_MUTATION_BLOCKED",
+            "block_id": block_id,
+            **identity,
+            "blocked_at": intent.created_at,
+        }
+        path = self.blocked_dir / f"{_digest_part(block_id)}.json"
+        self._write_immutable_json(path, value)
+        return path
+
+    @staticmethod
+    def _read_truth_json(path: Path, object_name: str) -> dict[str, Any]:
+        if not path.is_file():
+            raise ProjectError(f"{object_name} not found: {path}")
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ProjectError(f"Invalid {object_name} JSON: {path}") from exc
+        if not isinstance(value, dict):
+            raise ProjectError(f"{object_name} artifact root must be an object")
+        return value
 
     def _build_claim_snapshot(
         self,
@@ -457,8 +662,6 @@ class TruthStoreFacade:
                         "authority_record": item.get("authority_record") or {},
                         "computed_sha256": item.get("computed_sha256"),
                         "expected_sha256": item.get("expected_sha256"),
-                        "checkpoint_sha256": item.get("checkpoint_sha256"),
-                        "resolved_source_location": item.get("resolved_source_location"),
                     },
                 )
             )

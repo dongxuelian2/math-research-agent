@@ -89,7 +89,13 @@ from .truth_identity import (
     DependencyEntry,
     DependencySnapshot,
 )
-from .truth_store import CurrentTruth, TruthStoreFacade, TruthValidationError
+from .truth_mutation import TruthMutationIntent, TruthMutationReceipt
+from .truth_store import (
+    CurrentTruth,
+    TruthMutationBlocked,
+    TruthStoreFacade,
+    TruthValidationError,
+)
 
 __all__ = [
     "AuditGate",
@@ -160,6 +166,9 @@ __all__ = [
     "TrustKernel",
     "TruthStoreFacade",
     "TruthValidationError",
+    "TruthMutationBlocked",
+    "TruthMutationIntent",
+    "TruthMutationReceipt",
     "WorkerEventSchema",
     "run_formalization",
     "build_snapshot",
