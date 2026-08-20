@@ -132,6 +132,22 @@
 - `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
 - `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.
 
+## Pre-root blocker repair evidence
+
+- F-001 through F-007 are `CLOSED`; see the per-finding reports under
+  `docs/v3_2_migration/pre_root_repair/`.
+- Repair probe command:
+  `uv run --project openprover --extra test python docs/v3_2_migration/pre_root_repair/run_pre_root_repair_probes.py`.
+- X1–X16 rerun: 12 `CERTIFIED`, 6 `CERTIFIED_WITH_LIMITATION`, 0 `PARTIAL`,
+  0 `FAILED`; the focused slice completed with `104 passed`.
+- Direct blocker probes X1, X2, X4, X12, GOV-THESIS-BYPASS, and
+  GOV-SAME-MODEL-FALLBACK are all `CERTIFIED`.
+- The real production EffectSlot regression observes SessionClosure,
+  StructuralEffect, Governance session, and TruthMutation slots and verifies
+  the routed closure binding round-trip.
+- `PRE_ROOT_BLOCKERS_REPAIRED = YES`; `READY_FOR_INDEPENDENT_REAUDIT = YES`.
+  This does not grant Phase 7 authorization.
+
 ## PHASE 4 Research Plane Foundation
 
 - Audit-first ordering: `PHASE4_RESEARCH_PATH_AUDIT.md` was committed as

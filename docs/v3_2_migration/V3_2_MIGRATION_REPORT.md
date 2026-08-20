@@ -114,3 +114,17 @@ interrupt blocker is retired: its three-test file passes locally.
 ## Preservation statement
 
 No validated capability was intentionally deleted. No theorem registry or mathematical result was mutated outside isolated test fixtures. No remote push was performed.
+
+## Pre-root blocker repair handoff
+
+The seven frozen pre-root findings F-001 through F-007 are closed by the
+repair slice documented in
+[`pre_root_repair/PRE_ROOT_BLOCKER_REPAIR_MATRIX.md`](pre_root_repair/PRE_ROOT_BLOCKER_REPAIR_MATRIX.md).
+The independent rerun harness reports X1, X2, X4, X12, and both governance
+blocker probes as `CERTIFIED`; X3 and X10–X15 retain explicit limitations rather
+than being overstated as stronger claims. The focused X1–X16 coverage slice is
+recorded as `104 passed`.
+
+This is implementer evidence and readiness for independent re-audit, not a
+Phase 7 authorization. `ROOT_SYNTHESIS_FULL`, `FINAL_CONSOLIDATION_FULL`, and
+`PHASE_7_IMPLEMENTATION_STARTED` remain `NOT_STARTED`/`NO`.
