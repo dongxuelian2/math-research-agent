@@ -366,6 +366,10 @@ class GovernanceController:
         self.root = project.root / "research" / "governance"
         self.effects_root = self.root / "structural_effects"
         self.clocks_root = self.root / "review_clocks"
+        self.reviews_root = self.root / "architecture_reviews"
+        self.probe_plans_root = self.root / "structural_probes" / "plans"
+        self.probes_root = self.root / "structural_probes" / "results"
+        self.control_path = self.root / "control.json"
 
     def ensure_clock(self, research_map_id: str) -> ArchitectureReviewClock:
         current_map = self.research_store.load_current_map(research_map_id)
@@ -394,6 +398,106 @@ class GovernanceController:
     def load_effect(self, structural_effect_id: str) -> StructuralEffect:
         return StructuralEffect.from_dict(
             read_json(self.effects_root / f"{structural_effect_id}.json", "StructuralEffect")
+        )
+
+    def load_review(self, review_id: str):
+        from .architecture_review import ArchitectureReview
+
+        return ArchitectureReview.from_dict(
+            read_json(self.reviews_root / f"{review_id}.json", "ArchitectureReview")
+        )
+
+    def commit_review(self, review):
+        """Persist one formal review and perform the only legal clock reset."""
+
+        from .architecture_review import ArchitectureReview
+
+        if not isinstance(review, ArchitectureReview):
+            raise ProjectError("commit_review requires ArchitectureReview")
+        current_map = self.research_store.load_current_map(review.research_map_id)
+        self._validate_review_bindings(review, current_map)
+        current_clock = self.ensure_clock(review.research_map_id)
+        if not current_clock.review_due:
+            raise ProjectError("ArchitectureReview commit requires a durable review trigger")
+        if not set(review.trigger_reasons) <= set(current_clock.trigger_reasons):
+            raise ProjectError("ArchitectureReview trigger reasons are not current")
+        write_immutable_json(self.reviews_root / f"{review.review_id}.json", review.to_dict())
+        reset = ArchitectureReviewClock.capture(
+            clock_id=current_clock.clock_id,
+            revision=current_clock.revision + 1,
+            root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
+            research_map_id=current_map.research_map_id,
+            observed_map_version=current_map.version,
+            observed_map_hash=current_map.research_map_hash,
+            last_review_id=review.review_id,
+            last_review_hash=review.review_hash,
+            previous_clock_hash=current_clock.clock_hash,
+            thresholds=current_clock.thresholds,
+            recorded_at=utc_now(),
+        )
+        self._persist_clock(reset)
+        return reset
+
+    def persist_probe_plan(self, plan):
+        from .architecture_review import ArchitectureReviewVerdict
+        from .structural_probe import StructuralProbePlan
+
+        if not isinstance(plan, StructuralProbePlan):
+            raise ProjectError("persist_probe_plan requires StructuralProbePlan")
+        review = self.load_review(plan.review_id)
+        current_map = self.research_store.load_current_map(plan.research_map_id)
+        if review.review_hash != plan.review_hash:
+            raise ProjectError("StructuralProbePlan review hash mismatch")
+        if review.verdict not in {
+            ArchitectureReviewVerdict.STRUCTURAL_PROBE_REQUIRED.value,
+            ArchitectureReviewVerdict.DESTRUCTIVE_PATCH_PROPOSED.value,
+        }:
+            raise ProjectError("ArchitectureReview verdict does not authorize a probe")
+        if plan.root_claim_snapshot_hash != current_map.root_claim_snapshot_hash:
+            raise ProjectError("STALE_REVIEW: StructuralProbePlan root changed")
+        if plan.source_map_hash != current_map.research_map_hash:
+            raise ProjectError("STALE_REVIEW: StructuralProbePlan map changed")
+        if plan.source_map_version != current_map.version:
+            raise ProjectError("STALE_REVIEW: StructuralProbePlan map version changed")
+        write_immutable_json(self.probe_plans_root / f"{plan.probe_id}.json", plan.to_dict())
+        control = self._control()
+        control["active_structural_probe_id"] = plan.probe_id
+        self._write_control(control)
+        return plan
+
+    def load_probe_plan(self, probe_id: str):
+        from .structural_probe import StructuralProbePlan
+
+        return StructuralProbePlan.from_dict(
+            read_json(self.probe_plans_root / f"{probe_id}.json", "StructuralProbePlan")
+        )
+
+    def close_probe(self, probe):
+        from .structural_probe import StructuralProbe
+
+        if not isinstance(probe, StructuralProbe):
+            raise ProjectError("close_probe requires StructuralProbe")
+        plan = self.load_probe_plan(probe.probe_id)
+        current_map = self.research_store.load_current_map(plan.research_map_id)
+        if probe.plan_hash != plan.plan_hash:
+            raise ProjectError("StructuralProbe plan hash mismatch")
+        if current_map.root_claim_snapshot_hash != probe.root_claim_snapshot_hash:
+            raise ProjectError("REVALIDATION_REQUIRED: StructuralProbe root changed")
+        if current_map.research_map_hash != probe.source_map_hash:
+            raise ProjectError("REVALIDATION_REQUIRED: StructuralProbe source map changed")
+        write_immutable_json(self.probes_root / f"{probe.probe_id}.json", probe.to_dict())
+        control = self._control()
+        if control.get("active_structural_probe_id") == probe.probe_id:
+            control["active_structural_probe_id"] = None
+        self._write_control(control)
+        return probe
+
+    def load_probe(self, probe_id: str):
+        from .structural_probe import StructuralProbe
+
+        plan = self.load_probe_plan(probe_id)
+        return StructuralProbe.from_dict(
+            read_json(self.probes_root / f"{probe_id}.json", "StructuralProbe"), plan
         )
 
     def record_effect(self, effect: StructuralEffect) -> ArchitectureReviewClock:
@@ -471,6 +575,7 @@ class GovernanceController:
 
     def checkpoint_projection(self, research_map_id: str) -> dict[str, Any]:
         clock = self.ensure_clock(research_map_id)
+        control = self._control()
         return {
             "architecture_review_clock_id": clock.clock_id,
             "architecture_review_clock_revision": clock.revision,
@@ -479,8 +584,8 @@ class GovernanceController:
             "architecture_review_triggers": list(clock.trigger_reasons),
             "last_architecture_review_id": clock.last_review_id,
             "last_architecture_review_hash": clock.last_review_hash,
-            "active_structural_probe_id": None,
-            "pending_architecture_patch_id": None,
+            "active_structural_probe_id": control.get("active_structural_probe_id"),
+            "pending_architecture_patch_id": control.get("pending_architecture_patch_id"),
         }
 
     @staticmethod
@@ -503,6 +608,61 @@ class GovernanceController:
             raise ProjectError("STALE_STRUCTURAL_EFFECT: ResearchMap version changed")
         for obligation_id in effect.obligation_refs:
             current_map.obligation_ref(obligation_id)
+
+    def _validate_review_bindings(self, review, current_map: ResearchMap) -> None:
+        if review.root_claim_snapshot_hash != current_map.root_claim_snapshot_hash:
+            raise ProjectError("STALE_REVIEW: root ClaimSnapshot changed")
+        if review.research_map_hash != current_map.research_map_hash:
+            raise ProjectError("STALE_REVIEW: ResearchMap changed")
+        if review.research_map_version != current_map.version:
+            raise ProjectError("STALE_REVIEW: ResearchMap version changed")
+        open_ids = {
+            item.obligation_id for item in current_map.obligation_refs if item.disposition == "OPEN"
+        }
+        blocked_ids = {
+            item.obligation_id
+            for item in current_map.obligation_refs
+            if item.disposition == "BLOCKED"
+        }
+        if set(review.open_obligation_ids) != open_ids:
+            raise ProjectError("ArchitectureReview OPEN obligation summary is incomplete")
+        if set(review.blocked_obligation_ids) != blocked_ids:
+            raise ProjectError("ArchitectureReview BLOCKED obligation summary is incomplete")
+        if not set(review.route_failure_refs) <= set(current_map.route_failure_refs):
+            raise ProjectError("ArchitectureReview references an unknown route failure")
+        for effect_id in review.structural_effect_refs:
+            effect = self.load_effect(effect_id)
+            if effect.research_map_id != current_map.research_map_id:
+                raise ProjectError("ArchitectureReview StructuralEffect belongs to another map")
+
+    def _control(self) -> dict[str, Any]:
+        if not self.control_path.is_file():
+            return {
+                "schema_version": RESEARCH_SCHEMA_VERSION,
+                "object_type": "GOVERNANCE_CONTROL_PROJECTION",
+                "active_structural_probe_id": None,
+                "pending_architecture_patch_id": None,
+            }
+        value = read_json(self.control_path, "governance control projection")
+        strict_fields(
+            value,
+            {
+                "schema_version",
+                "object_type",
+                "active_structural_probe_id",
+                "pending_architecture_patch_id",
+            },
+            "GovernanceControlProjection",
+        )
+        validate_envelope(
+            value,
+            object_type="GOVERNANCE_CONTROL_PROJECTION",
+            name="GovernanceControlProjection",
+        )
+        return value
+
+    def _write_control(self, value: Mapping[str, Any]) -> None:
+        write_projection_json(self.control_path, value)
 
     def _sync_map(
         self, current: ArchitectureReviewClock, current_map: ResearchMap
