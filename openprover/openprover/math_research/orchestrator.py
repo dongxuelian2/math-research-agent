@@ -55,6 +55,8 @@ from .schemas import (
 )
 from .route_failure import FailureDomain, ReopenCondition
 from .runtime_backend import SQLiteRuntimeBackend
+from .runtime_bindings import CrossPlaneExecutionBinding
+from .runtime_effects import RuntimeEffectCoordinator
 from .scheduler import StopController, StrategyFingerprintStore
 from .state_machine import AuditGate
 from .truth_store import TruthMutationBlocked, TruthStoreFacade
@@ -285,6 +287,7 @@ class ResearchOrchestrator:
         self.state = self._load_or_initialize_state()
         runtime_db_preexisting = (self.project.root / "runtime" / "control.sqlite3").is_file()
         self.runtime_backend = SQLiteRuntimeBackend(self.project.root)
+        self.runtime_effects = RuntimeEffectCoordinator(self.runtime_backend)
         if resume and not runtime_db_preexisting:
             self.runtime_backend.import_legacy_checkpoint(
                 str(self.run_dir),
@@ -337,6 +340,8 @@ class ResearchOrchestrator:
             self._configure_pipeline_runtime()
         if not immutable_complete:
             self._ensure_target_pipeline_obligation()
+        self.model_router.execution_binding = self._current_execution_binding()
+        self.model_router.execution_binding_validator = self._validate_execution_binding
 
     def _resolve_run_dir(self, resume: str | Path | None, *, run_id: str | None = None) -> Path:
         runs_dir = self.project.root / "runs"
@@ -694,7 +699,7 @@ class ResearchOrchestrator:
             self.state["governance_checkpoint_classification"] = classification
             if classification == "GOVERNANCE_REVIEW_REQUIRED":
                 self.governance_controller.ensure_clock(str(map_id))
-                self.governance_controller.signal_review(str(map_id), "HUMAN_REQUEST")
+                self._signal_governance_review(str(map_id), "HUMAN_REQUEST")
             else:
                 clock = self.governance_controller.ensure_clock(str(map_id))
                 if self.state.get("architecture_review_clock_hash") != clock.clock_hash:
@@ -836,6 +841,122 @@ class ResearchOrchestrator:
         result = {**comparison.to_dict(), "validated_at": utc_now()}
         _write_json(self.run_dir / "truth" / f"{operation.casefold()}_validation.json", result)
         return result
+
+    def _current_execution_binding(self) -> CrossPlaneExecutionBinding | None:
+        if self.claim_snapshot is None:
+            return None
+        research_map = getattr(self, "research_map", None)
+        directive = getattr(self, "directive", None)
+        session = getattr(self, "tactical_session", None)
+        root_claim_snapshot_hash = (
+            research_map.root_claim_snapshot_hash
+            if research_map is not None
+            else self.claim_snapshot.claim_snapshot_hash
+        )
+        return CrossPlaneExecutionBinding.capture(
+            root_claim_snapshot_hash=root_claim_snapshot_hash,
+            research_map_id=research_map.research_map_id if research_map else None,
+            research_map_version=research_map.version if research_map else None,
+            research_map_hash=research_map.research_map_hash if research_map else None,
+            research_obligation_id=(
+                directive.obligation_id if directive else (session.obligation_id if session else None)
+            ),
+            directive_id=directive.directive_id if directive else None,
+            tactical_session_id=session.tactical_session_id if session else None,
+        )
+
+    def _validate_execution_binding(
+        self, binding: CrossPlaneExecutionBinding | None
+    ) -> bool | str:
+        current = self._current_execution_binding()
+        if binding is None or current is None:
+            return "REVALIDATION_REQUIRED: execution binding is missing"
+        if binding.root_claim_snapshot_hash != current.root_claim_snapshot_hash:
+            return "STALE_CLAIM_SNAPSHOT: execution binding is not current"
+        if binding.research_map_id is not None:
+            if (
+                binding.research_map_id != current.research_map_id
+                or binding.research_map_version != current.research_map_version
+                or binding.research_map_hash != current.research_map_hash
+            ):
+                return "STALE_RESEARCH_MAP: exact map identity is not current"
+        for field in (
+            "research_obligation_id",
+            "directive_id",
+            "tactical_session_id",
+            "governance_object_type",
+            "governance_object_id",
+            "governance_source_hash",
+        ):
+            expected = getattr(binding, field)
+            current_value = getattr(current, field)
+            if expected is not None and current_value is not None and expected != current_value:
+                return f"STALE_EXECUTION_BINDING: {field} is not current"
+        return True
+
+    def _validate_truth_execution_binding(
+        self, binding: CrossPlaneExecutionBinding | None
+    ) -> bool | str:
+        if binding is None:
+            return "REVALIDATION_REQUIRED: truth execution binding is missing"
+        if binding.root_claim_snapshot_hash != self.claim_snapshot.claim_snapshot_hash:
+            return "STALE_CLAIM_SNAPSHOT: truth binding is not current"
+        if any(
+            getattr(binding, field) is not None
+            for field in (
+                "research_map_id",
+                "research_map_version",
+                "research_map_hash",
+                "research_obligation_id",
+                "directive_id",
+                "tactical_session_id",
+                "governance_object_type",
+                "governance_object_id",
+                "governance_source_hash",
+            )
+        ):
+            return "STALE_CLAIM_SNAPSHOT: truth mutation binding must be root-only"
+        return True
+
+    def _register_runtime_effect_result(
+        self,
+        *,
+        idempotency_key: str,
+        semantic_target: str,
+        payload: dict,
+        binding: CrossPlaneExecutionBinding,
+        binding_validator=None,
+    ) -> dict:
+        return self.runtime_effects.register_semantic_result(
+            idempotency_key=idempotency_key,
+            semantic_target=semantic_target,
+            payload=payload,
+            binding=binding,
+            binding_validator=binding_validator or self._validate_execution_binding,
+        )
+
+    def _signal_governance_review(self, research_map_id: str, trigger: str):
+        current = self.research_store.load_current_map(research_map_id)
+        binding = CrossPlaneExecutionBinding.capture(
+            root_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            research_map_id=current.research_map_id,
+            research_map_version=current.version,
+            research_map_hash=current.research_map_hash,
+        )
+        source = self._register_runtime_effect_result(
+            idempotency_key=f"governance-signal:{current.research_map_hash}:{trigger}",
+            semantic_target=research_map_id,
+            payload={"trigger": trigger},
+            binding=binding,
+        )
+        return self.runtime_effects.signal_governance_review(
+            logical_job_id=str(source["logical_job_id"]),
+            source_result_id=str(source["result_id"]),
+            governance_controller=self.governance_controller,
+            research_map_id=research_map_id,
+            trigger=trigger,
+            root_claim_snapshot_hash=current.root_claim_snapshot_hash,
+        )
 
     def _configure_pipeline_runtime(self) -> None:
         """Create the single runtime that owns async task futures for this run."""
@@ -1279,6 +1400,10 @@ class ResearchOrchestrator:
                 reason=f"Research run {self.run_dir.name} started",
             )
         self._ensure_research_plane_ready()
+        # A new run creates its ResearchMap/Directive/Session lazily in
+        # _ensure_research_plane_ready; refresh the immutable router context
+        # before the first routed provider call.
+        self.model_router.execution_binding = self._current_execution_binding()
 
         if not self._phase_at_least("CONTEXT_READY"):
             package = ContextBuilder(self.project).build(
@@ -1703,10 +1828,33 @@ changed failure condition is explicitly recorded.
             provider_provenance=provenance,
             closed_by="ResearchOrchestrator",
         )
-        decision, revised = self.research_store.resolve_session_closure(
-            self.tactical_session.tactical_session_id,
+        closure_binding = CrossPlaneExecutionBinding.capture(
+            root_claim_snapshot_hash=closure.root_claim_snapshot_hash,
+            research_map_id=closure.research_map_id,
+            research_map_version=closure.research_map_version,
+            research_map_hash=closure.research_map_hash,
+            research_obligation_id=closure.obligation_id,
+            directive_id=closure.directive_id,
+            tactical_session_id=closure.tactical_session_id,
+        )
+        closure_source = self._register_runtime_effect_result(
+            idempotency_key=f"session-closure:{closure.session_closure_id}",
+            semantic_target=closure.obligation_id,
+            payload={
+                "session_closure_id": closure.session_closure_id,
+                "closure_hash": closure.closure_hash,
+            },
+            binding=closure_binding,
+        )
+        _, closure_outcome = self.runtime_effects.apply_research_session_closure(
+            logical_job_id=str(closure_source["logical_job_id"]),
+            source_result_id=str(closure_source["result_id"]),
+            research_store=self.research_store,
+            tactical_session_id=self.tactical_session.tactical_session_id,
             recorded_by="ResearchOrchestrator",
         )
+        decision = closure_outcome["decision"]
+        revised = closure_outcome["research_map"]
         self.state["session_closure_id"] = closure.session_closure_id
         self.state["session_closure_hash"] = closure.closure_hash
         self.state["obligation_resolution_status"] = decision.status
@@ -1716,41 +1864,104 @@ changed failure condition is explicitly recorded.
             self.state.update(self.research_store.frontier_projection(revised.research_map_id))
         if decision.status == "RESOLUTION_ACCEPTED":
             current_map = self.research_store.load_current_map(self.research_map.research_map_id)
-            self.governance_controller.record_effect(
-                StructuralEffect.capture(
-                    root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
-                    research_map_id=current_map.research_map_id,
-                    research_map_version=current_map.version,
-                    research_map_hash=current_map.research_map_hash,
-                    obligation_refs=(closure.obligation_id,),
-                    effect_kind="ONE_OBLIGATION_RESOLVED",
-                    evidence_refs=decision.accepted_evidence_ids,
-                    validation_basis=decision.decision_hash,
-                    validation_status="VALIDATED",
-                    source_type="SESSION_CLOSURE",
-                    created_at=utc_now(),
-                    created_by="ResearchOrchestrator",
-                )
+            effect = StructuralEffect.capture(
+                root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
+                research_map_id=current_map.research_map_id,
+                research_map_version=current_map.version,
+                research_map_hash=current_map.research_map_hash,
+                obligation_refs=(closure.obligation_id,),
+                effect_kind="ONE_OBLIGATION_RESOLVED",
+                evidence_refs=decision.accepted_evidence_ids,
+                validation_basis=decision.decision_hash,
+                validation_status="VALIDATED",
+                source_type="SESSION_CLOSURE",
+                created_at=utc_now(),
+                created_by="ResearchOrchestrator",
+            )
+            effect_binding = CrossPlaneExecutionBinding.capture(
+                root_claim_snapshot_hash=effect.root_claim_snapshot_hash,
+                research_map_id=effect.research_map_id,
+                research_map_version=effect.research_map_version,
+                research_map_hash=effect.research_map_hash,
+                governance_object_type="STRUCTURAL_EFFECT",
+                governance_object_id=effect.structural_effect_id,
+                governance_source_hash=effect.structural_effect_hash,
+            )
+            effect_source = self._register_runtime_effect_result(
+                idempotency_key=f"structural-effect:{effect.structural_effect_id}",
+                semantic_target=effect.research_map_id,
+                payload={
+                    "structural_effect_id": effect.structural_effect_id,
+                    "structural_effect_hash": effect.structural_effect_hash,
+                },
+                binding=effect_binding,
+            )
+            self.runtime_effects.apply_structural_effect(
+                logical_job_id=str(effect_source["logical_job_id"]),
+                source_result_id=str(effect_source["result_id"]),
+                governance_controller=self.governance_controller,
+                effect=effect,
             )
         pipeline_snapshot = self.pipeline_scheduler.snapshot()
         for task in pipeline_snapshot.get("tasks", {}).values():
             result = task.get("result") if isinstance(task, dict) else None
             trigger = result.get("governance_review_trigger") if isinstance(result, dict) else None
             if trigger:
-                self.governance_controller.signal_review(
-                    self.research_map.research_map_id, str(trigger)
+                current_map = self.research_store.load_current_map(self.research_map.research_map_id)
+                signal_binding = CrossPlaneExecutionBinding.capture(
+                    root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
+                    research_map_id=current_map.research_map_id,
+                    research_map_version=current_map.version,
+                    research_map_hash=current_map.research_map_hash,
+                )
+                signal_source = self._register_runtime_effect_result(
+                    idempotency_key=(
+                        f"governance-signal:{current_map.research_map_hash}:{trigger}"
+                    ),
+                    semantic_target=current_map.research_map_id,
+                    payload={"trigger": str(trigger)},
+                    binding=signal_binding,
+                )
+                self.runtime_effects.signal_governance_review(
+                    logical_job_id=str(signal_source["logical_job_id"]),
+                    source_result_id=str(signal_source["result_id"]),
+                    governance_controller=self.governance_controller,
+                    research_map_id=current_map.research_map_id,
+                    trigger=str(trigger),
+                    root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
                 )
         blocked_ids = tuple(
             item.obligation_id
             for item in self.research_map.obligation_refs
             if item.disposition == "BLOCKED"
         )
-        self.governance_controller.record_session(
-            self.research_map.research_map_id,
+        current_map = self.research_store.load_current_map(self.research_map.research_map_id)
+        session_binding = CrossPlaneExecutionBinding.capture(
+            root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
+            research_map_id=current_map.research_map_id,
+            research_map_version=current_map.version,
+            research_map_hash=current_map.research_map_hash,
+            tactical_session_id=self.tactical_session.tactical_session_id,
+        )
+        session_source = self._register_runtime_effect_result(
+            idempotency_key=f"governance-session:{self.tactical_session.tactical_session_id}",
+            semantic_target=self.tactical_session.tactical_session_id,
+            payload={
+                "research_map_id": current_map.research_map_id,
+                "blocked_obligation_ids": list(blocked_ids),
+            },
+            binding=session_binding,
+        )
+        self.runtime_effects.record_governance_session(
+            logical_job_id=str(session_source["logical_job_id"]),
+            source_result_id=str(session_source["result_id"]),
+            governance_controller=self.governance_controller,
+            research_map_id=current_map.research_map_id,
             successor_execution=bool(self.parent_run_id),
             root_obstruction_unchanged=True,
             blocked_obligation_ids=blocked_ids,
             tactical_session_id=self.tactical_session.tactical_session_id,
+            root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
         )
         self.state.update(
             self.governance_controller.checkpoint_projection(self.research_map.research_map_id)
@@ -1786,22 +1997,52 @@ changed failure condition is explicitly recorded.
             self._close_research_session(gate, extra_artifacts=(report_path,))
             audit_artifacts = sorted((self.run_dir / "audits").glob("*.json"))
             audit_artifacts.append(self.run_dir / "CANDIDATE_PROOF.md")
+            truth_reason = f"All audit gates passed in {self.run_dir.name}"
+            truth_metadata = {
+                "proof_file": report_path.relative_to(self.project.root).as_posix(),
+                "proof_type": (
+                    "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
+                ),
+            }
+            truth_intent = self.truth_store.build_mutation_intent(
+                theorem_id=self.target_id,
+                snapshot=self.claim_snapshot,
+                gate=gate,
+                actor="Archivist",
+                reason=truth_reason,
+                audit_artifacts=audit_artifacts,
+            )
+            truth_binding = CrossPlaneExecutionBinding.capture(
+                root_claim_snapshot_hash=self.claim_snapshot.claim_snapshot_hash,
+            )
             try:
-                self.target, snapshot, intent, receipt = self.truth_store.compare_and_transition(
-                    self.target_id,
+                truth_source = self._register_runtime_effect_result(
+                    idempotency_key=f"truth-mutation:{truth_intent.mutation_id}",
+                    semantic_target=self.target_id,
+                    payload={
+                        "mutation_id": truth_intent.mutation_id,
+                        "claim_snapshot_hash": self.claim_snapshot.claim_snapshot_hash,
+                    },
+                    binding=truth_binding,
+                    binding_validator=self._validate_truth_execution_binding,
+                )
+                _, truth_outcome = self.runtime_effects.apply_truth_transition(
+                    logical_job_id=str(truth_source["logical_job_id"]),
+                    source_result_id=str(truth_source["result_id"]),
+                    truth_store=self.truth_store,
+                    theorem_id=self.target_id,
                     claim_snapshot=self.claim_snapshot,
                     gate=gate,
                     actor="Archivist",
-                    reason=f"All audit gates passed in {self.run_dir.name}",
+                    reason=truth_reason,
                     audit_artifacts=audit_artifacts,
-                    metadata_updates={
-                        "proof_file": report_path.relative_to(self.project.root).as_posix(),
-                        "proof_type": (
-                            "MOCKED_DEMO" if is_mock_config(self.config) else "NATURAL_LANGUAGE"
-                        ),
-                    },
+                    metadata_updates=truth_metadata,
                     **self._truth_capture_kwargs(),
                 )
+                self.target = truth_outcome["theorem"]
+                snapshot = truth_outcome["snapshot"]
+                intent = truth_outcome["intent"]
+                receipt = truth_outcome["receipt"]
             except TruthMutationBlocked as exc:
                 blocked = json.loads(exc.blocked_path.read_text(encoding="utf-8"))
                 checkpoint_status = (
@@ -1869,14 +2110,44 @@ changed failure condition is explicitly recorded.
                     if item.category not in {"INFRASTRUCTURE_ERROR", "PROVIDER_ERROR", "UNKNOWN"}
                     else item.category.removesuffix("_ERROR")
                 )
-                record, revised = self.research_store.record_route_failure(
-                    self.research_map.research_map_id,
-                    obligation_id,
+                current_map = self.research_store.load_current_map(self.research_map.research_map_id)
+                route_binding = CrossPlaneExecutionBinding.capture(
+                    root_claim_snapshot_hash=current_map.root_claim_snapshot_hash,
+                    research_map_id=current_map.research_map_id,
+                    research_map_version=current_map.version,
+                    research_map_hash=current_map.research_map_hash,
+                    research_obligation_id=obligation_id,
+                    directive_id=self.directive.directive_id,
+                    tactical_session_id=self.tactical_session.tactical_session_id,
+                )
+                route_description = f"{item.affected_branch}: {item.exact_rejected_claim}"
+                exact_failure_condition = (
+                    f"{item.exact_rejected_claim}; {item.repair_suggestion}"
+                )
+                route_source = self._register_runtime_effect_result(
+                    idempotency_key=(
+                        f"route-failure:{self.run_dir.name}:{len(route_records)}:"
+                        f"{item.auditor}:{item.exact_rejected_claim}"
+                    ),
+                    semantic_target=obligation_id,
+                    payload={
+                        "route_description": route_description,
+                        "exact_failure_condition": exact_failure_condition,
+                    },
+                    binding=route_binding,
+                )
+                stored_route_binding = CrossPlaneExecutionBinding.from_dict(
+                    json.loads(route_source["cross_plane_binding"])
+                )
+                _, route_outcome = self.runtime_effects.apply_research_route_failure(
+                    logical_job_id=str(route_source["logical_job_id"]),
+                    source_result_id=str(route_source["result_id"]),
+                    research_store=self.research_store,
+                    research_map_id=current_map.research_map_id,
+                    obligation_id=obligation_id,
                     route_description=f"{item.affected_branch}: {item.exact_rejected_claim}",
                     method_family=item.auditor or "AUDIT_DIAGNOSIS",
-                    exact_failure_condition=(
-                        f"{item.exact_rejected_claim}; {item.repair_suggestion}"
-                    ),
+                    exact_failure_condition=exact_failure_condition,
                     failure_domain=failure_domain,
                     evidence_refs=(self.state["session_closure_id"],),
                     reopen_conditions=(
@@ -1887,12 +2158,36 @@ changed failure condition is explicitly recorded.
                         ReopenCondition.FAILURE_CONDITION_REMOVED.value,
                     ),
                     created_by="FailureMapTypedAdapter",
+                    binding=stored_route_binding,
                 )
+                record = route_outcome["route_failure"]
+                revised = route_outcome["research_map"]
                 self.research_map = revised
                 route_records.append(record.route_failure_id)
-                self.governance_controller.record_route_failure(
-                    self.research_map.research_map_id,
+                governance_map = self.research_store.load_current_map(
+                    self.research_map.research_map_id
+                )
+                governance_binding = CrossPlaneExecutionBinding.capture(
+                    root_claim_snapshot_hash=governance_map.root_claim_snapshot_hash,
+                    research_map_id=governance_map.research_map_id,
+                    research_map_version=governance_map.version,
+                    research_map_hash=governance_map.research_map_hash,
+                )
+                governance_source = self._register_runtime_effect_result(
+                    idempotency_key=(
+                        f"governance-route-failure:{record.route_failure_id}"
+                    ),
+                    semantic_target=obligation_id,
+                    payload={"route_failure_id": record.route_failure_id},
+                    binding=governance_binding,
+                )
+                self.runtime_effects.record_governance_route_failure(
+                    logical_job_id=str(governance_source["logical_job_id"]),
+                    source_result_id=str(governance_source["result_id"]),
+                    governance_controller=self.governance_controller,
+                    research_map_id=governance_map.research_map_id,
                     obligation_id=obligation_id,
+                    root_claim_snapshot_hash=governance_map.root_claim_snapshot_hash,
                 )
             self.state["route_failure_ids"] = route_records
             self.state.update(
