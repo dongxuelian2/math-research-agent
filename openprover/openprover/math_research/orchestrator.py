@@ -31,6 +31,7 @@ from .openai_provider import OpenAIProviderError
 from .candidate_engine import CandidateEngine
 from .audit_coordinator import AuditCoordinator
 from .project import ProjectError, ProjectStore, utc_now
+from .directive import BudgetProfile
 from .pipelines import AsyncDAGScheduler, AsynchronousPipelineRuntime
 from .literature import ExternalAuthorityRegistry, LiteratureTaskExecutor
 from .providers import (
@@ -39,17 +40,20 @@ from .providers import (
     load_model_config,
 )
 from .retrieval import ContextBuilder
+from .research_evidence import ProviderProvenance
+from .research_store import (
+    ResearchStoreFacade,
+    classify_legacy_checkpoint_research_frontier,
+    research_checkpoint_projection,
+)
 from .routing import ModelRouter, RoutedLLMClient
 from .schemas import (
     PipelineResultSchema,
     SchemaError,
     parse_structured_response,
 )
-from .scheduler import (
-    StopController,
-    StrategyFingerprint,
-    StrategyFingerprintStore,
-)
+from .route_failure import FailureDomain, ReopenCondition
+from .scheduler import StopController, StrategyFingerprintStore
 from .state_machine import AuditGate
 from .truth_store import TruthMutationBlocked, TruthStoreFacade
 
@@ -222,11 +226,13 @@ class ResearchOrchestrator:
         campaign_routing_override: dict | None = None,
         pipeline_state: dict | None = None,
         pipeline_handlers: dict | None = None,
+        research_map_id: str | None = None,
     ):
         if worker_count < 1:
             raise ProjectError("worker_count must be positive")
         self.project = project
         self.truth_store = TruthStoreFacade(project)
+        self.requested_research_map_id = research_map_id
         self.target_id = target_id
         self.target = project.load_theorem(target_id)
         self.config_path = Path(config_path).resolve()
@@ -257,6 +263,7 @@ class ResearchOrchestrator:
         self._pipeline_monitor_thread: threading.Thread | None = None
         self.claim_snapshot = None
         self.truth_resume_blocked = False
+        self.research_resume_blocked = False
         self.candidate_engine = CandidateEngine(self)
         self.audit_coordinator = AuditCoordinator(self)
         if self.initial_worker_count < 1 or self.initial_worker_count > self.worker_count:
@@ -293,6 +300,12 @@ class ResearchOrchestrator:
             self.pipeline_scheduler._save()
         self._refresh_canonical_authority()
         self._initialize_claim_snapshot(resume_requested=bool(resume))
+        self.research_store = ResearchStoreFacade(
+            self.project,
+            truth_store=self.truth_store,
+            root_validation_kwargs=self._truth_capture_kwargs(),
+        )
+        self._initialize_research_plane(resume_requested=bool(resume))
         if not immutable_complete:
             self._configure_pipeline_runtime()
         if not immutable_complete:
@@ -634,6 +647,115 @@ class ResearchOrchestrator:
                 "event": event,
                 "bound_at": self.state["claim_snapshot_bound_at"],
             },
+        )
+
+    def _initialize_research_plane(self, *, resume_requested: bool) -> None:
+        self.research_map = None
+        self.directive = None
+        self.tactical_session = None
+        map_id = self.state.get("research_map_id") or self.requested_research_map_id
+        if map_id:
+            self.research_map = self.research_store.load_current_map(str(map_id))
+            self.state.update(self.research_store.frontier_projection(str(map_id)))
+            directive_id = self.state.get("active_directive_id")
+            session_id = self.state.get("tactical_session_id")
+            if directive_id:
+                self.directive = self.research_store.load_directive(str(directive_id))
+            if session_id:
+                self.tactical_session = self.research_store.load_tactical_session(str(session_id))
+            _write_json(self.state_path, self.state)
+            return
+        if resume_requested:
+            self.research_resume_blocked = True
+            self.state["research_frontier_classification"] = (
+                classify_legacy_checkpoint_research_frontier(self.state)
+            )
+            self.state["resume_phase"] = self.state.get("resume_phase") or self.state.get(
+                "phase", "CREATED"
+            )
+            self.state["phase"] = CHECKPOINT_PHASE
+            self.state["status"] = "REVALIDATION_REQUIRED"
+            self.state["checkpoint_reason"] = "RESEARCH_MAP_MISSING"
+            _write_json(self.state_path, self.state)
+
+    def _ensure_research_plane_ready(self) -> None:
+        if self.claim_snapshot is None:
+            raise ProjectError("Research Plane requires a current ClaimSnapshot")
+        if self.research_map is None:
+            map_id = self.requested_research_map_id or f"map-{self.run_dir.name}"
+            obligation_id = f"ro-{self.target_id}-root"
+            self.research_map = self.research_store.create_initial_map(
+                research_map_id=map_id,
+                root_theorem_id=self.target_id,
+                root_claim_snapshot_hash=self.claim_snapshot.claim_snapshot_hash,
+                obligations=[
+                    {
+                        "obligation_id": obligation_id,
+                        "title": f"Resolve root research target {self.target_id}",
+                        "statement": self.target["statement"],
+                        "obligation_kind": "OTHER",
+                        "scope": [f"root theorem {self.target_id}"],
+                    }
+                ],
+                created_by="ResearchOrchestrator",
+                strategic_thesis="Maintain the root target as an explicit durable frontier.",
+            )
+        elif self.research_map.root_claim_snapshot_hash != self.claim_snapshot.claim_snapshot_hash:
+            comparison = self.truth_store.compare_claim_snapshot(
+                self.research_map.root_claim_snapshot_hash,
+                **self._truth_capture_kwargs(),
+            )
+            if comparison.status != "TARGET_STATUS_CHANGED":
+                raise ProjectError(
+                    "RESEARCH_MAP_ROOT_STALE: explicit human rebase is required for "
+                    f"{comparison.status}/{comparison.disposition}"
+                )
+            all_ids = tuple(item.obligation_id for item in self.research_map.obligation_refs)
+            _, self.research_map = self.research_store.rebase_research_map(
+                self.research_map.research_map_id,
+                new_claim_snapshot_hash=self.claim_snapshot.claim_snapshot_hash,
+                carried_obligation_ids=all_ids,
+                revalidation_required_obligation_ids=(),
+                invalid_obligation_ids=(),
+                reason="explicit rebase across an orchestrated Truth lifecycle status transition",
+                created_by="ResearchOrchestrator",
+            )
+        root_ref = self.research_map.obligation_refs[0]
+        project_meta = self.project.load_project()
+        scope = project_meta.get("allowed_scope") or [f"root theorem {self.target_id}"]
+        self.directive = self.research_store.create_directive(
+            self.research_map.research_map_id,
+            root_ref.obligation_id,
+            tactical_goal=f"Advance the exact research obligation: {self.target['statement']}",
+            allowed_scope=tuple(str(item) for item in scope),
+            prohibited_routes=tuple(project_meta.get("prohibited_routes", [])),
+            failed_route_refs=self.research_map.route_failure_refs,
+            requested_worker_roles=("constructive", "counterexample_hunter", "boundary_auditor"),
+            budget_profile=BudgetProfile.capture(
+                wall_clock_seconds=int(self.budget_limit_seconds or self.config.get("budget", {}).get(
+                    "limit", 900
+                )),
+                max_workers=self.worker_count,
+                max_provider_calls=int(
+                    self.config.get("routing", {}).get("max_provider_calls", 1000)
+                ),
+                reasoning_tier="adaptive",
+            ),
+            created_by="ResearchOrchestrator",
+        )
+        self.tactical_session = self.research_store.bind_tactical_session(
+            self.directive.directive_id,
+            execution_run_id=self.run_dir.name,
+            parent_execution_run_id=self.parent_run_id,
+            execution_status="RUNNING",
+        )
+        self.state.update(
+            research_checkpoint_projection(
+                self.research_store,
+                self.research_map.research_map_id,
+                active_directive_id=self.directive.directive_id,
+                tactical_session_id=self.tactical_session.tactical_session_id,
+            )
         )
         _write_json(self.state_path, self.state)
 
@@ -1076,7 +1198,7 @@ class ResearchOrchestrator:
             )
         if self.state.get("phase") == "COMPLETE":
             return self.state
-        if self.truth_resume_blocked:
+        if self.truth_resume_blocked or self.research_resume_blocked:
             return self.state
         if self.state.get("phase") == CHECKPOINT_PHASE:
             self.state["phase"] = self.state.get("resume_phase", "CREATED")
@@ -1111,6 +1233,7 @@ class ResearchOrchestrator:
                 actor="MasterPlanner",
                 reason=f"Research run {self.run_dir.name} started",
             )
+        self._ensure_research_plane_ready()
 
         if not self._phase_at_least("CONTEXT_READY"):
             package = ContextBuilder(self.project).build(
@@ -1118,6 +1241,7 @@ class ResearchOrchestrator:
                 expand=self.expand_context,
                 canonical_authority=self.canonical_authority,
                 claim_snapshot=(self.claim_snapshot.to_dict() if self.claim_snapshot else None),
+                directive=self.directive,
             )
             ContextBuilder.write(package, self.run_dir / "context")
             if self.hard_submit_gate:
@@ -1435,6 +1559,118 @@ changed failure condition is explicitly recorded.
     def _run_audits(self) -> tuple[dict[str, dict], AuditGate]:
         return self.audit_coordinator.run_audits()
 
+    def _close_research_session(
+        self, gate: AuditGate, *, extra_artifacts: tuple[Path, ...] = ()
+    ) -> None:
+        if self.tactical_session is None:
+            raise ProjectError("SessionClosure requires a bound TacticalSession")
+        paths: list[tuple[Path, str, str]] = []
+        candidate = self.run_dir / "CANDIDATE_PROOF.md"
+        if candidate.is_file():
+            paths.append((candidate, "CANDIDATE", "Planner"))
+        for path in sorted((self.run_dir / "openprover" / "steps").glob("**/workers/*")):
+            if path.is_file():
+                producer = "WorkerVerifier" if "verifier" in path.name else "Worker"
+                paths.append((path, "WORKER_OR_VERIFIER_OUTPUT", producer))
+        for path in sorted((self.run_dir / "audits").glob("*.json")):
+            paths.append((path, "AUDIT", "AuditCoordinator"))
+        for path in (
+            self.run_dir / "pipeline_state.json",
+            self.run_dir / "routing_state.json",
+            self.run_dir / "usage.json",
+            *extra_artifacts,
+        ):
+            if path.is_file():
+                paths.append((path, "EVENT_OR_PROVENANCE", "ResearchOrchestrator"))
+        unique: list[tuple[Path, str, str]] = []
+        seen: set[Path] = set()
+        for path, kind, producer in paths:
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                unique.append((resolved, kind, producer))
+        evidence_specs: list[dict] = []
+        if candidate.is_file():
+            evidence_specs.append(
+                {
+                    "artifact_path": candidate,
+                    "evidence_kind": "CANDIDATE",
+                    "authority_status": "NOT_APPLICABLE",
+                }
+            )
+        verifier_paths = sorted(
+            (self.run_dir / "openprover" / "steps").glob("**/workers/verifier_event_*.json")
+        )
+        for path in verifier_paths:
+            try:
+                value = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if value.get("verdict") == "CORRECT":
+                evidence_specs.append(
+                    {
+                        "artifact_path": path,
+                        "evidence_kind": "VERIFIER",
+                        "verifier_status": "PASS",
+                        "authority_status": "NOT_APPLICABLE",
+                    }
+                )
+                break
+        gate_path = self.run_dir / "audits" / "gate.json"
+        if gate_path.is_file():
+            evidence_specs.append(
+                {
+                    "artifact_path": gate_path,
+                    "evidence_kind": "AUDIT",
+                    "audit_status": "PASS" if gate.passed else "FAIL",
+                    "authority_status": "TRUSTED" if gate.passed else "UNKNOWN",
+                    "authority_refs": tuple(
+                        item.get("binding_hash")
+                        for item in self.state.get("canonical_authority", [])
+                        if isinstance(item, dict) and item.get("binding_hash")
+                    ),
+                }
+            )
+        calls = self.model_router.snapshot().get("calls", [])
+        grouped: dict[tuple[str, str], list[str]] = {}
+        for call in calls:
+            if not isinstance(call, dict) or not call.get("provider"):
+                continue
+            key = (str(call["provider"]), str(call.get("model") or ""))
+            grouped.setdefault(key, []).append(str(call.get("call_id") or ""))
+        provenance = tuple(
+            ProviderProvenance.capture(
+                provider=provider,
+                model=model,
+                call_refs=tuple(item for item in call_refs if item),
+            )
+            for (provider, model), call_refs in sorted(grouped.items())
+        )
+        closure = self.research_store.close_tactical_session(
+            self.tactical_session.tactical_session_id,
+            execution_status="COMPLETED" if gate.passed else "FAILED",
+            raw_artifacts=tuple(
+                {"path": path, "artifact_kind": kind, "producer": producer}
+                for path, kind, producer in unique
+            ),
+            evidence_specs=evidence_specs,
+            unresolved_findings=tuple(gate.failure_reasons),
+            provider_provenance=provenance,
+            closed_by="ResearchOrchestrator",
+        )
+        decision, revised = self.research_store.resolve_session_closure(
+            self.tactical_session.tactical_session_id,
+            recorded_by="ResearchOrchestrator",
+        )
+        self.state["session_closure_id"] = closure.session_closure_id
+        self.state["session_closure_hash"] = closure.closure_hash
+        self.state["obligation_resolution_status"] = decision.status
+        self.state["obligation_resolution_decision_hash"] = decision.decision_hash
+        if revised is not None:
+            self.research_map = revised
+            self.state.update(self.research_store.frontier_projection(revised.research_map_id))
+        _write_json(self.state_path, self.state)
+
     def _finalize(self, gate: AuditGate) -> None:
         if gate.passed:
             self._refresh_canonical_authority()
@@ -1461,6 +1697,7 @@ changed failure condition is explicitly recorded.
                 )
                 return
             report_path = self._write_resolution_report(gate)
+            self._close_research_session(gate, extra_artifacts=(report_path,))
             audit_artifacts = sorted((self.run_dir / "audits").glob("*.json"))
             audit_artifacts.append(self.run_dir / "CANDIDATE_PROOF.md")
             try:
@@ -1537,26 +1774,42 @@ changed failure condition is explicitly recorded.
                 affected_branch=self.target.get("branch", "main"),
             )
             failure_json, failure_md = failure_map.write(self.run_dir)
-            if self.campaign_id:
-                fingerprint_store = StrategyFingerprintStore(self.project)
-                fingerprint_records = []
-                for item in failure_map.items:
-                    strategy = StrategyFingerprint(
-                        theorem=self.target_id,
-                        branch=item.affected_branch,
-                        target_lemma=item.exact_rejected_claim,
-                        method=item.auditor,
-                        key_dependency=item.authority_expected,
-                        failure_point=item.exact_rejected_claim,
-                    )
-                    fingerprint_records.append(fingerprint_store.record_failure(strategy))
-                _write_json(
-                    self.run_dir / "strategy_fingerprints.json",
-                    {
-                        "schema_version": 1,
-                        "records": fingerprint_records,
-                    },
+            self._close_research_session(
+                gate, extra_artifacts=(failure_json, failure_md)
+            )
+            route_records = []
+            obligation_id = self.tactical_session.obligation_id
+            for item in failure_map.items:
+                failure_domain = (
+                    FailureDomain.MATHEMATICAL.value
+                    if item.category not in {"INFRASTRUCTURE_ERROR", "PROVIDER_ERROR", "UNKNOWN"}
+                    else item.category.removesuffix("_ERROR")
                 )
+                record, revised = self.research_store.record_route_failure(
+                    self.research_map.research_map_id,
+                    obligation_id,
+                    route_description=f"{item.affected_branch}: {item.exact_rejected_claim}",
+                    method_family=item.auditor or "AUDIT_DIAGNOSIS",
+                    exact_failure_condition=(
+                        f"{item.exact_rejected_claim}; {item.repair_suggestion}"
+                    ),
+                    failure_domain=failure_domain,
+                    evidence_refs=(self.state["session_closure_id"],),
+                    reopen_conditions=(
+                        ReopenCondition.DEPENDENCY_SNAPSHOT_CHANGED.value,
+                        ReopenCondition.ASSUMPTION_SNAPSHOT_CHANGED.value,
+                        ReopenCondition.AUTHORITY_CONTEXT_CHANGED.value,
+                        ReopenCondition.NEW_VERIFIED_LEMMA.value,
+                        ReopenCondition.FAILURE_CONDITION_REMOVED.value,
+                    ),
+                    created_by="FailureMapTypedAdapter",
+                )
+                self.research_map = revised
+                route_records.append(record.route_failure_id)
+            self.state["route_failure_ids"] = route_records
+            self.state.update(
+                self.research_store.frontier_projection(self.research_map.research_map_id)
+            )
             current = self.project.load_theorem(self.target_id)["status"]
             if gate.execution_errors or gate.inconclusive_audits:
                 if current == "AUDITING":

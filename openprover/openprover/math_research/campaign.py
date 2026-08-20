@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 from .canonical_artifacts import CanonicalSourceRequirement
 from .project import ProjectError, ProjectStore, utc_now
+from .research_store import ResearchStoreFacade
 from .scheduler import StopController
 from .trust_kernel import DependencyAuthorityResolver
 from .truth_store import TruthStoreFacade
@@ -661,6 +662,27 @@ class CampaignStore:
             target_id,
             replay_policy_hash=replay_policy_hash,
         )
+        research_store = ResearchStoreFacade(
+            self.project,
+            truth_store=self.truth_store,
+            root_validation_kwargs={"replay_policy_hash": replay_policy_hash},
+        )
+        research_map = research_store.create_initial_map(
+            research_map_id=f"map-{campaign_id}",
+            root_theorem_id=target_id,
+            root_claim_snapshot_hash=root_snapshot.claim_snapshot_hash,
+            obligations=[
+                {
+                    "obligation_id": f"ro-{target_id}-root",
+                    "title": f"Resolve root research target {target_id}",
+                    "statement": self.project.load_theorem(target_id)["statement"],
+                    "obligation_kind": "OTHER",
+                    "scope": [f"root theorem {target_id}"],
+                }
+            ],
+            created_by="CampaignStore",
+            strategic_thesis="Maintain an explicit durable frontier for the campaign root.",
+        )
         record = {
             "schema_version": CAMPAIGN_SCHEMA_VERSION,
             "campaign_id": campaign_id,
@@ -691,6 +713,10 @@ class CampaignStore:
             "root_assertion_identity_hash": root_snapshot.assertion_identity_hash,
             "truth_replay_policy_hash": replay_policy_hash,
             "truth_canonical_authority": [],
+            "research_map_id": research_map.research_map_id,
+            "research_map_version": research_map.version,
+            "research_map_hash": research_map.research_map_hash,
+            "open_obligation_ids": list(research_map.open_obligation_ids),
             "created_at": now,
             "last_updated": now,
         }
@@ -721,7 +747,9 @@ class CampaignStore:
         record = self.load(campaign_id)
         if record["runs"]:
             raise ProjectError("Campaign already has an initial run")
-        record["runs"].append(self._run_record(run_id, None, 0, "INITIAL"))
+        run = self._run_record(run_id, None, 0, "INITIAL")
+        run["research_binding"] = self._research_binding(record)
+        record["runs"].append(run)
         return self._save(record)
 
     def create_successor(self, campaign_id: str, *, parent_run_id: str) -> dict:
@@ -743,6 +771,7 @@ class CampaignStore:
             raise ProjectError("Maximum repair cycles reached")
         run_id = self._successor_id(record["target_id"], cycle)
         child = self._run_record(run_id, parent_run_id, cycle, "REPAIR")
+        child["research_binding"] = self._research_binding(record)
         child["inheritance"] = {
             "previous_candidate": f"runs/{parent_run_id}/CANDIDATE_PROOF.md",
             "audits": f"runs/{parent_run_id}/audits",
@@ -823,6 +852,7 @@ class CampaignStore:
         run_id: str | None = None,
         claim_snapshot_hash: str | None = None,
         canonical_authority: list[dict] | None = None,
+        research_frontier: dict | None = None,
     ) -> dict:
         """Persist durable logical state without copying futures/process handles."""
         record = self.load(campaign_id)
@@ -840,6 +870,19 @@ class CampaignStore:
             record["root_assertion_identity_hash"] = snapshot.assertion_identity_hash
         if canonical_authority is not None:
             record["truth_canonical_authority"] = copy.deepcopy(canonical_authority)
+        if research_frontier is not None:
+            required = {
+                "research_map_id",
+                "research_map_version",
+                "research_map_hash",
+                "open_obligation_ids",
+                "root_claim_snapshot_hash",
+            }
+            if not required <= set(research_frontier):
+                raise ProjectError("Campaign research frontier projection is incomplete")
+            for key in required:
+                if key != "root_claim_snapshot_hash":
+                    record[key] = copy.deepcopy(research_frontier[key])
         record["runtime_state_updated_at"] = utc_now()
         return self._save(record)
 
@@ -860,6 +903,22 @@ class CampaignStore:
             canonical_authority=record.get("truth_canonical_authority") or [],
             replay_policy_hash=record.get("truth_replay_policy_hash"),
         )
+        research_map_id = record.get("research_map_id")
+        if not research_map_id:
+            raise ProjectError(
+                "REVALIDATION_REQUIRED: legacy campaign has no canonical ResearchMap"
+            )
+        research_store = ResearchStoreFacade(
+            self.project,
+            truth_store=self.truth_store,
+            root_validation_kwargs={
+                "canonical_authority": record.get("truth_canonical_authority") or [],
+                "replay_policy_hash": record.get("truth_replay_policy_hash"),
+            },
+        )
+        current_map = research_store.load_current_map(str(research_map_id))
+        if current_map.research_map_hash != record.get("research_map_hash"):
+            raise ProjectError("Campaign ResearchMap projection is stale or incomplete")
         record["status"] = "RUNNING"
         record["resumed_at"] = utc_now()
         StopController(self.project, campaign_id).clear_for_resume()
@@ -875,6 +934,17 @@ class CampaignStore:
             "status": "PLANNED",
             "phase": "CREATED",
             "created_at": utc_now(),
+        }
+
+    @staticmethod
+    def _research_binding(record: dict) -> dict:
+        return {
+            "research_map_id": record.get("research_map_id"),
+            "research_map_version": record.get("research_map_version"),
+            "research_map_hash": record.get("research_map_hash"),
+            "open_obligation_ids": copy.deepcopy(record.get("open_obligation_ids", [])),
+            "root_claim_snapshot_hash": record.get("root_claim_snapshot_hash"),
+            "semantic_role": "EXECUTION_LINEAGE_ONLY",
         }
 
     def _successor_id(self, target_id: str, cycle: int) -> str:
@@ -941,6 +1011,20 @@ class CampaignEngine:
                     run_id=current["run_id"],
                     claim_snapshot_hash=state.get("claim_snapshot_hash"),
                     canonical_authority=state.get("canonical_authority"),
+                    research_frontier=(
+                        {
+                            key: state.get(key)
+                            for key in (
+                                "research_map_id",
+                                "research_map_version",
+                                "research_map_hash",
+                                "open_obligation_ids",
+                                "root_claim_snapshot_hash",
+                            )
+                        }
+                        if state.get("research_map_id")
+                        else None
+                    ),
                 )
             finally:
                 close = getattr(orchestrator, "close", None)
@@ -1021,6 +1105,7 @@ class CampaignEngine:
                 and "queues" in campaign.get("pipeline_state", {})
                 else None
             ),
+            research_map_id=campaign.get("research_map_id"),
         )
 
     def _initial_run_id(self, target_id: str) -> str:

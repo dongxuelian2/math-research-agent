@@ -121,3 +121,14 @@ def write_projection_json(path: Path, value: Mapping[str, Any]) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def write_immutable_bytes(path: Path, value: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        if path.read_bytes() != value:
+            raise ProjectError(f"Immutable research artifact collision: {path}")
+        return
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_bytes(value)
+    temporary.replace(path)
