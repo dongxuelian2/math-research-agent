@@ -115,9 +115,11 @@ class Directive:
         created_at: str,
         created_by: str,
     ) -> "Directive":
-        if not isinstance(research_map_version, int) or isinstance(
-            research_map_version, bool
-        ) or research_map_version < 1:
+        if (
+            not isinstance(research_map_version, int)
+            or isinstance(research_map_version, bool)
+            or research_map_version < 1
+        ):
             raise ProjectError("Directive.research_map_version must be positive")
         if not isinstance(budget_profile, BudgetProfile):
             raise ProjectError("Directive.budget_profile must be typed")
@@ -135,9 +137,7 @@ class Directive:
         identity = {
             "research_map_id": require_id(research_map_id, "Directive.research_map_id"),
             "research_map_version": research_map_version,
-            "research_map_hash": require_hash(
-                research_map_hash, "Directive.research_map_hash"
-            ),
+            "research_map_hash": require_hash(research_map_hash, "Directive.research_map_hash"),
             "obligation_id": require_id(obligation_id, "Directive.obligation_id"),
             "obligation_hash": require_hash(obligation_hash, "Directive.obligation_hash"),
             "root_claim_snapshot_hash": require_hash(
@@ -177,12 +177,25 @@ class Directive:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "Directive":
         fields = {
-            "schema_version", "object_type", "directive_id", "research_map_id",
-            "research_map_version", "research_map_hash", "obligation_id",
-            "obligation_hash", "root_claim_snapshot_hash", "tactical_goal",
-            "allowed_scope", "prohibited_routes", "relevant_evidence_refs",
-            "failed_route_refs", "requested_worker_roles", "budget_profile", "created_at",
-            "created_by", "directive_hash",
+            "schema_version",
+            "object_type",
+            "directive_id",
+            "research_map_id",
+            "research_map_version",
+            "research_map_hash",
+            "obligation_id",
+            "obligation_hash",
+            "root_claim_snapshot_hash",
+            "tactical_goal",
+            "allowed_scope",
+            "prohibited_routes",
+            "relevant_evidence_refs",
+            "failed_route_refs",
+            "requested_worker_roles",
+            "budget_profile",
+            "created_at",
+            "created_by",
+            "directive_hash",
         }
         strict_fields(value, fields, "Directive")
         validate_envelope(value, object_type="DIRECTIVE", name="Directive")
@@ -192,19 +205,22 @@ class Directive:
             research_map_id=value["research_map_id"],
             research_map_version=value["research_map_version"],
             research_map_hash=value["research_map_hash"],
-            obligation_id=value["obligation_id"], obligation_hash=value["obligation_hash"],
+            obligation_id=value["obligation_id"],
+            obligation_hash=value["obligation_hash"],
             root_claim_snapshot_hash=value["root_claim_snapshot_hash"],
-            tactical_goal=value["tactical_goal"], allowed_scope=value["allowed_scope"],
+            tactical_goal=value["tactical_goal"],
+            allowed_scope=value["allowed_scope"],
             prohibited_routes=value["prohibited_routes"],
             relevant_evidence_refs=value["relevant_evidence_refs"],
             failed_route_refs=value["failed_route_refs"],
             requested_worker_roles=value["requested_worker_roles"],
             budget_profile=BudgetProfile.from_dict(value["budget_profile"]),
-            created_at=value["created_at"], created_by=value["created_by"],
+            created_at=value["created_at"],
+            created_by=value["created_by"],
         )
-        if captured.directive_id != value.get("directive_id") or captured.directive_hash != value.get(
-            "directive_hash"
-        ):
+        if captured.directive_id != value.get(
+            "directive_id"
+        ) or captured.directive_hash != value.get("directive_hash"):
             raise ProjectError("Directive identity mismatch")
         return captured
 
@@ -296,9 +312,7 @@ class TacticalSession:
             "research_map_version": directive.research_map_version,
             "research_map_hash": directive.research_map_hash,
             "root_claim_snapshot_hash": directive.root_claim_snapshot_hash,
-            "execution_run_id": require_id(
-                execution_run_id, "TacticalSession.execution_run_id"
-            ),
+            "execution_run_id": require_id(execution_run_id, "TacticalSession.execution_run_id"),
             "parent_execution_run_id": parent,
             "execution_status": execution_status,
         }
@@ -315,10 +329,21 @@ class TacticalSession:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any], directive: Directive) -> "TacticalSession":
         fields = {
-            "schema_version", "object_type", "tactical_session_id", "directive_id",
-            "directive_hash", "obligation_id", "obligation_hash", "research_map_id",
-            "research_map_version", "research_map_hash", "root_claim_snapshot_hash",
-            "execution_run_id", "parent_execution_run_id", "execution_status", "created_at",
+            "schema_version",
+            "object_type",
+            "tactical_session_id",
+            "directive_id",
+            "directive_hash",
+            "obligation_id",
+            "obligation_hash",
+            "research_map_id",
+            "research_map_version",
+            "research_map_hash",
+            "root_claim_snapshot_hash",
+            "execution_run_id",
+            "parent_execution_run_id",
+            "execution_status",
+            "created_at",
             "session_hash",
         }
         strict_fields(value, fields, "TacticalSession")
@@ -331,9 +356,16 @@ class TacticalSession:
             created_at=value["created_at"],
         )
         for field in (
-            "directive_id", "directive_hash", "obligation_id", "obligation_hash",
-            "research_map_id", "research_map_version", "research_map_hash",
-            "root_claim_snapshot_hash", "tactical_session_id", "session_hash",
+            "directive_id",
+            "directive_hash",
+            "obligation_id",
+            "obligation_hash",
+            "research_map_id",
+            "research_map_version",
+            "research_map_hash",
+            "root_claim_snapshot_hash",
+            "tactical_session_id",
+            "session_hash",
         ):
             if getattr(captured, field) != value.get(field):
                 raise ProjectError(f"TacticalSession {field} mismatch")

@@ -120,9 +120,7 @@ def test_r20_multi_obligation_session_has_no_scope_loss(tmp_path):
         ),
         closed_by="test",
     )
-    decision, v2 = store.resolve_session_closure(
-        session.tactical_session_id, recorded_by="test"
-    )
+    decision, v2 = store.resolve_session_closure(session.tactical_session_id, recorded_by="test")
     assert decision.status == "RESOLUTION_ACCEPTED"
     assert v2 is not None
     assert {item.obligation_id: item.disposition for item in v2.obligation_refs} == {

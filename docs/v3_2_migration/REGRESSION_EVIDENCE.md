@@ -131,3 +131,40 @@
 - `python -m compileall -q openprover`: PASS.
 - `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
 - `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.
+
+## PHASE 4 Research Plane Foundation
+
+- Audit-first ordering: `PHASE4_RESEARCH_PATH_AUDIT.md` was committed as
+  `7367184` before any PHASE 4 production source change.
+- R1–R21 ResearchMap/Obligation/Directive/Closure/RouteFailure/production E2E
+  suite: `21 passed in 4.72s` after the final formatter pass.
+- Repository-wide local-safe suite, excluding only the separately invoked
+  import-time interrupt file: `221 passed in 12.61s` after the final formatter
+  pass.
+- Truth identity/store/mutation plus production Planner/Worker/Verifier/Audit
+  E2E slice: `27 passed in 3.55s`.
+- Provider-focused Gemini/Vertex/Codex/OpenAI/routing suite:
+  `38 passed in 2.22s`.
+- Checkpoint migration suite: `8 passed in 1.94s`.
+- Canonical artifact authority suite: `11 passed in 2.60s`.
+- R19 real production mock path reached Planner, at least three Workers,
+  Worker Verifiers, Candidate, specialist/final audits, SessionClosure,
+  `RESOLUTION_ACCEPTED`, ResearchMap v2, then the independent PHASE 3
+  TruthMutation receipt.
+- R20 retained O2/O3 as `OPEN` while only O1 became `RESOLVED`; root theorem
+  truth remained `OPEN` because this fixture did not invoke TruthMutation.
+- The separately invoked `openprover/tests/test_interrupt_race.py` remains
+  `ENVIRONMENT_BLOCKED`. Collection executes `os.killpg` on Windows and raised
+  `AttributeError: module 'os' has no attribute 'killpg'`; it produced one
+  collection error and is not marked PASS, deleted, or permanently skipped.
+- `uv lock --check --project openprover`: passed with 49 packages.
+- `ruff format openprover` formatted 14 PHASE 4-touched files; subsequent
+  `ruff format --check openprover` reported 120 files already formatted.
+- `ruff check openprover`: PASS.
+- `python -m compileall -q openprover`: PASS.
+- `bash -n scripts/bootstrap.sh scripts/run_benchmark.sh`: PASS.
+- PowerShell parsers for `scripts/bootstrap.ps1` and `run_math_agent.ps1`: PASS.
+- Actual PowerShell status entrypoint: exit 0 with the `demo-odd-sum` theorem
+  JSON.
+- `git diff --check`: PASS; only expected LF→CRLF working-copy warnings.
+- `HOSTED_CI = PENDING_PUSH`; no push was authorized or performed.

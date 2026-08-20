@@ -149,9 +149,7 @@ def test_r7_r17_trusted_evidence_resolves_and_retains_all_raw_artifacts(tmp_path
     events.unlink()
     assert all(path.is_file() for path in retained)
 
-    decision, v2 = store.resolve_session_closure(
-        session.tactical_session_id, recorded_by="test"
-    )
+    decision, v2 = store.resolve_session_closure(session.tactical_session_id, recorded_by="test")
     assert decision.status == "RESOLUTION_ACCEPTED"
     assert v2 is not None
     assert v2.version == v1.version + 1
@@ -171,9 +169,7 @@ def test_resolution_gate_reports_stale_scope_authority_and_audit_statuses(tmp_pa
         execution_status="FAILED",
         raw_artifacts=tuple(
             {"path": path, "artifact_kind": kind, "producer": "test"}
-            for path, kind in (
-                (candidate, "CANDIDATE"), (verifier, "VERIFIER"), (audit, "AUDIT")
-            )
+            for path, kind in ((candidate, "CANDIDATE"), (verifier, "VERIFIER"), (audit, "AUDIT"))
         ),
         evidence_specs=(
             {"artifact_path": candidate, "evidence_kind": "CANDIDATE"},
@@ -192,11 +188,17 @@ def test_resolution_gate_reports_stale_scope_authority_and_audit_statuses(tmp_pa
         closed_by="test",
     )
     obligation = store.load_obligation(v1.obligation_ref("O1").obligation_hash)
-    assert can_resolve_obligation(
-        obligation, closure, current_claim_snapshot_hash=snapshot.claim_snapshot_hash
-    ).status == "AUDIT_FAILED"
-    assert can_resolve_obligation(
-        obligation,
-        closure,
-        current_claim_snapshot_hash=domain_hash("different_claim", {"v": 2}),
-    ).status == "STALE_EVIDENCE"
+    assert (
+        can_resolve_obligation(
+            obligation, closure, current_claim_snapshot_hash=snapshot.claim_snapshot_hash
+        ).status
+        == "AUDIT_FAILED"
+    )
+    assert (
+        can_resolve_obligation(
+            obligation,
+            closure,
+            current_claim_snapshot_hash=domain_hash("different_claim", {"v": 2}),
+        ).status
+        == "STALE_EVIDENCE"
+    )
