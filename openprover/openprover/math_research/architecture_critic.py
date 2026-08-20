@@ -61,7 +61,7 @@ class ArchitectureCriticIndependenceReceipt:
         patch_author_id: str,
         critic_actor: GovernanceActor,
         shared_evidence_refs: tuple[str, ...] | list[str],
-        independence_policy: str = "DIFFERENT_ACTOR_FRESH_CONTEXT",
+        independence_policy: str = "DIFFERENT_MODEL",
     ) -> "ArchitectureCriticIndependenceReceipt":
         patch_author = require_id(
             patch_author_id, "ArchitectureCriticIndependenceReceipt.patch_author_id"
@@ -82,6 +82,7 @@ class ArchitectureCriticIndependenceReceipt:
             critic_actor.actor_id not in {review_author.actor_id, patch_author}
             and critic_actor.fresh_context
             and not same_context
+            and not same_model
         )
         identity = {
             "review_author_id": review_author.actor_id,

@@ -184,12 +184,12 @@ def _patch(research_map, review, probe, *, complete=True):
     )
 
 
-def _critic_actor():
+def _critic_actor(*, model="governance-critic-model"):
     return GovernanceActor.capture(
         role="ARCHITECTURE_CRITIC",
         actor_id="critic-1",
         provider="mock",
-        model="governance-model",
+        model=model,
         context_hash=domain_hash("test_context", {"role": "critic"}),
         fresh_context=True,
     )
@@ -211,10 +211,31 @@ def test_critic_independence_is_durable_and_approval_cannot_mutate_map(tmp_path)
     assert critic.verdict == "APPROVE"
     assert critic.independence_receipt.policy_satisfied is True
     assert critic.independence_receipt.same_provider is True
-    assert critic.independence_receipt.same_model is True
+    assert critic.independence_receipt.same_model is False
     controller.persist_critic(critic)
     assert controller.load_critic(critic.critic_id) == critic
     assert research.load_current_map(research_map.research_map_id) == research_map
+
+
+def test_same_model_critic_fallback_is_not_independent(tmp_path):
+    _, _, research, research_map, controller, review, probe = _workflow(tmp_path)
+    patch = _patch(research_map, review, probe)
+    controller.persist_patch(patch)
+    critic = evaluate_patch(
+        patch=patch,
+        review=review,
+        current_map=research_map,
+        probes=(probe,),
+        critic_actor=_critic_actor(model="governance-model"),
+        evidence_refs=("critic-evidence",),
+        created_at=utc_now(),
+    )
+    assert critic.independence_receipt.same_model is True
+    assert critic.independence_receipt.policy_satisfied is False
+    assert critic.verdict != "APPROVE"
+    controller.persist_critic(critic)
+    authorization = controller.authorize_patch(patch.patch_id, critic.critic_id)
+    assert authorization.status != "AUTHORIZED"
 
 
 def test_g13_critic_rejection_blocks_authorization(tmp_path):
