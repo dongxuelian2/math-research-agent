@@ -1,4 +1,4 @@
-"""Gemini role routing, escalation, budgets, and call accounting."""
+"""Provider-neutral role routing, escalation, budgets, and call accounting."""
 
 from __future__ import annotations
 
@@ -16,6 +16,30 @@ from .gemini_tools import build_tool_payload
 
 TIERS = ("routine", "research", "strategic")
 TIER_INDEX = {name: index for index, name in enumerate(TIERS)}
+ROLE_CONFIG_ALIASES = {
+    "constructive": ("worker",),
+    "theorem_verifier": ("worker", "auditor"),
+    "worker_verifier": ("worker", "auditor"),
+    "reconstruction": ("worker",),
+    "counterexample_hunter": ("counterexample", "auditor"),
+    "dependency_auditor": ("auditor",),
+    "exhaustiveness_auditor": ("auditor",),
+    "boundary_auditor": ("auditor",),
+    "literature_authority_auditor": ("auditor",),
+    "secondary_verifier": ("auditor",),
+    "final_proof_auditor": ("final_auditor",),
+    "formalization_agent": ("worker",),
+    "literature_lead": ("worker",),
+    "literature_searcher": ("worker",),
+    "literature_reader": ("worker",),
+    "literature_deep_reader": ("worker",),
+    "literature_synthesizer": ("worker",),
+}
+
+
+def role_config_names(role: str) -> tuple[str, ...]:
+    return (role, *ROLE_CONFIG_ALIASES.get(role, ()))
+
 
 # This is the single source of truth for default role classification.  Config
 # layers may override it, but provider/model values never live in this map.
@@ -632,14 +656,21 @@ class ModelRouter:
         return merged if found else None
 
     def _role_config(self, role: str) -> dict | None:
-        """Return only the exact role entry from a role-based config."""
+        """Return the exact role entry, or an explicit legacy compatibility alias."""
 
         result = None
         for layer in self.layers:
             roles = layer.get("roles")
             if not isinstance(roles, dict):
                 continue
-            candidate = roles.get(role)
+            candidate = next(
+                (
+                    roles.get(name)
+                    for name in role_config_names(role)
+                    if roles.get(name) is not None
+                ),
+                None,
+            )
             if isinstance(candidate, dict) and candidate.get("provider"):
                 result = copy.deepcopy(candidate)
         return result
@@ -652,7 +683,14 @@ class ModelRouter:
                 merged.update(copy.deepcopy(overrides[role]))
             roles = layer.get("roles")
             if isinstance(roles, dict):
-                candidate = roles.get(role)
+                candidate = next(
+                    (
+                        roles.get(name)
+                        for name in role_config_names(role)
+                        if roles.get(name) is not None
+                    ),
+                    None,
+                )
                 if isinstance(candidate, dict) and not candidate.get("provider"):
                     merged.update(
                         {
@@ -662,8 +700,12 @@ class ModelRouter:
                         }
                     )
             tool_map = layer.get("tools")
-            if isinstance(tool_map, dict) and role in tool_map:
-                merged["tools"] = copy.deepcopy(tool_map[role])
+            if isinstance(tool_map, dict):
+                tool_role = next(
+                    (name for name in role_config_names(role) if name in tool_map), None
+                )
+                if tool_role is not None:
+                    merged["tools"] = copy.deepcopy(tool_map[tool_role])
         return merged
 
     @staticmethod
@@ -845,6 +887,12 @@ class RoutedLLMClient:
 
         prepared = dict(kwargs)
         if route.config.get("tools") and "tools" not in prepared:
+            from .providers import provider_capabilities
+
+            if not provider_capabilities(route.provider).supports_native_tools:
+                raise ProjectError(
+                    f"Provider {route.provider} does not support configured native tools"
+                )
             prepared["tools"] = build_tool_payload(route.config["tools"])
         return prepared
 

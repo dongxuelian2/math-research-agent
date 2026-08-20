@@ -7,10 +7,13 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+from .codex_cli_provider import CODEX_REASONING_EFFORTS, CodexCLIClient
 from .gemini_provider import GeminiClient
 from .gemini_tools import make_tool_executor
+from .openai_provider import OPENAI_REASONING_EFFORTS, OpenAIResponsesClient
 from .project import ProjectError
 
 
@@ -23,8 +26,35 @@ SPECIALIST_ROLES = (
 SUPPORTED_PROVIDERS = {
     "gemini",
     "vertex_gemini",
+    "codex_cli",
+    "openai",
     "mock",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCapabilities:
+    supports_structured_output: bool
+    supports_native_tools: bool
+    supports_interrupt: bool
+    supports_usage: bool
+    supports_reasoning_tiers: bool
+
+
+_PROVIDER_CAPABILITIES = {
+    "gemini": ProviderCapabilities(True, True, True, True, True),
+    "vertex_gemini": ProviderCapabilities(True, True, True, True, True),
+    "codex_cli": ProviderCapabilities(True, False, True, True, True),
+    "openai": ProviderCapabilities(True, True, True, True, True),
+    "mock": ProviderCapabilities(True, False, True, True, False),
+}
+
+
+def provider_capabilities(provider: str) -> ProviderCapabilities:
+    try:
+        return _PROVIDER_CAPABILITIES[str(provider)]
+    except KeyError as exc:
+        raise ProjectError(f"Unsupported provider type in model config: {provider}") from exc
 
 
 def _mock_candidate_proof() -> str:
@@ -503,7 +533,7 @@ def load_model_config(path: str | Path) -> dict:
         try:
             build_tool_payload(tool_names)
         except ValueError as exc:
-            raise ProjectError(f"Invalid Gemini tools for role {role_name}: {exc}") from exc
+            raise ProjectError(f"Invalid provider tools for role {role_name}: {exc}") from exc
     tiers = config.get("tiers")
     if tiers is not None:
         if not isinstance(tiers, dict):
@@ -547,13 +577,9 @@ def load_model_config(path: str | Path) -> dict:
     if config.get("provider"):
         _validate_role("global", config)
         return config
-    required = {"planner", "worker", *SPECIALIST_ROLES, "final_proof_auditor"}
-    missing = required - set(roles)
-    if missing:
-        raise ProjectError(f"Model config missing roles: {', '.join(sorted(missing))}")
     for name, role in roles.items():
         _validate_role(name, role)
-    for name in (*SPECIALIST_ROLES, "final_proof_auditor"):
+    for name in ("planner", "worker", *SPECIALIST_ROLES, "final_proof_auditor"):
         resolve_role_config(config, name)
     return config
 
@@ -584,6 +610,47 @@ def _validate_role(name: str, role: dict) -> None:
         if provider == "vertex_gemini" and not role.get("project"):
             raise ProjectError(f"Vertex Gemini role {name} requires project")
         return
+    if provider == "openai":
+        model = role.get("model")
+        if not isinstance(model, str) or not model.strip():
+            raise ProjectError(f"OpenAI role {name} requires a non-empty model")
+        if "api_key" in role:
+            raise ProjectError(f"OpenAI role {name} must not contain api_key; use OPENAI_API_KEY")
+        effort = role.get("reasoning_effort")
+        if effort not in OPENAI_REASONING_EFFORTS | {None}:
+            raise ProjectError(f"OpenAI role {name} has invalid reasoning_effort: {effort}")
+        _validate_common_provider_limits(name, role)
+        return
+    if provider == "codex_cli":
+        model = role.get("model")
+        if model is not None and (not isinstance(model, str) or not model.strip()):
+            raise ProjectError(f"Codex CLI role {name} model must be null or non-empty")
+        effort = role.get("reasoning_effort")
+        if effort not in CODEX_REASONING_EFFORTS | {None}:
+            raise ProjectError(f"Codex CLI reasoning_effort for role {name} is invalid: {effort}")
+        if "api_key" in role:
+            raise ProjectError(f"Codex CLI role {name} must not contain api_key")
+        if role.get("sandbox", "read-only") not in {"read-only", "workspace-write"}:
+            raise ProjectError(f"Codex CLI role {name} has invalid sandbox")
+        if not isinstance(role.get("allow_web_search", False), bool):
+            raise ProjectError(f"Codex CLI role {name} allow_web_search must be boolean")
+        _validate_common_provider_limits(name, role, require_output=False)
+        return
+
+
+def _validate_common_provider_limits(name: str, role: dict, *, require_output: bool = True) -> None:
+    timeout = float(role.get("timeout_seconds", 600))
+    retries = int(role.get("max_retries", 2))
+    retry_base = float(role.get("retry_base_seconds", 1))
+    output = int(role.get("max_output_tokens", 8192))
+    if timeout <= 0:
+        raise ProjectError(f"Provider role {name} timeout_seconds must be positive")
+    if not 0 <= retries <= 10:
+        raise ProjectError(f"Provider role {name} max_retries must be between 0 and 10")
+    if retry_base < 0:
+        raise ProjectError(f"Provider role {name} retry_base_seconds cannot be negative")
+    if require_output and output < 1:
+        raise ProjectError(f"Provider role {name} max_output_tokens must be positive")
 
 
 def resolve_role_config(config: dict, role_name: str) -> dict:
@@ -595,6 +662,11 @@ def resolve_role_config(config: dict, role_name: str) -> dict:
     roles = config.get("roles", {})
     if role_name in roles and isinstance(roles[role_name], dict):
         return roles[role_name]
+    from .routing import role_config_names
+
+    for alias in role_config_names(role_name)[1:]:
+        if alias in roles and isinstance(roles[alias], dict):
+            return roles[alias]
     raise ProjectError(f"Model config has no exact provider for role {role_name}")
 
 
@@ -650,5 +722,41 @@ def create_client(
                 lean_project_dir=role.get("lean_project_dir"),
             ),
             max_tool_rounds=int(role.get("max_tool_rounds", 8)),
+        )
+    if provider == "codex_cli":
+        return CodexCLIClient(
+            model or None,
+            archive_dir,
+            role_name=role_name,
+            working_dir=working_dir or archive_dir,
+            executable=role.get("executable"),
+            reasoning_effort=role.get("reasoning_effort"),
+            timeout_seconds=float(role.get("timeout_seconds", 600)),
+            max_retries=int(role.get("max_retries", 1)),
+            retry_base_seconds=float(role.get("retry_base_seconds", 1)),
+            answer_reserve=answer_reserve,
+            context_length=int(role.get("context_length", 200_000)),
+            sandbox=role.get("sandbox", "read-only"),
+            allow_web_search=bool(role.get("allow_web_search", False)),
+        )
+    if provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ProjectError(
+                f"OPENAI_API_KEY is required by the configured OpenAI role {role_name}"
+            )
+        return OpenAIResponsesClient(
+            model,
+            archive_dir,
+            api_key=api_key,
+            role_name=role_name,
+            reasoning_effort=role.get("reasoning_effort"),
+            timeout_seconds=float(role.get("timeout_seconds", 600)),
+            max_retries=int(role.get("max_retries", 2)),
+            retry_base_seconds=float(role.get("retry_base_seconds", 1)),
+            max_output_tokens=int(role.get("max_output_tokens", 8192)),
+            answer_reserve=answer_reserve,
+            context_length=int(role.get("context_length", 200_000)),
+            store=bool(role.get("store", False)),
         )
     raise ProjectError(f"Unsupported provider type in model config: {provider}")

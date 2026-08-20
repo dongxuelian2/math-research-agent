@@ -28,6 +28,7 @@ from .campaign import (
     ReplayPolicy,
 )
 from .project import ProjectStore
+from .providers import ProviderCapabilities, provider_capabilities
 from .literature import (
     ExternalAuthorityRegistry,
     LiteratureMemory,
@@ -100,6 +101,7 @@ __all__ = [
     "ScholarlyRecord",
     "ScholarlySearchAdapter",
     "ProjectStore",
+    "ProviderCapabilities",
     "PipelineResultSchema",
     "PreSubmitGate",
     "ReplayPolicy",
@@ -116,6 +118,7 @@ __all__ = [
     "run_formalization",
     "build_snapshot",
     "resolve_profile",
+    "provider_capabilities",
     "run_server",
     "run_showcase",
 ]
