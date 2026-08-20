@@ -33,6 +33,7 @@ class MapRevisionReason(str, Enum):
     ROUTE_FAILURE = "ROUTE_FAILURE"
     ROOT_REBASE = "ROOT_REBASE"
     HUMAN_STEERING = "HUMAN_STEERING"
+    ARCHITECTURE_PATCH = "ARCHITECTURE_PATCH"
 
 
 @dataclass(frozen=True, slots=True)

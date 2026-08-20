@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from .canonical_artifacts import CanonicalSourceRequirement
+from .governance import GovernanceController
 from .project import ProjectError, ProjectStore, utc_now
 from .research_store import ResearchStoreFacade
 from .scheduler import StopController
@@ -720,6 +721,9 @@ class CampaignStore:
             "created_at": now,
             "last_updated": now,
         }
+        governance = GovernanceController(self.project, research_store=research_store)
+        record.update(governance.checkpoint_projection(research_map.research_map_id))
+        record["governance_checkpoint_classification"] = "DIRECT_IMPORT"
         _write_json(path, record)
         return record
 
@@ -883,6 +887,20 @@ class CampaignStore:
             for key in required:
                 if key != "root_claim_snapshot_hash":
                     record[key] = copy.deepcopy(research_frontier[key])
+            for key in (
+                "architecture_review_clock_id",
+                "architecture_review_clock_revision",
+                "architecture_review_clock_hash",
+                "architecture_review_due",
+                "architecture_review_triggers",
+                "last_architecture_review_id",
+                "last_architecture_review_hash",
+                "active_structural_probe_id",
+                "pending_architecture_patch_id",
+                "governance_checkpoint_classification",
+            ):
+                if key in research_frontier:
+                    record[key] = copy.deepcopy(research_frontier[key])
         record["runtime_state_updated_at"] = utc_now()
         return self._save(record)
 
@@ -919,6 +937,17 @@ class CampaignStore:
         current_map = research_store.load_current_map(str(research_map_id))
         if current_map.research_map_hash != record.get("research_map_hash"):
             raise ProjectError("Campaign ResearchMap projection is stale or incomplete")
+        governance = GovernanceController(self.project, research_store=research_store)
+        classification = governance.classify_legacy_checkpoint(record)
+        if classification == "GOVERNANCE_REVIEW_REQUIRED":
+            governance.ensure_clock(str(research_map_id))
+            governance.signal_review(str(research_map_id), "HUMAN_REQUEST")
+        else:
+            clock = governance.ensure_clock(str(research_map_id))
+            if record.get("architecture_review_clock_hash") != clock.clock_hash:
+                raise ProjectError("Campaign governance checkpoint is stale or incomplete")
+        record["governance_checkpoint_classification"] = classification
+        record.update(governance.checkpoint_projection(str(research_map_id)))
         record["status"] = "RUNNING"
         record["resumed_at"] = utc_now()
         StopController(self.project, campaign_id).clear_for_resume()
@@ -938,7 +967,7 @@ class CampaignStore:
 
     @staticmethod
     def _research_binding(record: dict) -> dict:
-        return {
+        binding = {
             "research_map_id": record.get("research_map_id"),
             "research_map_version": record.get("research_map_version"),
             "research_map_hash": record.get("research_map_hash"),
@@ -946,6 +975,20 @@ class CampaignStore:
             "root_claim_snapshot_hash": record.get("root_claim_snapshot_hash"),
             "semantic_role": "EXECUTION_LINEAGE_ONLY",
         }
+        for key in (
+            "architecture_review_clock_id",
+            "architecture_review_clock_revision",
+            "architecture_review_clock_hash",
+            "architecture_review_due",
+            "architecture_review_triggers",
+            "last_architecture_review_id",
+            "last_architecture_review_hash",
+            "active_structural_probe_id",
+            "pending_architecture_patch_id",
+        ):
+            if key in record:
+                binding[key] = copy.deepcopy(record[key])
+        return binding
 
     def _successor_id(self, target_id: str, cycle: int) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -1020,6 +1063,16 @@ class CampaignEngine:
                                 "research_map_hash",
                                 "open_obligation_ids",
                                 "root_claim_snapshot_hash",
+                                "architecture_review_clock_id",
+                                "architecture_review_clock_revision",
+                                "architecture_review_clock_hash",
+                                "architecture_review_due",
+                                "architecture_review_triggers",
+                                "last_architecture_review_id",
+                                "last_architecture_review_hash",
+                                "active_structural_probe_id",
+                                "pending_architecture_patch_id",
+                                "governance_checkpoint_classification",
                             )
                         }
                         if state.get("research_map_id")

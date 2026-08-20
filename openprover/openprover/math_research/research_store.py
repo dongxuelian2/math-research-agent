@@ -483,7 +483,23 @@ class ResearchStoreFacade:
         route_failure_refs: Iterable[str] | None = None,
         strategic_thesis: str | None = None,
         root_claim_snapshot_hash: str | None = None,
+        governance_authorization: object | None = None,
     ) -> ResearchMap:
+        from .architecture_patch import PatchAuthorization, PatchAuthorizationStatus
+
+        removed_or_reframed_scope = tuple(removed_or_reframed_scope)
+        destructive_revision = bool(removed_or_reframed_scope) or (
+            revision_reason == MapRevisionReason.ARCHITECTURE_PATCH.value
+        )
+        if destructive_revision:
+            if not isinstance(governance_authorization, PatchAuthorization):
+                raise ProjectError(
+                    "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: PatchAuthorization missing"
+                )
+            if governance_authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
+                raise ProjectError(
+                    "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: authorization is not AUTHORIZED"
+                )
         prior = self.load_current_map(parent) if isinstance(parent, str) else parent
         current = self.load_current_map(prior.research_map_id)
         if current.research_map_hash != prior.research_map_hash:
@@ -552,6 +568,150 @@ class ResearchStoreFacade:
         )
         self._persist_map(result)
         return result
+
+    def apply_governed_reframe(
+        self,
+        patch,
+        authorization,
+        *,
+        applied_by: str,
+    ) -> ResearchMap:
+        """Apply one authorized destructive patch as one immutable map revision."""
+
+        from .architecture_patch import (
+            ArchitecturePatch,
+            PatchAuthorization,
+            PatchAuthorizationStatus,
+            ScopeTransferDisposition,
+        )
+
+        if not isinstance(patch, ArchitecturePatch) or not isinstance(
+            authorization, PatchAuthorization
+        ):
+            raise ProjectError("Governed reframe requires typed patch and authorization")
+        if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
+            raise ProjectError("PatchAuthorization is not AUTHORIZED")
+        if authorization.patch_id != patch.patch_id or authorization.patch_hash != patch.patch_hash:
+            raise ProjectError("PatchAuthorization targets a different ArchitecturePatch")
+        current = self.load_current_map(patch.source_map_id)
+        if current.research_map_hash != patch.source_map_hash:
+            raise ProjectError("PATCH_REBASE_REQUIRED: ResearchMap changed before application")
+        if current.root_claim_snapshot_hash != patch.root_claim_snapshot_hash:
+            raise ProjectError("RESEARCH_MAP_ROOT_STALE: patch root no longer current")
+        self._validate_root_hash(current.root_claim_snapshot_hash, "APPLY_ARCHITECTURE_PATCH")
+        if not patch.scope_transfer_complete:
+            raise ProjectError("SCOPE_LOSS: patch transfer plan is incomplete")
+
+        now = utc_now()
+        next_version = current.version + 1
+        additions: dict[str, tuple[ResearchObligation, ObligationDisposition]] = {}
+        for addition in patch.additions:
+            obligation = ResearchObligation.capture(
+                obligation_id=addition.obligation_id,
+                root_claim_snapshot_hash=current.root_claim_snapshot_hash,
+                created_in_map_version=next_version,
+                title=addition.title,
+                statement=addition.statement,
+                obligation_kind=addition.obligation_kind,
+                scope=addition.scope,
+                dependencies=addition.dependencies,
+                created_at=now,
+            )
+            disposition = ObligationDisposition.capture(
+                obligation_id=obligation.obligation_id,
+                obligation_hash=obligation.obligation_hash,
+                disposition=ObligationDispositionKind.OPEN.value,
+                reason=f"Created by authorized architecture patch {patch.patch_id}",
+                recorded_at=now,
+                recorded_by=applied_by,
+            )
+            self._persist_obligation(obligation)
+            self._persist_disposition(disposition)
+            additions[obligation.obligation_id] = (obligation, disposition)
+
+        known_target_ids = {
+            *(item.obligation_id for item in current.obligation_refs),
+            *additions,
+        }
+        for transfer in patch.scope_transfers:
+            unknown_targets = set(transfer.target_obligation_ids) - known_target_ids
+            if unknown_targets:
+                raise ProjectError(
+                    f"ScopeTransfer targets unknown obligations: {sorted(unknown_targets)}"
+                )
+
+        decisions: dict[str, ObligationDisposition] = {}
+        for transfer in patch.scope_transfers:
+            for source_id in transfer.source_obligation_ids:
+                prior_ref = current.obligation_ref(source_id)
+                prior_disposition = self.load_disposition(prior_ref.disposition_hash)
+                if transfer.disposition in {
+                    ScopeTransferDisposition.TRANSFERRED.value,
+                    ScopeTransferDisposition.SUPERSEDED.value,
+                }:
+                    disposition = ObligationDispositionKind.SUPERSEDED.value
+                    superseded_by = transfer.target_obligation_ids
+                    resolution_basis = ""
+                elif transfer.disposition == ScopeTransferDisposition.RESOLVED.value:
+                    disposition = ObligationDispositionKind.RESOLVED.value
+                    superseded_by = ()
+                    resolution_basis = transfer.reason
+                else:
+                    disposition = ObligationDispositionKind.ABANDONED_WITH_REASON.value
+                    superseded_by = ()
+                    resolution_basis = ""
+                decision = ObligationDisposition.capture(
+                    obligation_id=source_id,
+                    obligation_hash=prior_ref.obligation_hash,
+                    disposition=disposition,
+                    evidence_refs=transfer.evidence_refs,
+                    resolution_basis=resolution_basis,
+                    superseded_by=superseded_by,
+                    reason=transfer.reason,
+                    previous_disposition_hash=prior_disposition.disposition_hash,
+                    recorded_at=now,
+                    recorded_by=applied_by,
+                )
+                self._persist_disposition(decision)
+                decisions[source_id] = decision
+
+        refs: list[ObligationRef] = []
+        for prior_ref in current.obligation_refs:
+            decision = decisions.get(prior_ref.obligation_id)
+            refs.append(
+                self._ref(self.load_obligation(prior_ref.obligation_hash), decision)
+                if decision is not None
+                else prior_ref
+            )
+        refs.extend(self._ref(*item) for item in additions.values())
+        evidence_refs = tuple(
+            dict.fromkeys(
+                (
+                    *patch.evidence_refs,
+                    patch.review_id,
+                    patch.patch_id,
+                    *patch.probe_ids,
+                    authorization.critic_id,
+                    authorization.authorization_id,
+                )
+            )
+        )
+        return self.revise_map(
+            current,
+            obligation_refs=refs,
+            created_by=applied_by,
+            revision_reason=MapRevisionReason.ARCHITECTURE_PATCH.value,
+            added_scope=tuple(additions),
+            removed_or_reframed_scope=patch.removed_or_reframed_scope,
+            obligation_changes=tuple(
+                [f"{source}:GOVERNED_{decisions[source].disposition}" for source in decisions]
+                + [f"{obligation_id}:CREATED_OPEN" for obligation_id in additions]
+            ),
+            route_memory_changes=patch.route_memory_changes,
+            evidence_refs=evidence_refs,
+            strategic_thesis=(patch.structural_thesis_change or current.strategic_thesis),
+            governance_authorization=authorization,
+        )
 
     def record_disposition(
         self,
