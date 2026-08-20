@@ -253,6 +253,7 @@ class TruthStoreFacade:
         replay_policy_hash: str | None = None,
         trust_policy_context: Mapping[str, Any] | None = None,
         before_compare_hook: Callable[[], None] | None = None,
+        after_prepare_hook: Callable[[], None] | None = None,
         after_transition_hook: Callable[[], None] | None = None,
     ) -> tuple[dict[str, Any], ClaimSnapshot, TruthMutationIntent, TruthMutationReceipt]:
         """Promote one exactly audited snapshot through an intent-first serialized CAS."""
@@ -327,23 +328,31 @@ class TruthStoreFacade:
                     blocked_path=blocked_path,
                 )
             current_record = self.project.load_theorem(theorem_id)
-            prepared = {
-                "schema_version": 1,
-                "object_type": "TRUTH_MUTATION_PREPARED",
-                "mutation_id": intent.mutation_id,
-                "theorem_id": theorem_id,
-                "from_status": snapshot.captured_status,
-                "requested_to_status": "PROVED",
-                "claim_snapshot_hash": snapshot.claim_snapshot_hash,
-                "assertion_identity_hash": snapshot.assertion_identity_hash,
-                "trust_policy_fingerprint": snapshot.trust_policy_fingerprint,
-                "project_record_hash_before": project_record_hash(current_record),
-                "actor": actor,
-                "reason": reason,
-                "metadata_updates": dict(metadata_updates or {}),
-                "prepared_at": utc_now(),
-            }
-            self._write_immutable_json(self.prepared_path(intent.mutation_id), prepared)
+            prepared_path = self.prepared_path(intent.mutation_id)
+            if prepared_path.exists():
+                prepared = self._read_truth_json(prepared_path, "TruthMutationPrepared")
+                if project_record_hash(current_record) != prepared["project_record_hash_before"]:
+                    raise ProjectError("Prepared truth mutation source changed before CAS")
+            else:
+                prepared = {
+                    "schema_version": 1,
+                    "object_type": "TRUTH_MUTATION_PREPARED",
+                    "mutation_id": intent.mutation_id,
+                    "theorem_id": theorem_id,
+                    "from_status": snapshot.captured_status,
+                    "requested_to_status": "PROVED",
+                    "claim_snapshot_hash": snapshot.claim_snapshot_hash,
+                    "assertion_identity_hash": snapshot.assertion_identity_hash,
+                    "trust_policy_fingerprint": snapshot.trust_policy_fingerprint,
+                    "project_record_hash_before": project_record_hash(current_record),
+                    "actor": actor,
+                    "reason": reason,
+                    "metadata_updates": dict(metadata_updates or {}),
+                    "prepared_at": utc_now(),
+                }
+                self._write_immutable_json(prepared_path, prepared)
+            if after_prepare_hook is not None:
+                after_prepare_hook()
             try:
                 before, theorem = self.project.compare_and_transition(
                     theorem_id,
