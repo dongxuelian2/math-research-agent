@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 
 from .project import utc_now
 from .runtime_model import (
@@ -28,6 +29,7 @@ from .runtime_model import (
     content_hash,
     stable_id,
 )
+from .runtime_bindings import CrossPlaneExecutionBinding, binding_json, coerce_binding
 
 
 _MIGRATION_1 = """
@@ -200,6 +202,27 @@ CREATE TABLE runtime_migration_history (
 )
 """
 
+_MIGRATION_3 = """
+ALTER TABLE logical_jobs ADD COLUMN research_map_id TEXT;
+ALTER TABLE logical_jobs ADD COLUMN research_map_hash TEXT;
+ALTER TABLE logical_jobs ADD COLUMN tactical_session_id TEXT;
+ALTER TABLE logical_jobs ADD COLUMN governance_object_type TEXT;
+ALTER TABLE logical_jobs ADD COLUMN governance_object_id TEXT;
+ALTER TABLE logical_jobs ADD COLUMN governance_source_hash TEXT;
+ALTER TABLE logical_jobs ADD COLUMN cross_plane_binding TEXT;
+ALTER TABLE attempts ADD COLUMN research_map_id TEXT;
+ALTER TABLE attempts ADD COLUMN research_map_version INTEGER;
+ALTER TABLE attempts ADD COLUMN research_map_hash TEXT;
+ALTER TABLE attempts ADD COLUMN directive_id TEXT;
+ALTER TABLE attempts ADD COLUMN tactical_session_id TEXT;
+ALTER TABLE attempts ADD COLUMN governance_object_type TEXT;
+ALTER TABLE attempts ADD COLUMN governance_object_id TEXT;
+ALTER TABLE attempts ADD COLUMN governance_source_hash TEXT;
+ALTER TABLE attempts ADD COLUMN cross_plane_binding TEXT;
+ALTER TABLE attempt_results ADD COLUMN cross_plane_binding TEXT;
+ALTER TABLE effect_slots ADD COLUMN cross_plane_binding TEXT;
+"""
+
 
 class SQLiteRuntimeBackend:
     """Project-isolated SQLite current-state authority with an append-only journal."""
@@ -294,6 +317,21 @@ class SQLiteRuntimeBackend:
                 )
                 connection.commit()
                 version = 2
+            if version == 2:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.executescript(_MIGRATION_3)
+                connection.execute(
+                    "INSERT INTO runtime_migration_history(target_version, migration_name, applied_at) "
+                    "VALUES(3, 'add_cross_plane_execution_bindings', ?)",
+                    (utc_now(),),
+                )
+                connection.execute(
+                    "UPDATE runtime_schema SET schema_version = ?, migrated_at = ? "
+                    "WHERE singleton = 1 AND schema_version = 2",
+                    (RUNTIME_SCHEMA_VERSION, utc_now()),
+                )
+                connection.commit()
+                version = RUNTIME_SCHEMA_VERSION
             if version < RUNTIME_SCHEMA_VERSION:
                 raise RuntimeError(f"No forward migration registered from schema {version}")
         except BaseException:
@@ -326,6 +364,21 @@ class SQLiteRuntimeBackend:
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
         return dict(row) if row is not None else None
+
+    @staticmethod
+    def _binding_from_row(row: Mapping[str, Any]) -> CrossPlaneExecutionBinding | None:
+        value = dict(row)
+        raw = value.get("cross_plane_binding")
+        if raw:
+            return CrossPlaneExecutionBinding.from_dict(json.loads(str(raw)))
+        claim = value.get("claim_snapshot_hash")
+        if claim:
+            return CrossPlaneExecutionBinding.capture(root_claim_snapshot_hash=str(claim))
+        return None
+
+    @staticmethod
+    def _binding_json(value: CrossPlaneExecutionBinding | None) -> str | None:
+        return binding_json(value)
 
     def _journal(
         self,
@@ -392,9 +445,34 @@ class SQLiteRuntimeBackend:
         research_map_version: int | None = None,
         governance_ref: str | None = None,
         payload_artifact_ref: str | None = None,
+        execution_binding: CrossPlaneExecutionBinding | Mapping[str, Any] | None = None,
         result_policy: str = "FIRST_VALID_ACCEPTED_RESULT",
         actor: str = "runtime",
     ) -> dict[str, Any]:
+        binding = coerce_binding(execution_binding)
+        if binding is not None:
+            if claim_snapshot_hash is not None and claim_snapshot_hash != binding.root_claim_snapshot_hash:
+                raise RuntimeConflict("LogicalJob claim binding does not match execution context")
+            claim_snapshot_hash = binding.root_claim_snapshot_hash
+            directive_id = binding.directive_id or directive_id
+            obligation_id = binding.research_obligation_id or obligation_id
+            research_map_id = binding.research_map_id
+            research_map_version = binding.research_map_version
+            research_map_hash = binding.research_map_hash
+            tactical_session_id = binding.tactical_session_id
+            governance_object_type = binding.governance_object_type
+            governance_object_id = binding.governance_object_id
+            governance_source_hash = binding.governance_source_hash
+            if governance_object_type and governance_object_id:
+                governance_ref = f"{governance_object_type}:{governance_object_id}"
+        else:
+            research_map_id = None
+            research_map_hash = None
+            tactical_session_id = None
+            governance_object_type = None
+            governance_object_id = None
+            governance_source_hash = None
+        serialized_binding = self._binding_json(binding)
         job_id = logical_job_id or stable_id("job", idempotency_key)
         now = utc_now()
         with self._transaction() as connection:
@@ -402,14 +480,18 @@ class SQLiteRuntimeBackend:
                 "SELECT * FROM logical_jobs WHERE idempotency_key = ?", (idempotency_key,)
             ).fetchone()
             if existing is not None:
+                if binding is not None and self._binding_from_row(existing) != binding:
+                    raise RuntimeConflict("LogicalJob idempotency key is bound to another context")
                 return dict(existing)
             connection.execute(
                 """INSERT INTO logical_jobs(
                        logical_job_id, idempotency_key, job_kind, semantic_target, directive_id,
                        obligation_id, claim_snapshot_hash, research_map_version, governance_ref,
                        payload_artifact_ref, created_at, updated_at, state, result_policy,
-                       schema_version
-                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       schema_version, research_map_id, research_map_hash, tactical_session_id,
+                       governance_object_type, governance_object_id, governance_source_hash,
+                       cross_plane_binding
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     job_id,
                     idempotency_key,
@@ -426,6 +508,13 @@ class SQLiteRuntimeBackend:
                     JobState.CREATED,
                     result_policy,
                     RUNTIME_SCHEMA_VERSION,
+                    research_map_id,
+                    research_map_hash,
+                    tactical_session_id,
+                    governance_object_type,
+                    governance_object_id,
+                    governance_source_hash,
+                    serialized_binding,
                 ),
             )
             self._journal(
@@ -484,6 +573,7 @@ class SQLiteRuntimeBackend:
         directive_context_refs: Sequence[str] = (),
         retry_fallback_reason: str | None = None,
         payload_ref: str | None = None,
+        execution_binding: CrossPlaneExecutionBinding | Mapping[str, Any] | None = None,
         actor: str = "runtime-controller",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Commit immutable intent and outbox atomically before external execution."""
@@ -495,6 +585,13 @@ class SQLiteRuntimeBackend:
             ).fetchone()
             if job is None:
                 raise RuntimeConflict(f"Unknown LogicalJob: {logical_job_id}")
+            job_value = dict(job)
+            binding = coerce_binding(execution_binding) or self._binding_from_row(job_value)
+            if binding is not None:
+                if claim_snapshot_hash is not None and claim_snapshot_hash != binding.root_claim_snapshot_hash:
+                    raise RuntimeConflict("AttemptIntent claim binding does not match execution context")
+                claim_snapshot_hash = binding.root_claim_snapshot_hash
+            serialized_binding = self._binding_json(binding)
             number = attempt_number
             if number is None:
                 number = int(
@@ -516,6 +613,8 @@ class SQLiteRuntimeBackend:
                 ).fetchone()
                 if outbox is None:
                     raise RuntimeConflict("AttemptIntent exists without its transactional outbox")
+                if binding is not None and self._binding_from_row(existing) != binding:
+                    raise RuntimeConflict("AttemptIntent is bound to another context")
                 return dict(existing), dict(outbox)
             collision = connection.execute(
                 "SELECT attempt_id FROM attempts WHERE logical_job_id = ? AND attempt_number = ?",
@@ -530,8 +629,11 @@ class SQLiteRuntimeBackend:
                 """INSERT INTO attempts(
                        attempt_id, logical_job_id, attempt_number, provider, model, reasoning_tier,
                        payload_hash, claim_snapshot_hash, directive_context_refs,
-                       retry_fallback_reason, created_at, updated_at, state, schema_version
-                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       retry_fallback_reason, created_at, updated_at, state, schema_version,
+                       research_map_id, research_map_version, research_map_hash, directive_id,
+                       tactical_session_id, governance_object_type, governance_object_id,
+                       governance_source_hash, cross_plane_binding
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     intent_id,
                     logical_job_id,
@@ -547,6 +649,15 @@ class SQLiteRuntimeBackend:
                     now,
                     AttemptState.CREATED,
                     RUNTIME_SCHEMA_VERSION,
+                    binding.research_map_id if binding else None,
+                    binding.research_map_version if binding else None,
+                    binding.research_map_hash if binding else None,
+                    binding.directive_id if binding else None,
+                    binding.tactical_session_id if binding else None,
+                    binding.governance_object_type if binding else None,
+                    binding.governance_object_id if binding else None,
+                    binding.governance_source_hash if binding else None,
+                    serialized_binding,
                 ),
             )
             self._journal(
@@ -1077,6 +1188,47 @@ class SQLiteRuntimeBackend:
                 continue
         return orphaned
 
+    def classify_unknown_execution(self, attempt_id: str, *, reason: str) -> dict[str, Any]:
+        """Durably preserve the fact that an external request may have run."""
+
+        attempt = self.get_attempt(attempt_id)
+        if attempt is None:
+            raise RuntimeConflict(f"Unknown AttemptIntent: {attempt_id}")
+        if attempt["state"] == AttemptState.ORPHANED:
+            attempt = self.transition_attempt(
+                attempt_id,
+                AttemptState.UNKNOWN_EXECUTION,
+                actor="reconciler",
+                expected_states={AttemptState.ORPHANED},
+                metadata={"reason": reason},
+            )
+        elif attempt["state"] != AttemptState.UNKNOWN_EXECUTION:
+            return attempt
+        with self._transaction() as connection:
+            job = connection.execute(
+                "SELECT * FROM logical_jobs WHERE logical_job_id = ?",
+                (attempt["logical_job_id"],),
+            ).fetchone()
+            if job is not None and job["accepted_result_id"] is None and job["state"] != JobState.BLOCKED:
+                connection.execute(
+                    "UPDATE logical_jobs SET state = ?, updated_at = ?, version = version + 1 "
+                    "WHERE logical_job_id = ? AND accepted_result_id IS NULL",
+                    (JobState.BLOCKED, utc_now(), attempt["logical_job_id"]),
+                )
+                self._journal(
+                    connection,
+                    object_type="LOGICAL_JOB",
+                    object_id=str(attempt["logical_job_id"]),
+                    from_state=str(job["state"]),
+                    to_state=JobState.BLOCKED,
+                    transition_kind="UNKNOWN_EXTERNAL_EXECUTION",
+                    actor="reconciler",
+                    attempt_id=attempt_id,
+                    logical_job_id=str(attempt["logical_job_id"]),
+                    metadata={"reason": reason},
+                )
+        return attempt
+
     def _resolve_project_artifact(self, relative_path: str | Path) -> Path:
         raw = Path(relative_path)
         path = raw.resolve() if raw.is_absolute() else (self.project_root / raw).resolve()
@@ -1185,6 +1337,7 @@ class SQLiteRuntimeBackend:
         lease_token: str | None = None,
         generation: int | None = None,
         reconcile_existing: bool = False,
+        execution_binding: CrossPlaneExecutionBinding | Mapping[str, Any] | None = None,
         actor: str = "result-ingestor",
     ) -> dict[str, Any]:
         artifact = self.verify_artifact(artifact_id)
@@ -1204,6 +1357,15 @@ class SQLiteRuntimeBackend:
             attempt = dict(row)
             if artifact["producer_attempt_id"] not in {None, attempt_id}:
                 raise ArtifactIntegrityError("Result artifact belongs to another attempt")
+            attempt_binding = self._binding_from_row(attempt)
+            supplied_binding = coerce_binding(execution_binding)
+            binding_mismatch = supplied_binding is not None and not supplied_binding.matches(
+                attempt_binding
+            )
+            serialized_binding = self._binding_json(attempt_binding)
+            authoritative_now = time.time()
+            lease_expires_at = attempt.get("lease_expires_at")
+            lease_expired = lease_expires_at is None or float(lease_expires_at) <= authoritative_now
             fenced = False
             rejection = None
             if reconcile_existing:
@@ -1211,8 +1373,13 @@ class SQLiteRuntimeBackend:
                     "SELECT accepted_result_id FROM logical_jobs WHERE logical_job_id = ?",
                     (attempt["logical_job_id"],),
                 ).fetchone()
-                fenced = job is not None and job["accepted_result_id"] is not None
-                rejection = "logical job already has an accepted result" if fenced else None
+                fenced = (
+                    (job is not None and job["accepted_result_id"] is not None)
+                    or lease_expired
+                    or binding_mismatch
+                )
+                if job is not None and job["accepted_result_id"] is not None:
+                    rejection = "logical job already has an accepted result"
             else:
                 fenced = (
                     lease_token is None
@@ -1220,16 +1387,25 @@ class SQLiteRuntimeBackend:
                     or attempt["lease_token"] != lease_token
                     or int(attempt["generation"]) != int(generation)
                     or attempt["state"] not in {AttemptState.RUNNING, AttemptState.CANCEL_REQUESTED}
+                    or lease_expired
+                    or binding_mismatch
                 )
-                rejection = "stale lease fencing token" if fenced else None
+            if fenced and rejection is None:
+                if lease_expired:
+                    rejection = "lease expired at authoritative ingestion boundary"
+                elif binding_mismatch:
+                    rejection = "cross-plane execution binding mismatch"
+                else:
+                    rejection = "stale lease fencing token"
             authoritative = not fenced
             ingestion_state = "STALE_FENCED" if fenced else "INGESTED"
             connection.execute(
                 """INSERT INTO attempt_results(
                        result_id, idempotency_key, attempt_id, logical_job_id, artifact_id,
                        artifact_sha256, provider_metadata, completion_status, created_at,
-                       ingestion_state, authoritative, fencing_rejection, schema_version
-                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       ingestion_state, authoritative, fencing_rejection, schema_version,
+                       cross_plane_binding
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     result_id,
                     key,
@@ -1244,6 +1420,7 @@ class SQLiteRuntimeBackend:
                     authoritative,
                     rejection,
                     RUNTIME_SCHEMA_VERSION,
+                    serialized_binding,
                 ),
             )
             self._journal(
@@ -1299,7 +1476,11 @@ class SQLiteRuntimeBackend:
             )
 
     def accept_result(
-        self, logical_job_id: str, *, actor: str = "result-selector"
+        self,
+        logical_job_id: str,
+        *,
+        actor: str = "result-selector",
+        binding_validator: Callable[[CrossPlaneExecutionBinding | None], bool | str] | None = None,
     ) -> dict[str, Any]:
         """Serialize FIRST_VALID_ACCEPTED_RESULT selection for one LogicalJob."""
 
@@ -1317,15 +1498,50 @@ class SQLiteRuntimeBackend:
                         (job["accepted_result_id"],),
                     ).fetchone()
                 )
-            winner = connection.execute(
+            candidates = connection.execute(
                 """SELECT * FROM attempt_results
                    WHERE logical_job_id = ? AND authoritative = 1
                      AND completion_status IN ('SUCCESS', 'COMPLETED', 'PASS')
-                   ORDER BY created_at, result_id LIMIT 1""",
+                   ORDER BY created_at, result_id""",
                 (logical_job_id,),
-            ).fetchone()
+            ).fetchall()
+            winner = None
+            for candidate in candidates:
+                binding = self._binding_from_row(candidate)
+                validation = binding_validator(binding) if binding_validator is not None else True
+                valid = validation is True or validation is None
+                if valid:
+                    winner = candidate
+                    break
+                reason = (
+                    str(validation)
+                    if isinstance(validation, str)
+                    else "cross-plane binding is stale at authoritative acceptance"
+                )
+                connection.execute(
+                    "UPDATE attempt_results SET ingestion_state = 'STALE_FENCED', "
+                    "authoritative = 0, fencing_rejection = ? WHERE result_id = ?",
+                    (reason, candidate["result_id"]),
+                )
+                self._journal(
+                    connection,
+                    object_type="ATTEMPT_RESULT",
+                    object_id=str(candidate["result_id"]),
+                    from_state="INGESTED",
+                    to_state="STALE_FENCED",
+                    transition_kind="FENCE_STALE_CROSS_PLANE_BINDING",
+                    actor=actor,
+                    attempt_id=str(candidate["attempt_id"]),
+                    logical_job_id=logical_job_id,
+                    metadata={"reason": reason},
+                )
             if winner is None:
-                raise RuntimeConflict("LogicalJob has no valid successful result")
+                # Fencing is durable provenance even when no current result
+                # remains eligible.  Commit the fencing journal before
+                # surfacing the selector error; otherwise the surrounding
+                # transaction would roll the safety transition back.
+                connection.commit()
+                raise RuntimeConflict("LogicalJob has no current-compatible successful result")
             cursor = connection.execute(
                 """UPDATE logical_jobs SET accepted_result_id = ?, state = ?, updated_at = ?,
                        version = version + 1
@@ -1425,6 +1641,8 @@ class SQLiteRuntimeBackend:
         semantic_target_id: str,
         source_result_id: str,
         claim_snapshot_hash: str | None = None,
+        execution_binding: CrossPlaneExecutionBinding | Mapping[str, Any] | None = None,
+        binding_validator: Callable[[CrossPlaneExecutionBinding | None], bool | str] | None = None,
         actor: str = "effect-controller",
     ) -> tuple[dict[str, Any], bool]:
         """Claim the unique semantic effect identity without applying domain logic."""
@@ -1450,6 +1668,29 @@ class SQLiteRuntimeBackend:
             ).fetchone()
             if result is None:
                 raise RuntimeConflict("Effect source result is not authoritative")
+            result_binding = self._binding_from_row(result) or self._binding_from_row(job)
+            requested_binding = coerce_binding(execution_binding)
+            if requested_binding is not None and not requested_binding.matches(result_binding):
+                legacy_root_only = (
+                    result_binding is not None
+                    and result_binding.root_claim_snapshot_hash
+                    == requested_binding.root_claim_snapshot_hash
+                    and result_binding.research_map_id is None
+                    and all(
+                        getattr(result_binding, field) is None
+                        for field in (
+                            "research_obligation_id",
+                            "directive_id",
+                            "tactical_session_id",
+                            "governance_object_type",
+                            "governance_object_id",
+                            "governance_source_hash",
+                        )
+                    )
+                )
+                if not legacy_root_only:
+                    raise RuntimeConflict("Effect source has a different cross-plane binding")
+            effective_binding = requested_binding or result_binding
             existing = connection.execute(
                 """SELECT * FROM effect_slots WHERE logical_job_id = ? AND effect_kind = ?
                    AND semantic_target_type = ? AND semantic_target_id = ?""",
@@ -1458,13 +1699,30 @@ class SQLiteRuntimeBackend:
             if existing is not None:
                 if existing["source_result_id"] != source_result_id:
                     raise RuntimeConflict("Effect slot already belongs to another accepted result")
+                existing_binding = self._binding_from_row(existing)
+                if requested_binding is not None and not requested_binding.matches(existing_binding):
+                    raise RuntimeConflict("Effect slot has a different cross-plane binding")
+                # A replay may occur after the domain store committed but before
+                # the runtime ACK.  The current ResearchMap/ClaimSnapshot can
+                # therefore legitimately be newer than the binding captured by
+                # this already-created slot.  New slots still require the
+                # validator below; existing slots are recovered by identity.
                 return dict(existing), False
+            if binding_validator is not None:
+                validation = binding_validator(effective_binding)
+                if validation is not True and validation is not None:
+                    reason = (
+                        str(validation)
+                        if isinstance(validation, str)
+                        else "cross-plane binding is stale at semantic effect preparation"
+                    )
+                    raise RuntimeConflict(reason)
             connection.execute(
                 """INSERT INTO effect_slots(
                        effect_slot_id, logical_job_id, effect_kind, semantic_target_type,
                        semantic_target_id, source_result_id, claim_snapshot_hash, status,
-                       prepared_at, effect_metadata, schema_version
-                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       prepared_at, effect_metadata, schema_version, cross_plane_binding
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     slot_id,
                     logical_job_id,
@@ -1472,11 +1730,13 @@ class SQLiteRuntimeBackend:
                     semantic_target_type,
                     semantic_target_id,
                     source_result_id,
-                    claim_snapshot_hash,
+                    claim_snapshot_hash
+                    or (effective_binding.root_claim_snapshot_hash if effective_binding else None),
                     EffectState.PREPARED,
                     utc_now(),
                     "{}",
                     RUNTIME_SCHEMA_VERSION,
+                    self._binding_json(effective_binding),
                 ),
             )
             self._journal(
@@ -1628,6 +1888,8 @@ class SQLiteRuntimeBackend:
         apply,
         recover=None,
         claim_snapshot_hash: str | None = None,
+        execution_binding: CrossPlaneExecutionBinding | Mapping[str, Any] | None = None,
+        binding_validator: Callable[[CrossPlaneExecutionBinding | None], bool | str] | None = None,
         fault_injector: FaultInjector | None = None,
     ) -> tuple[dict[str, Any], Any]:
         """Run a recoverable cross-store saga with one durable semantic slot."""
@@ -1650,6 +1912,8 @@ class SQLiteRuntimeBackend:
             semantic_target_id=semantic_target_id,
             source_result_id=source_result_id,
             claim_snapshot_hash=claim_snapshot_hash,
+            execution_binding=execution_binding,
+            binding_validator=binding_validator,
         )
         if slot["status"] == EffectState.ACKNOWLEDGED:
             return slot, recover(slot["effect_slot_id"]) if recover is not None else None
@@ -1659,6 +1923,16 @@ class SQLiteRuntimeBackend:
         if recovered is None:
             if not created and recover is None:
                 raise RuntimeConflict("Partial domain effect requires deterministic recovery")
+            if not created and binding_validator is not None:
+                stored_binding = self._binding_from_row(slot)
+                validation = binding_validator(stored_binding)
+                if validation is not True and validation is not None:
+                    reason = (
+                        str(validation)
+                        if isinstance(validation, str)
+                        else "cross-plane binding is stale for an unrecovered effect slot"
+                    )
+                    raise RuntimeConflict(reason)
             outcome = apply(slot["effect_slot_id"])
         else:
             outcome = recovered

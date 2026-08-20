@@ -53,6 +53,8 @@ class ResolutionStatus(str, Enum):
     RESOLUTION_ACCEPTED = "RESOLUTION_ACCEPTED"
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
     STALE_EVIDENCE = "STALE_EVIDENCE"
+    STALE_SESSION_CLOSURE = "STALE_SESSION_CLOSURE"
+    OBLIGATION_NOT_RESOLVABLE = "OBLIGATION_NOT_RESOLVABLE"
     AUTHORITY_BLOCKED = "AUTHORITY_BLOCKED"
     AUDIT_FAILED = "AUDIT_FAILED"
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
@@ -423,6 +425,8 @@ def can_resolve_obligation(
     closure: SessionClosure,
     *,
     current_claim_snapshot_hash: str,
+    current_disposition: str | None = None,
+    allow_resolved_replay: bool = False,
 ) -> ObligationResolutionDecision:
     status: str
     reason: str
@@ -432,6 +436,13 @@ def can_resolve_obligation(
     ):
         status = ResolutionStatus.SCOPE_MISMATCH.value
         reason = "SessionClosure targets a different obligation semantic revision"
+    elif current_disposition in {
+        "SUPERSEDED",
+        "ABANDONED_WITH_REASON",
+        "BLOCKED",
+    } or (current_disposition == "RESOLVED" and not allow_resolved_replay):
+        status = ResolutionStatus.OBLIGATION_NOT_RESOLVABLE.value
+        reason = f"current obligation disposition is not resolvable: {current_disposition}"
     elif any(
         digest != current_claim_snapshot_hash
         for digest in (

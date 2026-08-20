@@ -44,11 +44,17 @@ def _research(tmp_path, obligation_ids=("O1",)):
 
 def test_r1_immutable_map_versions_and_unknown_fields_fail_closed(tmp_path):
     _, _, store, _, v1 = _research(tmp_path)
+    with pytest.raises(ProjectError, match="DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE"):
+        store.revise_map(
+            v1,
+            created_by="test",
+            revision_reason=MapRevisionReason.HUMAN_STEERING.value,
+            strategic_thesis="Keep the same scope with a refined thesis.",
+        )
     v2 = store.revise_map(
         v1,
         created_by="test",
         revision_reason=MapRevisionReason.HUMAN_STEERING.value,
-        strategic_thesis="Keep the same scope with a refined thesis.",
     )
     assert v1.version == 1
     assert v2.version == 2
@@ -66,15 +72,17 @@ def test_r1_immutable_map_versions_and_unknown_fields_fail_closed(tmp_path):
 def test_r2_map_is_non_authoritative_and_cannot_mutate_theorem_truth(tmp_path):
     project, _, store, _, v1 = _research(tmp_path)
     before = project.load_theorem("T1")
-    store.revise_map(
-        v1,
-        created_by="test",
-        revision_reason=MapRevisionReason.EVIDENCE_INTEGRATION.value,
-        strategic_thesis="Research judgment only; no Truth Plane mutation.",
-    )
+    with pytest.raises(ProjectError, match="DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE"):
+        store.revise_map(
+            v1,
+            created_by="test",
+            revision_reason=MapRevisionReason.EVIDENCE_INTEGRATION.value,
+            strategic_thesis="Research judgment only; no Truth Plane mutation.",
+        )
     after = project.load_theorem("T1")
     assert before["status"] == after["status"] == "OPEN"
     assert before == after
+    assert store.load_current_map(v1.research_map_id) == v1
 
 
 def test_r3_r4_r5_obligation_survives_task_session_and_crash_lifecycle(tmp_path):

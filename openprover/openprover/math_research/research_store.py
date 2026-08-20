@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -365,12 +366,34 @@ class ResearchStoreFacade:
         closure = self.load_session_closure(tactical_session_id)
         current = self.load_current_map(closure.research_map_id)
         self._validate_root_hash(current.root_claim_snapshot_hash, "EVALUATE_SESSION_CLOSURE")
-        current_ref = current.obligation_ref(closure.obligation_id)
+        if (
+            closure.research_map_id != current.research_map_id
+            or closure.research_map_version != current.version
+            or closure.research_map_hash != current.research_map_hash
+            or closure.root_claim_snapshot_hash != current.root_claim_snapshot_hash
+        ):
+            return self._closure_decision(
+                closure,
+                status=ResolutionStatus.STALE_SESSION_CLOSURE.value,
+                reason=(
+                    "SessionClosure is bound to a superseded ResearchMap identity; "
+                    "explicit revalidation is required"
+                ),
+            )
+        try:
+            current_ref = current.obligation_ref(closure.obligation_id)
+        except ProjectError:
+            return self._closure_decision(
+                closure,
+                status=ResolutionStatus.SCOPE_MISMATCH.value,
+                reason="current ResearchMap does not contain the closure obligation",
+            )
         obligation = self.load_obligation(current_ref.obligation_hash)
         return can_resolve_obligation(
             obligation,
             closure,
             current_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            current_disposition=current_ref.disposition,
         )
 
     def resolve_session_closure(
@@ -378,7 +401,21 @@ class ResearchStoreFacade:
     ) -> tuple[ObligationResolutionDecision, ResearchMap | None]:
         closure = self.load_session_closure(tactical_session_id)
         current = self.load_current_map(closure.research_map_id)
-        current_ref = current.obligation_ref(closure.obligation_id)
+        try:
+            current_ref = current.obligation_ref(closure.obligation_id)
+        except ProjectError:
+            decision = self._closure_decision(
+                closure,
+                status=ResolutionStatus.SCOPE_MISMATCH.value,
+                reason="current ResearchMap does not contain the closure obligation",
+            )
+            decision_path = (
+                self.sessions_root
+                / tactical_session_id
+                / f"resolution-{decision.decision_hash.removeprefix('sha256:')}.json"
+            )
+            write_immutable_json(decision_path, decision.to_dict())
+            return decision, None
         if current_ref.disposition == ObligationDispositionKind.RESOLVED.value:
             current_disposition = self.load_disposition(current_ref.disposition_hash)
             if current_disposition.resolution_basis == (
@@ -386,7 +423,7 @@ class ResearchStoreFacade:
             ):
                 # A runtime replay after the map projection committed must not
                 # manufacture another RESOLVED disposition or map version.
-                return self.evaluate_session_closure(tactical_session_id), current
+                return self._evaluate_resolved_replay(closure, current), current
         decision = self.evaluate_session_closure(tactical_session_id)
         decision_path = (
             self.sessions_root
@@ -407,6 +444,175 @@ class ResearchStoreFacade:
             revision_reason=MapRevisionReason.OBLIGATION_RESOLVED.value,
         )
         return decision, revised
+
+    def revalidate_transferred_session_closure(
+        self,
+        tactical_session_id: str,
+        *,
+        target_obligation_id: str,
+        transfer,
+        authorization,
+        revalidated_evidence: Iterable[EvidenceProjection],
+        recorded_by: str,
+    ) -> tuple[ObligationResolutionDecision, ResearchMap | None]:
+        """Explicitly revalidate an old closure against an authorized transfer.
+
+        A stale closure is never adopted as evidence for its former
+        obligation.  The caller must provide a typed ScopeTransfer,
+        AUTHORIZED PatchAuthorization, and freshly projected evidence for the
+        current target obligation.
+        """
+
+        from .architecture_patch import (
+            PatchAuthorization,
+            PatchAuthorizationStatus,
+            ScopeTransfer,
+            ScopeTransferDisposition,
+        )
+
+        if not isinstance(transfer, ScopeTransfer):
+            raise ProjectError("TRANSFER_REVALIDATION requires a typed ScopeTransfer")
+        if not isinstance(authorization, PatchAuthorization):
+            raise ProjectError(
+                "TRANSFER_REVALIDATION requires a typed PatchAuthorization"
+            )
+        if authorization.status != PatchAuthorizationStatus.AUTHORIZED.value:
+            raise ProjectError("TRANSFER_REVALIDATION requires AUTHORIZED PatchAuthorization")
+        if transfer.disposition not in {
+            ScopeTransferDisposition.TRANSFERRED.value,
+            ScopeTransferDisposition.SUPERSEDED.value,
+        }:
+            raise ProjectError(
+                "TRANSFER_REVALIDATION requires a TRANSFERRED or SUPERSEDED ScopeTransfer"
+            )
+
+        closure = self.load_session_closure(tactical_session_id)
+        if closure.obligation_id not in transfer.source_obligation_ids:
+            raise ProjectError("ScopeTransfer does not name the stale closure obligation")
+        if target_obligation_id not in transfer.target_obligation_ids:
+            raise ProjectError("ScopeTransfer does not name the revalidation target")
+        if authorization.source_map_hash != closure.research_map_hash:
+            raise ProjectError(
+                "PatchAuthorization source map does not match the stale SessionClosure"
+            )
+        if authorization.root_claim_snapshot_hash != closure.root_claim_snapshot_hash:
+            raise ProjectError(
+                "PatchAuthorization root ClaimSnapshot does not match the stale SessionClosure"
+            )
+
+        current = self.load_current_map(closure.research_map_id)
+        self._validate_root_hash(current.root_claim_snapshot_hash, "TRANSFER_REVALIDATION")
+        if current.root_claim_snapshot_hash != closure.root_claim_snapshot_hash:
+            return self._closure_decision(
+                closure,
+                status=ResolutionStatus.STALE_EVIDENCE.value,
+                reason="transfer revalidation requires the same current root ClaimSnapshot",
+            ), None
+        target_ref = current.obligation_ref(target_obligation_id)
+        evidence = tuple(revalidated_evidence)
+        if not all(isinstance(item, EvidenceProjection) for item in evidence):
+            raise ProjectError("TRANSFER_REVALIDATION evidence must be typed")
+        retained_hashes = {item.artifact_sha256 for item in closure.raw_artifacts}
+        if any(item.artifact_sha256 not in retained_hashes for item in evidence):
+            raise ProjectError(
+                "TRANSFER_REVALIDATION evidence must reference retained closure artifacts"
+            )
+
+        # Build a non-persisted current-target view.  Its identity is never
+        # confused with the immutable old closure; only the explicit transfer
+        # and the new evidence can authorize the target disposition.
+        target_closure = replace(
+            closure,
+            obligation_id=target_ref.obligation_id,
+            obligation_hash=target_ref.obligation_hash,
+            research_map_version=current.version,
+            research_map_hash=current.research_map_hash,
+            validated_evidence=evidence,
+        )
+        obligation = self.load_obligation(target_ref.obligation_hash)
+        decision = can_resolve_obligation(
+            obligation,
+            target_closure,
+            current_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            current_disposition=target_ref.disposition,
+            allow_resolved_replay=True,
+        )
+        decision_path = (
+            self.sessions_root
+            / tactical_session_id
+            / f"transfer-revalidation-{decision.decision_hash.removeprefix('sha256:')}.json"
+        )
+        write_immutable_json(decision_path, decision.to_dict())
+        if decision.status != ResolutionStatus.RESOLUTION_ACCEPTED.value:
+            return decision, None
+        if target_ref.disposition == ObligationDispositionKind.RESOLVED.value:
+            disposition = self.load_disposition(target_ref.disposition_hash)
+            expected_basis = (
+                f"TRANSFER_REVALIDATION {closure.session_closure_id}"
+                f" -> {target_obligation_id}"
+            )
+            if disposition.resolution_basis != expected_basis:
+                return self._closure_decision(
+                    target_closure,
+                    status=ResolutionStatus.OBLIGATION_NOT_RESOLVABLE.value,
+                    reason="target is already resolved by a different semantic basis",
+                ), None
+            return decision, current
+
+        _, revised = self.record_disposition(
+            current.research_map_id,
+            target_obligation_id,
+            disposition=ObligationDispositionKind.RESOLVED.value,
+            evidence_refs=decision.accepted_evidence_ids,
+            resolution_basis=(
+                f"TRANSFER_REVALIDATION {closure.session_closure_id}"
+                f" -> {target_obligation_id}"
+            ),
+            reason=(
+                "accepted only after explicit authorized ScopeTransfer revalidation"
+            ),
+            recorded_by=recorded_by,
+            revision_reason=MapRevisionReason.OBLIGATION_RESOLVED.value,
+        )
+        return decision, revised
+
+    @staticmethod
+    def _closure_decision(
+        closure: SessionClosure, *, status: str, reason: str
+    ) -> ObligationResolutionDecision:
+        identity = {
+            "status": status,
+            "obligation_id": closure.obligation_id,
+            "session_closure_id": closure.session_closure_id,
+            "accepted_evidence_ids": [],
+            "reason": reason,
+        }
+        from .research_common import RESEARCH_SCHEMA_VERSION
+        from .truth_identity import domain_hash
+
+        return ObligationResolutionDecision(
+            schema_version=RESEARCH_SCHEMA_VERSION,
+            object_type="OBLIGATION_RESOLUTION_DECISION",
+            status=status,
+            obligation_id=closure.obligation_id,
+            session_closure_id=closure.session_closure_id,
+            accepted_evidence_ids=(),
+            reason=reason,
+            decision_hash=domain_hash("obligation_resolution_decision", identity),
+        )
+
+    def _evaluate_resolved_replay(
+        self, closure: SessionClosure, current: ResearchMap
+    ) -> ObligationResolutionDecision:
+        current_ref = current.obligation_ref(closure.obligation_id)
+        obligation = self.load_obligation(current_ref.obligation_hash)
+        return can_resolve_obligation(
+            obligation,
+            closure,
+            current_claim_snapshot_hash=current.root_claim_snapshot_hash,
+            current_disposition=current_ref.disposition,
+            allow_resolved_replay=True,
+        )
 
     def create_initial_map(
         self,
@@ -498,9 +704,16 @@ class ResearchStoreFacade:
         from .architecture_patch import PatchAuthorization, PatchAuthorizationStatus
 
         removed_or_reframed_scope = tuple(removed_or_reframed_scope)
+        prior = self.load_current_map(parent) if isinstance(parent, str) else parent
+        current = self.load_current_map(prior.research_map_id)
+        if current.research_map_hash != prior.research_map_hash:
+            raise ProjectError("ResearchMap revision must use the current immutable version")
+        strategic_thesis_changed = (
+            strategic_thesis is not None and strategic_thesis != prior.strategic_thesis
+        )
         destructive_revision = bool(removed_or_reframed_scope) or (
             revision_reason == MapRevisionReason.ARCHITECTURE_PATCH.value
-        )
+        ) or strategic_thesis_changed
         if destructive_revision:
             if not isinstance(governance_authorization, PatchAuthorization):
                 raise ProjectError(
@@ -510,10 +723,6 @@ class ResearchStoreFacade:
                 raise ProjectError(
                     "DESTRUCTIVE_REFRAME_REQUIRES_GOVERNANCE: authorization is not AUTHORIZED"
                 )
-        prior = self.load_current_map(parent) if isinstance(parent, str) else parent
-        current = self.load_current_map(prior.research_map_id)
-        if current.research_map_hash != prior.research_map_hash:
-            raise ProjectError("ResearchMap revision must use the current immutable version")
         new_root = root_claim_snapshot_hash or prior.root_claim_snapshot_hash
         if new_root != prior.root_claim_snapshot_hash:
             raise ProjectError("Root changes require explicit rebase_research_map")
