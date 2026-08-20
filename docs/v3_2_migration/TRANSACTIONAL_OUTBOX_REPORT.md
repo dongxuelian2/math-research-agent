@@ -42,4 +42,3 @@ DISPATCHED request is not silently treated as never sent.
 - D5/D9 retain duplicate successes while selecting one result.
 - Production RoutedLLMClient, formalization, certification, and provider-smoke
   use this dispatcher.
-

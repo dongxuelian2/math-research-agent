@@ -40,4 +40,3 @@ provider log event, avoiding write amplification.
 
 D2, D3, D8, D10–D14, and D19 assert current rows and causal journal evidence.
 The full local suite passes with no journal-replay dependency.
-

@@ -41,4 +41,3 @@ not overwrite SQLite attempts, leases, outbox, accepted results, or effects.
 D4, D6, D7, D12, D19–D22, and D25 cover pending dispatch, orphan adoption,
 missing-body blocking, restart preservation, legacy adoption, isolation, and
 crash/no-crash equivalence.
-
