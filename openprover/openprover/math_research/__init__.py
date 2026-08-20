@@ -17,6 +17,14 @@ from .checkpoint_migration import (
     checkpoint_policy_fingerprint,
     inspect_legacy_checkpoint,
 )
+from .claim_snapshot import (
+    ClaimSnapshot,
+    SnapshotComparison,
+    SnapshotComparisonStatus,
+    SnapshotDisposition,
+    compare_claim_snapshots,
+    validate_claim_snapshot_for_root_synthesis,
+)
 from .gemini_provider import GeminiClient, GeminiProviderError
 from .formalization import run_formalization
 from .observatory import build_snapshot, run_server
@@ -72,6 +80,15 @@ from .scheduler import (
 )
 from .state_machine import AuditGate, InvalidTransition
 from .trust_kernel import FoundationRegistry, SemanticRegistry, TrustKernel
+from .truth_identity import (
+    AssertionIdentity,
+    AssertionKind,
+    AssumptionSnapshot,
+    AuthorityBinding,
+    AuthorityKind,
+    DependencyEntry,
+    DependencySnapshot,
+)
 
 __all__ = [
     "AuditGate",
@@ -88,10 +105,18 @@ __all__ = [
     "CanonicalResolution",
     "CanonicalResolutionStatus",
     "CanonicalSourceRequirement",
+    "ClaimSnapshot",
     "CheckpointClassification",
     "CheckpointInspection",
     "CheckpointMigrationResult",
     "ContextBuilder",
+    "AssertionIdentity",
+    "AssertionKind",
+    "AssumptionSnapshot",
+    "AuthorityBinding",
+    "AuthorityKind",
+    "DependencyEntry",
+    "DependencySnapshot",
     "FoundationRegistry",
     "GeminiClient",
     "GeminiProviderError",
@@ -124,6 +149,9 @@ __all__ = [
     "RoutedLLMClient",
     "SemanticRegistry",
     "StopController",
+    "SnapshotComparison",
+    "SnapshotComparisonStatus",
+    "SnapshotDisposition",
     "StrategyFingerprint",
     "StrategyFingerprintStore",
     "TaskExecutionContext",
@@ -132,9 +160,11 @@ __all__ = [
     "run_formalization",
     "build_snapshot",
     "checkpoint_policy_fingerprint",
+    "compare_claim_snapshots",
     "inspect_legacy_checkpoint",
     "resolve_profile",
     "provider_capabilities",
     "run_server",
     "run_showcase",
+    "validate_claim_snapshot_for_root_synthesis",
 ]
