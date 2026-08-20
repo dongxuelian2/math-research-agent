@@ -16,6 +16,9 @@ from .runtime_model import (
     RUNTIME_SCHEMA_VERSION,
     ArtifactIntegrityError,
     AttemptState,
+    EffectState,
+    FaultInjector,
+    FaultPoint,
     InvalidRuntimeTransition,
     JobState,
     OutboxState,
@@ -1382,6 +1385,266 @@ class SQLiteRuntimeBackend:
                     (cursor.lastrowid,),
                 ).fetchone()
             )
+
+    def prepare_effect(
+        self,
+        *,
+        logical_job_id: str,
+        effect_kind: str,
+        semantic_target_type: str,
+        semantic_target_id: str,
+        source_result_id: str,
+        claim_snapshot_hash: str | None = None,
+        actor: str = "effect-controller",
+    ) -> tuple[dict[str, Any], bool]:
+        """Claim the unique semantic effect identity without applying domain logic."""
+
+        slot_id = stable_id(
+            "effect",
+            logical_job_id,
+            effect_kind,
+            semantic_target_type,
+            semantic_target_id,
+        )
+        with self._transaction() as connection:
+            job = connection.execute(
+                "SELECT * FROM logical_jobs WHERE logical_job_id = ?", (logical_job_id,)
+            ).fetchone()
+            if job is None:
+                raise RuntimeConflict(f"Unknown LogicalJob: {logical_job_id}")
+            if job["accepted_result_id"] != source_result_id:
+                raise RuntimeConflict("Effect source is not the accepted LogicalJob result")
+            result = connection.execute(
+                "SELECT * FROM attempt_results WHERE result_id = ? AND authoritative = 1",
+                (source_result_id,),
+            ).fetchone()
+            if result is None:
+                raise RuntimeConflict("Effect source result is not authoritative")
+            existing = connection.execute(
+                """SELECT * FROM effect_slots WHERE logical_job_id = ? AND effect_kind = ?
+                   AND semantic_target_type = ? AND semantic_target_id = ?""",
+                (logical_job_id, effect_kind, semantic_target_type, semantic_target_id),
+            ).fetchone()
+            if existing is not None:
+                if existing["source_result_id"] != source_result_id:
+                    raise RuntimeConflict("Effect slot already belongs to another accepted result")
+                return dict(existing), False
+            connection.execute(
+                """INSERT INTO effect_slots(
+                       effect_slot_id, logical_job_id, effect_kind, semantic_target_type,
+                       semantic_target_id, source_result_id, claim_snapshot_hash, status,
+                       prepared_at, effect_metadata, schema_version
+                   ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    slot_id,
+                    logical_job_id,
+                    effect_kind,
+                    semantic_target_type,
+                    semantic_target_id,
+                    source_result_id,
+                    claim_snapshot_hash,
+                    EffectState.PREPARED,
+                    utc_now(),
+                    "{}",
+                    RUNTIME_SCHEMA_VERSION,
+                ),
+            )
+            self._journal(
+                connection,
+                object_type="EFFECT_SLOT",
+                object_id=slot_id,
+                from_state=None,
+                to_state=EffectState.PREPARED,
+                transition_kind="PREPARE_UNIQUE_EFFECT",
+                actor=actor,
+                logical_job_id=logical_job_id,
+                causal_ref=source_result_id,
+                metadata={
+                    "effect_kind": effect_kind,
+                    "semantic_target_type": semantic_target_type,
+                    "semantic_target_id": semantic_target_id,
+                },
+            )
+            return (
+                dict(
+                    connection.execute(
+                        "SELECT * FROM effect_slots WHERE effect_slot_id = ?", (slot_id,)
+                    ).fetchone()
+                ),
+                True,
+            )
+
+    def mark_effect_domain_applied(
+        self,
+        effect_slot_id: str,
+        *,
+        effect_artifact_ref: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        actor: str = "effect-controller",
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM effect_slots WHERE effect_slot_id = ?", (effect_slot_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown EffectSlot: {effect_slot_id}")
+            slot = dict(row)
+            if slot["status"] in {EffectState.DOMAIN_APPLIED, EffectState.ACKNOWLEDGED}:
+                return slot
+            if slot["status"] != EffectState.PREPARED:
+                raise InvalidRuntimeTransition(
+                    f"Effect {slot['status']} -> {EffectState.DOMAIN_APPLIED} is not legal"
+                )
+            now = utc_now()
+            cursor = connection.execute(
+                """UPDATE effect_slots SET status = ?, domain_applied_at = ?,
+                       effect_artifact_ref = ?, effect_metadata = ?, version = version + 1
+                   WHERE effect_slot_id = ? AND status = ? AND version = ?""",
+                (
+                    EffectState.DOMAIN_APPLIED,
+                    now,
+                    effect_artifact_ref,
+                    canonical_json(dict(metadata or {})),
+                    effect_slot_id,
+                    EffectState.PREPARED,
+                    slot["version"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("EffectSlot domain-applied CAS lost")
+            self._journal(
+                connection,
+                object_type="EFFECT_SLOT",
+                object_id=effect_slot_id,
+                from_state=EffectState.PREPARED,
+                to_state=EffectState.DOMAIN_APPLIED,
+                transition_kind="DOMAIN_EFFECT_APPLIED",
+                actor=actor,
+                logical_job_id=str(slot["logical_job_id"]),
+                causal_ref=str(slot["source_result_id"]),
+                metadata=metadata,
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM effect_slots WHERE effect_slot_id = ?", (effect_slot_id,)
+                ).fetchone()
+            )
+
+    def acknowledge_effect(
+        self, effect_slot_id: str, *, actor: str = "effect-controller"
+    ) -> dict[str, Any]:
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM effect_slots WHERE effect_slot_id = ?", (effect_slot_id,)
+            ).fetchone()
+            if row is None:
+                raise RuntimeConflict(f"Unknown EffectSlot: {effect_slot_id}")
+            slot = dict(row)
+            if slot["status"] == EffectState.ACKNOWLEDGED:
+                return slot
+            if slot["status"] != EffectState.DOMAIN_APPLIED:
+                raise InvalidRuntimeTransition(
+                    f"Effect {slot['status']} -> {EffectState.ACKNOWLEDGED} is not legal"
+                )
+            now = utc_now()
+            cursor = connection.execute(
+                """UPDATE effect_slots SET status = ?, applied_at = ?, version = version + 1
+                   WHERE effect_slot_id = ? AND status = ? AND version = ?""",
+                (
+                    EffectState.ACKNOWLEDGED,
+                    now,
+                    effect_slot_id,
+                    EffectState.DOMAIN_APPLIED,
+                    slot["version"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeConflict("EffectSlot acknowledgment CAS lost")
+            connection.execute(
+                """UPDATE logical_jobs SET state = ?, updated_at = ?, version = version + 1
+                   WHERE logical_job_id = ? AND accepted_result_id = ?""",
+                (
+                    JobState.COMPLETED,
+                    now,
+                    slot["logical_job_id"],
+                    slot["source_result_id"],
+                ),
+            )
+            self._journal(
+                connection,
+                object_type="EFFECT_SLOT",
+                object_id=effect_slot_id,
+                from_state=EffectState.DOMAIN_APPLIED,
+                to_state=EffectState.ACKNOWLEDGED,
+                transition_kind="ACKNOWLEDGE_SEMANTIC_EFFECT",
+                actor=actor,
+                logical_job_id=str(slot["logical_job_id"]),
+                causal_ref=str(slot["source_result_id"]),
+            )
+            return dict(
+                connection.execute(
+                    "SELECT * FROM effect_slots WHERE effect_slot_id = ?", (effect_slot_id,)
+                ).fetchone()
+            )
+
+    def apply_effect_once(
+        self,
+        *,
+        logical_job_id: str,
+        effect_kind: str,
+        semantic_target_type: str,
+        semantic_target_id: str,
+        source_result_id: str,
+        apply,
+        recover=None,
+        claim_snapshot_hash: str | None = None,
+        fault_injector: FaultInjector | None = None,
+    ) -> tuple[dict[str, Any], Any]:
+        """Run a recoverable cross-store saga with one durable semantic slot."""
+
+        self.verify_artifact(
+            str(
+                next(
+                    row["artifact_id"]
+                    for row in self.list_rows("attempt_results")
+                    if row["result_id"] == source_result_id
+                )
+            )
+        )
+        if fault_injector is not None:
+            fault_injector.hit(FaultPoint.BEFORE_EFFECT_SLOT_COMMIT)
+        slot, created = self.prepare_effect(
+            logical_job_id=logical_job_id,
+            effect_kind=effect_kind,
+            semantic_target_type=semantic_target_type,
+            semantic_target_id=semantic_target_id,
+            source_result_id=source_result_id,
+            claim_snapshot_hash=claim_snapshot_hash,
+        )
+        if slot["status"] == EffectState.ACKNOWLEDGED:
+            return slot, recover(slot["effect_slot_id"]) if recover is not None else None
+        if fault_injector is not None:
+            fault_injector.hit(FaultPoint.AFTER_EFFECT_SLOT_BEFORE_DOMAIN_APPLY)
+        recovered = recover(slot["effect_slot_id"]) if recover is not None else None
+        if recovered is None:
+            if not created and recover is None:
+                raise RuntimeConflict("Partial domain effect requires deterministic recovery")
+            outcome = apply(slot["effect_slot_id"])
+        else:
+            outcome = recovered
+        artifact_ref = None
+        if isinstance(outcome, Mapping):
+            artifact_ref = outcome.get("effect_artifact_ref")
+        if slot["status"] == EffectState.PREPARED:
+            slot = self.mark_effect_domain_applied(
+                slot["effect_slot_id"],
+                effect_artifact_ref=(str(artifact_ref) if artifact_ref else None),
+                metadata={"outcome_type": type(outcome).__name__, "recovered": recovered is not None},
+            )
+        if fault_injector is not None:
+            fault_injector.hit(FaultPoint.AFTER_DOMAIN_APPLY_BEFORE_ACK)
+        slot = self.acknowledge_effect(slot["effect_slot_id"])
+        return slot, outcome
 
     def reconcile(self) -> list[dict[str, Any]]:
         from .runtime_reconciler import RuntimeReconciler
