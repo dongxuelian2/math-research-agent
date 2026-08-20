@@ -34,4 +34,3 @@ row can be simultaneously COMPLETED and CANCELLED.
 - D12 expiry creates ORPHANED without research failure.
 - D13 generation-1 late result retained but fenced after generation 2.
 - D14 cancel/complete race has one allowed terminal state.
-

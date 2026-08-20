@@ -1,7 +1,9 @@
 # Phase 6 Runtime Path Audit
 
-Date: 2026-08-20  
-Branch: `codex/v3-2-reconciliation`  
+Date: 2026-08-20
+
+Branch: `codex/v3-2-reconciliation`
+
 Audited baseline: `bdab5cff50227a1504208359539bfe7dba5e7bc2`
 
 ## 1. Scope and audit rule
