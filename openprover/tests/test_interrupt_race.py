@@ -3,11 +3,12 @@
 Run directly:  python tests/test_interrupt_race.py
 """
 
-import os
-import signal
 import subprocess
+import sys
 import threading
 import time
+
+from openprover.math_research.process_control import ProcessTerminationBackend
 
 
 def check(label: str, ok: bool):
@@ -17,14 +18,14 @@ def check(label: str, ok: bool):
         raise AssertionError(label)
 
 
-# ── 1. os.killpg unblocks readline() ─────────────────────────────────────────
+# ── 1. Cross-platform tree termination unblocks readline() ───────────────────
 
 
 def test_kill_unblocks_readline():
     """Killing a subprocess (SIGKILL) must immediately unblock readline()."""
     proc = subprocess.Popen(
         [
-            "python3",
+            sys.executable,
             "-c",
             "import time,sys\n"
             "for i in range(200):\n"
@@ -34,7 +35,7 @@ def test_kill_unblocks_readline():
         stdout=subprocess.PIPE,
         text=True,
         bufsize=1,
-        start_new_session=True,
+        **ProcessTerminationBackend().creation_kwargs(hidden=True),
     )
     lines: list[str] = []
     done = threading.Event()
@@ -50,16 +51,13 @@ def test_kill_unblocks_readline():
     threading.Thread(target=reader, daemon=True).start()
     time.sleep(0.15)  # collect ~7 lines
 
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (OSError, ProcessLookupError):
-        proc.kill()
-    proc.wait()
+    termination = ProcessTerminationBackend().terminate_tree(proc)
 
     done.wait(timeout=2.0)
     check("readline() unblocked within 2s", done.is_set())
     check("partial output (not all 200 lines)", 0 < len(lines) < 200)
-    check("returncode < 0 (killed by signal)", proc.returncode < 0)
+    check("process tree is no longer running", proc.poll() is not None)
+    check("termination was requested", termination["requested"])
     print(f"     {len(lines)} lines read, returncode={proc.returncode}")
 
 
@@ -145,10 +143,11 @@ def test_multiworker_race():
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-print("\n── test_kill_unblocks_readline")
-test_kill_unblocks_readline()
+if __name__ == "__main__":
+    print("\n── test_kill_unblocks_readline")
+    test_kill_unblocks_readline()
 
-print("\n── test_multiworker_race")
-test_multiworker_race()
+    print("\n── test_multiworker_race")
+    test_multiworker_race()
 
-print("\n\033[32mall tests passed\033[0m\n")
+    print("\n\033[32mall tests passed\033[0m\n")

@@ -16,6 +16,7 @@ from typing import Any, Callable
 from openprover.llm._base import archive
 
 from .schemas import json_schema_for
+from .process_control import ProcessTerminationBackend
 
 
 CODEX_REASONING_EFFORTS = frozenset(
@@ -481,30 +482,7 @@ def _parse_jsonl(stdout: str) -> dict[str, Any]:
 
 
 def _terminate_process_tree(process: Any) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "nt" and getattr(process, "pid", None):
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-                check=False,
-                shell=False,
-            )
-            return
-        except (OSError, subprocess.SubprocessError):
-            pass
-    try:
-        process.terminate()
-        process.wait(timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        try:
-            process.kill()
-        except OSError:
-            pass
+    ProcessTerminationBackend().terminate_tree(process)
 
 
 class CodexCLIClient:
@@ -822,11 +800,7 @@ class CodexCLIClient:
             child_env.pop("CODEX_API_KEY", None)
             child_env.pop("OPENAI_BASE_URL", None)
             child_env["NO_COLOR"] = "1"
-            creationflags = 0
-            if os.name == "nt":
-                creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(
-                    subprocess, "CREATE_NO_WINDOW", 0
-                )
+            process_options = ProcessTerminationBackend().creation_kwargs(hidden=True)
             try:
                 with self._lock:
                     self.process_start_attempts += 1
@@ -841,8 +815,7 @@ class CodexCLIClient:
                     cwd=str(attempt_dir),
                     env=child_env,
                     shell=False,
-                    creationflags=creationflags,
-                    start_new_session=(os.name != "nt"),
+                    **process_options,
                 )
             except FileNotFoundError as exc:
                 error = self._error(
