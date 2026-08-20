@@ -139,9 +139,7 @@ class ResearchObligation:
             dependencies=normalized_dependencies,
             previous_revision_hash=identity["previous_revision_hash"],
             created_at=require_text(created_at, "ResearchObligation.created_at"),
-            revised_at=require_text(
-                revised_at or created_at, "ResearchObligation.revised_at"
-            ),
+            revised_at=require_text(revised_at or created_at, "ResearchObligation.revised_at"),
             obligation_hash=domain_hash("research_obligation", identity),
         )
 
@@ -242,7 +240,10 @@ class ObligationDisposition:
             raise ProjectError("RESOLVED disposition requires evidence_refs and resolution_basis")
         if disposition == ObligationDispositionKind.SUPERSEDED.value and not replacements:
             raise ProjectError("SUPERSEDED disposition requires superseded_by")
-        if disposition == ObligationDispositionKind.ABANDONED_WITH_REASON.value and not normalized_reason:
+        if (
+            disposition == ObligationDispositionKind.ABANDONED_WITH_REASON.value
+            and not normalized_reason
+        ):
             raise ProjectError("ABANDONED_WITH_REASON requires reason")
         previous = (
             require_hash(previous_disposition_hash, "previous_disposition_hash")
@@ -304,9 +305,7 @@ class ObligationDisposition:
             "disposition_hash",
         }
         strict_fields(value, fields, "ObligationDisposition")
-        validate_envelope(
-            value, object_type="OBLIGATION_DISPOSITION", name="ObligationDisposition"
-        )
+        validate_envelope(value, object_type="OBLIGATION_DISPOSITION", name="ObligationDisposition")
         captured = cls.capture(
             obligation_id=value["obligation_id"],
             obligation_hash=value["obligation_hash"],

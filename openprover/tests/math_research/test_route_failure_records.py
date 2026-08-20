@@ -91,9 +91,7 @@ def test_r15_legacy_strategy_fingerprint_is_preserved_as_derived(tmp_path):
         key_dependency="D1",
         failure_point="base case",
     ).to_dict()
-    failure, v2 = store.import_legacy_strategy_fingerprint(
-        v1.research_map_id, "O1", legacy
-    )
+    failure, v2 = store.import_legacy_strategy_fingerprint(v1.research_map_id, "O1", legacy)
     assert failure.provenance == "LEGACY_DERIVED"
     assert legacy["fingerprint"] in failure.legacy_source_ref
     assert failure.failure_domain == "UNKNOWN"

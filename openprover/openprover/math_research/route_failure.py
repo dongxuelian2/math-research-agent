@@ -150,9 +150,11 @@ class RouteFailureRecord:
             raise ProjectError(f"Unsupported route failure domain: {failure_domain}")
         if provenance not in {"NATIVE", "LEGACY_DERIVED"}:
             raise ProjectError(f"Unsupported RouteFailureRecord provenance: {provenance}")
-        if not isinstance(research_map_version, int) or isinstance(
-            research_map_version, bool
-        ) or research_map_version < 1:
+        if (
+            not isinstance(research_map_version, int)
+            or isinstance(research_map_version, bool)
+            or research_map_version < 1
+        ):
             raise ProjectError("RouteFailureRecord.research_map_version must be positive")
         conditions = string_tuple(
             reopen_conditions, "RouteFailureRecord.reopen_conditions", allow_empty=False
@@ -170,17 +172,13 @@ class RouteFailureRecord:
             "root_claim_snapshot_hash": require_hash(
                 root_claim_snapshot_hash, "RouteFailureRecord.root_claim_snapshot_hash"
             ),
-            "research_map_id": require_id(
-                research_map_id, "RouteFailureRecord.research_map_id"
-            ),
+            "research_map_id": require_id(research_map_id, "RouteFailureRecord.research_map_id"),
             "research_map_version": research_map_version,
             "research_map_hash": require_hash(
                 research_map_hash, "RouteFailureRecord.research_map_hash"
             ),
             "obligation_id": require_id(obligation_id, "RouteFailureRecord.obligation_id"),
-            "obligation_hash": require_hash(
-                obligation_hash, "RouteFailureRecord.obligation_hash"
-            ),
+            "obligation_hash": require_hash(obligation_hash, "RouteFailureRecord.obligation_hash"),
             "route_description": require_text(
                 route_description, "RouteFailureRecord.route_description"
             ),
@@ -229,18 +227,33 @@ class RouteFailureRecord:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RouteFailureRecord":
         fields = {
-            "schema_version", "object_type", "route_failure_id",
-            "root_claim_snapshot_hash", "research_map_id", "research_map_version",
-            "research_map_hash", "obligation_id", "obligation_hash", "route_description",
-            "method_family", "dependency_snapshot_hash", "assumption_snapshot_hash",
-            "authority_context_hash", "exact_failure_condition", "failure_domain",
-            "evidence_refs", "reopen_conditions", "verified_lemma_refs", "provenance",
-            "legacy_source_ref", "created_at", "created_by", "route_failure_hash",
+            "schema_version",
+            "object_type",
+            "route_failure_id",
+            "root_claim_snapshot_hash",
+            "research_map_id",
+            "research_map_version",
+            "research_map_hash",
+            "obligation_id",
+            "obligation_hash",
+            "route_description",
+            "method_family",
+            "dependency_snapshot_hash",
+            "assumption_snapshot_hash",
+            "authority_context_hash",
+            "exact_failure_condition",
+            "failure_domain",
+            "evidence_refs",
+            "reopen_conditions",
+            "verified_lemma_refs",
+            "provenance",
+            "legacy_source_ref",
+            "created_at",
+            "created_by",
+            "route_failure_hash",
         }
         strict_fields(value, fields, "RouteFailureRecord")
-        validate_envelope(
-            value, object_type="ROUTE_FAILURE_RECORD", name="RouteFailureRecord"
-        )
+        validate_envelope(value, object_type="ROUTE_FAILURE_RECORD", name="RouteFailureRecord")
         context = RouteContext.capture(
             dependency_snapshot_hash=value["dependency_snapshot_hash"],
             assumption_snapshot_hash=value["assumption_snapshot_hash"],
@@ -251,13 +264,19 @@ class RouteFailureRecord:
             root_claim_snapshot_hash=value["root_claim_snapshot_hash"],
             research_map_id=value["research_map_id"],
             research_map_version=value["research_map_version"],
-            research_map_hash=value["research_map_hash"], obligation_id=value["obligation_id"],
+            research_map_hash=value["research_map_hash"],
+            obligation_id=value["obligation_id"],
             obligation_hash=value["obligation_hash"],
-            route_description=value["route_description"], method_family=value["method_family"],
-            context=context, exact_failure_condition=value["exact_failure_condition"],
-            failure_domain=value["failure_domain"], evidence_refs=value["evidence_refs"],
-            reopen_conditions=value["reopen_conditions"], provenance=value["provenance"],
-            legacy_source_ref=value["legacy_source_ref"], created_at=value["created_at"],
+            route_description=value["route_description"],
+            method_family=value["method_family"],
+            context=context,
+            exact_failure_condition=value["exact_failure_condition"],
+            failure_domain=value["failure_domain"],
+            evidence_refs=value["evidence_refs"],
+            reopen_conditions=value["reopen_conditions"],
+            provenance=value["provenance"],
+            legacy_source_ref=value["legacy_source_ref"],
+            created_at=value["created_at"],
             created_by=value["created_by"],
         )
         if captured.route_failure_id != value.get(

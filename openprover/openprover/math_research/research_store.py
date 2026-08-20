@@ -102,9 +102,7 @@ class ResearchStoreFacade:
         current = self.load_current_map(research_map_id)
         self._validate_root_hash(current.root_claim_snapshot_hash, "RECORD_ROUTE_FAILURE")
         ref = current.obligation_ref(obligation_id)
-        route_context = context or self.route_context_for_snapshot(
-            current.root_claim_snapshot_hash
-        )
+        route_context = context or self.route_context_for_snapshot(current.root_claim_snapshot_hash)
         record = RouteFailureRecord.capture(
             root_claim_snapshot_hash=current.root_claim_snapshot_hash,
             research_map_id=current.research_map_id,
@@ -322,9 +320,7 @@ class ResearchStoreFacade:
                     root_claim_snapshot_hash=session.root_claim_snapshot_hash,
                     artifact_sha256=raw.artifact_sha256,
                     retained_artifact_path=raw.retained_path,
-                    scope_obligation_ids=item.get(
-                        "scope_obligation_ids", (session.obligation_id,)
-                    ),
+                    scope_obligation_ids=item.get("scope_obligation_ids", (session.obligation_id,)),
                     verifier_status=item.get("verifier_status", "NOT_APPLICABLE"),
                     audit_status=item.get("audit_status", "NOT_APPLICABLE"),
                     authority_status=item.get("authority_status", "NOT_APPLICABLE"),
@@ -365,9 +361,7 @@ class ResearchStoreFacade:
         path = self.sessions_root / session.tactical_session_id / "closure.json"
         return SessionClosure.from_dict(read_json(path, "SessionClosure"), session)
 
-    def evaluate_session_closure(
-        self, tactical_session_id: str
-    ) -> ObligationResolutionDecision:
+    def evaluate_session_closure(self, tactical_session_id: str) -> ObligationResolutionDecision:
         closure = self.load_session_closure(tactical_session_id)
         current = self.load_current_map(closure.research_map_id)
         self._validate_root_hash(current.root_claim_snapshot_hash, "EVALUATE_SESSION_CLOSURE")
@@ -385,7 +379,9 @@ class ResearchStoreFacade:
         decision = self.evaluate_session_closure(tactical_session_id)
         closure = self.load_session_closure(tactical_session_id)
         decision_path = (
-            self.sessions_root / tactical_session_id / f"resolution-{decision.decision_hash.removeprefix('sha256:')}.json"
+            self.sessions_root
+            / tactical_session_id
+            / f"resolution-{decision.decision_hash.removeprefix('sha256:')}.json"
         )
         write_immutable_json(decision_path, decision.to_dict())
         if decision.status != ResolutionStatus.RESOLUTION_ACCEPTED.value:
@@ -745,9 +741,11 @@ class ResearchStoreFacade:
             strategic_thesis=current.strategic_thesis,
             removed_or_reframed_scope=invalid,
             obligation_changes=tuple(
-                [*(f"{item}:CARRIED" for item in carried),
-                 *(f"{item}:REVALIDATION_REQUIRED" for item in revalidate),
-                 *(f"{item}:INVALID" for item in invalid)]
+                [
+                    *(f"{item}:CARRIED" for item in carried),
+                    *(f"{item}:REVALIDATION_REQUIRED" for item in revalidate),
+                    *(f"{item}:INVALID" for item in invalid),
+                ]
             ),
             created_at=now,
             created_by=created_by,
@@ -778,12 +776,19 @@ class ResearchStoreFacade:
         map_id = require_id(research_map_id, "research_map_id")
         index = read_json(self.current_index_path(map_id), "ResearchMap current projection")
         expected = {
-            "schema_version", "object_type", "research_map_id", "version",
-            "research_map_hash", "root_claim_snapshot_hash", "open_obligation_ids",
+            "schema_version",
+            "object_type",
+            "research_map_id",
+            "version",
+            "research_map_hash",
+            "root_claim_snapshot_hash",
+            "open_obligation_ids",
         }
-        if set(index) != expected or index.get("schema_version") != 1 or index.get(
-            "object_type"
-        ) != "RESEARCH_MAP_CURRENT_PROJECTION":
+        if (
+            set(index) != expected
+            or index.get("schema_version") != 1
+            or index.get("object_type") != "RESEARCH_MAP_CURRENT_PROJECTION"
+        ):
             raise ProjectError("ResearchMap current projection migration is required")
         result = self.load_map(index["research_map_hash"])
         if result.research_map_id != map_id or result.version != index["version"]:
@@ -957,9 +962,11 @@ class ResearchStoreFacade:
                 "references": {},
             }
         )
-        if set(value) != {"schema_version", "object_type", "references"} or value.get(
-            "schema_version"
-        ) != 1 or value.get("object_type") != "RESEARCH_REVERSE_REFERENCE_PROJECTION":
+        if (
+            set(value) != {"schema_version", "object_type", "references"}
+            or value.get("schema_version") != 1
+            or value.get("object_type") != "RESEARCH_REVERSE_REFERENCE_PROJECTION"
+        ):
             raise ProjectError("Research reverse-reference projection migration is required")
         for reference in references:
             if not isinstance(reference, str) or not reference.strip():
@@ -1015,8 +1022,7 @@ class ResearchStoreFacade:
                 return
             raise ResearchMapRootStale(
                 operation,
-                f"{exc.comparison.status}/{exc.comparison.disposition}: "
-                f"{exc.comparison.reason}",
+                f"{exc.comparison.status}/{exc.comparison.disposition}: {exc.comparison.reason}",
             ) from exc
 
     def _project_artifact_path(self, value: Any) -> Path:
@@ -1035,9 +1041,7 @@ class ResearchStoreFacade:
         return candidate
 
     @staticmethod
-    def _ref(
-        obligation: ResearchObligation, disposition: ObligationDisposition
-    ) -> ObligationRef:
+    def _ref(obligation: ResearchObligation, disposition: ObligationDisposition) -> ObligationRef:
         return ObligationRef.capture(
             obligation.obligation_id,
             obligation.obligation_hash,

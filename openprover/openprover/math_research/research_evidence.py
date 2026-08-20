@@ -79,9 +79,7 @@ class RawArtifactRef:
         return cls(
             artifact_kind=require_text(artifact_kind, "RawArtifactRef.artifact_kind"),
             retained_path=require_text(retained_path, "RawArtifactRef.retained_path"),
-            artifact_sha256=require_hash(
-                artifact_sha256, "RawArtifactRef.artifact_sha256"
-            ),
+            artifact_sha256=require_hash(artifact_sha256, "RawArtifactRef.artifact_sha256"),
             original_path=require_text(original_path, "RawArtifactRef.original_path"),
             producer=require_text(producer, "RawArtifactRef.producer"),
         )
@@ -152,15 +150,11 @@ class EvidenceProjection:
         identity = {
             "evidence_kind": evidence_kind,
             "obligation_id": require_id(obligation_id, "EvidenceProjection.obligation_id"),
-            "obligation_hash": require_hash(
-                obligation_hash, "EvidenceProjection.obligation_hash"
-            ),
+            "obligation_hash": require_hash(obligation_hash, "EvidenceProjection.obligation_hash"),
             "root_claim_snapshot_hash": require_hash(
                 root_claim_snapshot_hash, "EvidenceProjection.root_claim_snapshot_hash"
             ),
-            "artifact_sha256": require_hash(
-                artifact_sha256, "EvidenceProjection.artifact_sha256"
-            ),
+            "artifact_sha256": require_hash(artifact_sha256, "EvidenceProjection.artifact_sha256"),
             "retained_artifact_path": require_text(
                 retained_artifact_path, "EvidenceProjection.retained_artifact_path"
             ),
@@ -194,24 +188,38 @@ class EvidenceProjection:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "EvidenceProjection":
         fields = {
-            "schema_version", "object_type", "evidence_id", "evidence_kind",
-            "obligation_id", "obligation_hash", "root_claim_snapshot_hash",
-            "artifact_sha256", "retained_artifact_path", "scope_obligation_ids",
-            "verifier_status", "audit_status", "authority_status", "authority_refs",
-            "summary", "evidence_hash",
+            "schema_version",
+            "object_type",
+            "evidence_id",
+            "evidence_kind",
+            "obligation_id",
+            "obligation_hash",
+            "root_claim_snapshot_hash",
+            "artifact_sha256",
+            "retained_artifact_path",
+            "scope_obligation_ids",
+            "verifier_status",
+            "audit_status",
+            "authority_status",
+            "authority_refs",
+            "summary",
+            "evidence_hash",
         }
         strict_fields(value, fields, "EvidenceProjection")
         validate_envelope(value, object_type="EVIDENCE_PROJECTION", name="EvidenceProjection")
         captured = cls.capture(
-            evidence_kind=value["evidence_kind"], obligation_id=value["obligation_id"],
+            evidence_kind=value["evidence_kind"],
+            obligation_id=value["obligation_id"],
             obligation_hash=value["obligation_hash"],
             root_claim_snapshot_hash=value["root_claim_snapshot_hash"],
             artifact_sha256=value["artifact_sha256"],
             retained_artifact_path=value["retained_artifact_path"],
             scope_obligation_ids=value["scope_obligation_ids"],
-            verifier_status=value["verifier_status"], audit_status=value["audit_status"],
+            verifier_status=value["verifier_status"],
+            audit_status=value["audit_status"],
             authority_status=value["authority_status"],
-            authority_refs=value["authority_refs"], summary=value["summary"],
+            authority_refs=value["authority_refs"],
+            summary=value["summary"],
         )
         if captured.evidence_id != value.get("evidence_id") or captured.evidence_hash != value.get(
             "evidence_hash"
@@ -342,21 +350,34 @@ class SessionClosure:
         )
 
     @classmethod
-    def from_dict(
-        cls, value: Mapping[str, Any], session: TacticalSession
-    ) -> "SessionClosure":
+    def from_dict(cls, value: Mapping[str, Any], session: TacticalSession) -> "SessionClosure":
         fields = {
-            "schema_version", "object_type", "session_closure_id", "tactical_session_id",
-            "session_hash", "directive_id", "obligation_id", "obligation_hash",
-            "research_map_id", "research_map_version", "research_map_hash",
-            "root_claim_snapshot_hash", "execution_status", "raw_artifacts",
-            "validated_evidence", "unresolved_findings", "provider_provenance", "closed_at",
-            "closed_by", "closure_hash",
+            "schema_version",
+            "object_type",
+            "session_closure_id",
+            "tactical_session_id",
+            "session_hash",
+            "directive_id",
+            "obligation_id",
+            "obligation_hash",
+            "research_map_id",
+            "research_map_version",
+            "research_map_hash",
+            "root_claim_snapshot_hash",
+            "execution_status",
+            "raw_artifacts",
+            "validated_evidence",
+            "unresolved_findings",
+            "provider_provenance",
+            "closed_at",
+            "closed_by",
+            "closure_hash",
         }
         strict_fields(value, fields, "SessionClosure")
         validate_envelope(value, object_type="SESSION_CLOSURE", name="SessionClosure")
         captured = cls.capture(
-            session=session, execution_status=value["execution_status"],
+            session=session,
+            execution_status=value["execution_status"],
             raw_artifacts=[RawArtifactRef.from_dict(item) for item in value["raw_artifacts"]],
             validated_evidence=[
                 EvidenceProjection.from_dict(item) for item in value["validated_evidence"]
@@ -365,7 +386,8 @@ class SessionClosure:
             provider_provenance=[
                 ProviderProvenance.from_dict(item) for item in value["provider_provenance"]
             ],
-            closed_at=value["closed_at"], closed_by=value["closed_by"],
+            closed_at=value["closed_at"],
+            closed_by=value["closed_by"],
         )
         if captured.session_closure_id != value.get(
             "session_closure_id"

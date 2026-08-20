@@ -732,9 +732,9 @@ class ResearchOrchestrator:
             failed_route_refs=self.research_map.route_failure_refs,
             requested_worker_roles=("constructive", "counterexample_hunter", "boundary_auditor"),
             budget_profile=BudgetProfile.capture(
-                wall_clock_seconds=int(self.budget_limit_seconds or self.config.get("budget", {}).get(
-                    "limit", 900
-                )),
+                wall_clock_seconds=int(
+                    self.budget_limit_seconds or self.config.get("budget", {}).get("limit", 900)
+                ),
                 max_workers=self.worker_count,
                 max_provider_calls=int(
                     self.config.get("routing", {}).get("max_provider_calls", 1000)
@@ -1774,9 +1774,7 @@ changed failure condition is explicitly recorded.
                 affected_branch=self.target.get("branch", "main"),
             )
             failure_json, failure_md = failure_map.write(self.run_dir)
-            self._close_research_session(
-                gate, extra_artifacts=(failure_json, failure_md)
-            )
+            self._close_research_session(gate, extra_artifacts=(failure_json, failure_md))
             route_records = []
             obligation_id = self.tactical_session.obligation_id
             for item in failure_map.items:

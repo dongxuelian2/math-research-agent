@@ -174,10 +174,16 @@ class ResearchMap:
                 root_claim_snapshot_hash, "ResearchMap.root_claim_snapshot_hash"
             ),
             "parent_version_ref": parent,
-            "structural_nodes": list(string_tuple(structural_nodes, "ResearchMap.structural_nodes")),
+            "structural_nodes": list(
+                string_tuple(structural_nodes, "ResearchMap.structural_nodes")
+            ),
             "relations": [item.to_dict() for item in relation_values],
-            "known_invariants": list(string_tuple(known_invariants, "ResearchMap.known_invariants")),
-            "open_obstructions": list(string_tuple(open_obstructions, "ResearchMap.open_obstructions")),
+            "known_invariants": list(
+                string_tuple(known_invariants, "ResearchMap.known_invariants")
+            ),
+            "open_obstructions": list(
+                string_tuple(open_obstructions, "ResearchMap.open_obstructions")
+            ),
             "unbounded_parameters": list(
                 string_tuple(unbounded_parameters, "ResearchMap.unbounded_parameters")
             ),
@@ -193,9 +199,7 @@ class ResearchMap:
             ),
             "added_scope": list(string_tuple(added_scope, "ResearchMap.added_scope")),
             "removed_or_reframed_scope": list(
-                string_tuple(
-                    removed_or_reframed_scope, "ResearchMap.removed_or_reframed_scope"
-                )
+                string_tuple(removed_or_reframed_scope, "ResearchMap.removed_or_reframed_scope")
             ),
             "obligation_changes": list(
                 string_tuple(obligation_changes, "ResearchMap.obligation_changes")
@@ -237,13 +241,30 @@ class ResearchMap:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ResearchMap":
         fields = {
-            "schema_version", "object_type", "research_map_id", "version",
-            "root_theorem_id", "root_claim_snapshot_hash", "parent_version_ref",
-            "structural_nodes", "relations", "known_invariants", "open_obstructions",
-            "unbounded_parameters", "termination_mechanisms", "obligation_refs",
-            "route_failure_refs", "strategic_thesis", "added_scope",
-            "removed_or_reframed_scope", "obligation_changes", "route_memory_changes",
-            "evidence_refs", "created_at", "created_by", "revision_reason",
+            "schema_version",
+            "object_type",
+            "research_map_id",
+            "version",
+            "root_theorem_id",
+            "root_claim_snapshot_hash",
+            "parent_version_ref",
+            "structural_nodes",
+            "relations",
+            "known_invariants",
+            "open_obstructions",
+            "unbounded_parameters",
+            "termination_mechanisms",
+            "obligation_refs",
+            "route_failure_refs",
+            "strategic_thesis",
+            "added_scope",
+            "removed_or_reframed_scope",
+            "obligation_changes",
+            "route_memory_changes",
+            "evidence_refs",
+            "created_at",
+            "created_by",
+            "revision_reason",
             "research_map_hash",
         }
         strict_fields(value, fields, "ResearchMap")
@@ -253,7 +274,8 @@ class ResearchMap:
         ):
             raise ProjectError("ResearchMap relations and obligation_refs must be lists")
         captured = cls.capture(
-            research_map_id=value["research_map_id"], version=value["version"],
+            research_map_id=value["research_map_id"],
+            version=value["version"],
             root_theorem_id=value["root_theorem_id"],
             root_claim_snapshot_hash=value["root_claim_snapshot_hash"],
             parent_version_ref=value["parent_version_ref"],
@@ -265,12 +287,15 @@ class ResearchMap:
             termination_mechanisms=value["termination_mechanisms"],
             obligation_refs=[ObligationRef.from_dict(item) for item in value["obligation_refs"]],
             route_failure_refs=value["route_failure_refs"],
-            strategic_thesis=value["strategic_thesis"], added_scope=value["added_scope"],
+            strategic_thesis=value["strategic_thesis"],
+            added_scope=value["added_scope"],
             removed_or_reframed_scope=value["removed_or_reframed_scope"],
             obligation_changes=value["obligation_changes"],
             route_memory_changes=value["route_memory_changes"],
-            evidence_refs=value["evidence_refs"], created_at=value["created_at"],
-            created_by=value["created_by"], revision_reason=value["revision_reason"],
+            evidence_refs=value["evidence_refs"],
+            created_at=value["created_at"],
+            created_by=value["created_by"],
+            revision_reason=value["revision_reason"],
         )
         if captured.research_map_hash != value.get("research_map_hash"):
             raise ProjectError("ResearchMap hash mismatch")
@@ -293,7 +318,8 @@ class ResearchMap:
         return tuple(
             item.obligation_id
             for item in self.obligation_refs
-            if item.disposition in {
+            if item.disposition
+            in {
                 ObligationDispositionKind.OPEN.value,
                 ObligationDispositionKind.BLOCKED.value,
             }
@@ -355,12 +381,8 @@ class ResearchMapRebase:
         if any(groups[i].intersection(groups[j]) for i in range(3) for j in range(i + 1, 3)):
             raise ProjectError("ResearchMapRebase obligation classifications overlap")
         identity = {
-            "research_map_id": require_id(
-                research_map_id, "ResearchMapRebase.research_map_id"
-            ),
-            "source_map_hash": require_hash(
-                source_map_hash, "ResearchMapRebase.source_map_hash"
-            ),
+            "research_map_id": require_id(research_map_id, "ResearchMapRebase.research_map_id"),
+            "source_map_hash": require_hash(source_map_hash, "ResearchMapRebase.source_map_hash"),
             "resulting_map_hash": require_hash(
                 resulting_map_hash, "ResearchMapRebase.resulting_map_hash"
             ),
@@ -405,28 +427,40 @@ class ResearchMapRebase:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "ResearchMapRebase":
         fields = {
-            "schema_version", "object_type", "rebase_id", "research_map_id",
-            "source_map_hash", "resulting_map_hash", "old_claim_snapshot_hash",
-            "new_claim_snapshot_hash", "compatibility_status",
-            "compatibility_disposition", "carried_obligation_ids",
-            "revalidation_required_obligation_ids", "invalid_obligation_ids", "reason",
-            "created_at", "created_by", "rebase_hash",
+            "schema_version",
+            "object_type",
+            "rebase_id",
+            "research_map_id",
+            "source_map_hash",
+            "resulting_map_hash",
+            "old_claim_snapshot_hash",
+            "new_claim_snapshot_hash",
+            "compatibility_status",
+            "compatibility_disposition",
+            "carried_obligation_ids",
+            "revalidation_required_obligation_ids",
+            "invalid_obligation_ids",
+            "reason",
+            "created_at",
+            "created_by",
+            "rebase_hash",
         }
         strict_fields(value, fields, "ResearchMapRebase")
         validate_envelope(value, object_type="RESEARCH_MAP_REBASE", name="ResearchMapRebase")
         captured = cls.capture(
-            research_map_id=value["research_map_id"], source_map_hash=value["source_map_hash"],
+            research_map_id=value["research_map_id"],
+            source_map_hash=value["source_map_hash"],
             resulting_map_hash=value["resulting_map_hash"],
             old_claim_snapshot_hash=value["old_claim_snapshot_hash"],
             new_claim_snapshot_hash=value["new_claim_snapshot_hash"],
             compatibility_status=value["compatibility_status"],
             compatibility_disposition=value["compatibility_disposition"],
             carried_obligation_ids=value["carried_obligation_ids"],
-            revalidation_required_obligation_ids=value[
-                "revalidation_required_obligation_ids"
-            ],
-            invalid_obligation_ids=value["invalid_obligation_ids"], reason=value["reason"],
-            created_at=value["created_at"], created_by=value["created_by"],
+            revalidation_required_obligation_ids=value["revalidation_required_obligation_ids"],
+            invalid_obligation_ids=value["invalid_obligation_ids"],
+            reason=value["reason"],
+            created_at=value["created_at"],
+            created_by=value["created_by"],
         )
         if captured.rebase_id != value.get("rebase_id") or captured.rebase_hash != value.get(
             "rebase_hash"
