@@ -23,7 +23,7 @@ uv sync --extra dev
 bash scripts/bootstrap.sh
 ```
 
-脚本会生成零成本的 Observatory 演示并在 `http://127.0.0.1:8765` 启动本地界面。真实 Gemini 运行需要配置 `GEMINI_API_KEY`；也支持 Vertex Gemini、OpenAI 和 Codex CLI 路由。
+脚本会生成零成本的 Observatory 演示并在 `http://127.0.0.1:8765` 启动本地界面。真实 Gemini 运行需要配置 `GEMINI_API_KEY`；也支持 Vertex Gemini、OpenAI、任意 OpenAI Responses 兼容端点和 Codex CLI 路由。
 
 单独生成演示：
 
@@ -41,6 +41,8 @@ uv run math-research run \
   --config configs/models.mock.json
 ```
 
+多模型路由：`configs/models.responses.example.json` 展示了 planner/auditor 使用官方 OpenAI、worker/counterexample 使用另一个 Responses 兼容服务的配置。兼容服务只需提供 `POST /v1/responses`，并在配置中填写任意模型名、`base_url_env` 和 `api_key_env`；上层研究编排不需要改动。
+
 ## 仓库结构
 
 ```text
@@ -54,6 +56,10 @@ docs/           架构、信任边界和运行说明
 scripts/        Bash/PowerShell 启动与 benchmark 脚本
 examples/       数学题与证明样例
 ```
+
+Responses API 约定
+
+所有 OpenAI 风格模型共享 `math_research_agent.providers.responses.ResponsesRequest` 请求契约。`openai` 使用官方端点，`openai_compatible` 使用自定义 `base_url`；两者都归一化为相同的文本、tool calls、usage、finish reason 和归档结果。Gemini、Codex CLI、Mock 仍保留各自原生适配器。
 
 ## 设计边界
 

@@ -13,6 +13,7 @@ import openai
 from openai import OpenAI
 
 from math_research_agent.providers.support import Interrupted, archive
+from math_research_agent.providers.responses import ResponsesRequest, response_text
 
 from .schemas import json_schema_for
 
@@ -44,10 +45,11 @@ class OpenAIProviderError(RuntimeError):
         retryable: bool,
         retry_exhausted: bool,
         human_explanation: str,
+        provider: str = "openai",
     ):
         self.retry_exhausted = retry_exhausted
         self.details = {
-            "provider": "openai",
+            "provider": provider,
             "error_type": error_type,
             "status": status,
             "role": role,
@@ -97,17 +99,7 @@ def _raw_response(response: Any) -> dict[str, Any]:
 
 
 def _response_text(response: Any) -> str:
-    text = getattr(response, "output_text", None)
-    if text:
-        return str(text)
-    parts: list[str] = []
-    for item in getattr(response, "output", []) or []:
-        if getattr(item, "type", "") != "message":
-            continue
-        for content in getattr(item, "content", []) or []:
-            if getattr(content, "type", "") == "output_text":
-                parts.append(getattr(content, "text", "") or "")
-    return "".join(parts)
+    return response_text(response)
 
 
 def _tool_calls(response: Any) -> list[dict[str, Any]] | None:
@@ -214,6 +206,9 @@ class OpenAIResponsesClient:
         answer_reserve: int = 4096,
         context_length: int = 200_000,
         store: bool = False,
+        base_url: str | None = None,
+        provider_name: str = "openai",
+        api_key_env: str = "OPENAI_API_KEY",
         client: Any | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
     ):
@@ -242,6 +237,9 @@ class OpenAIResponsesClient:
         self.answer_reserve = int(answer_reserve)
         self.context_length = int(context_length)
         self.store = bool(store)
+        self.base_url = base_url
+        self.provider_name = provider_name
+        self.api_key_env = api_key_env
         self.call_count = 0
         self.request_count = 0
         self.total_retries = 0
@@ -263,6 +261,7 @@ class OpenAIResponsesClient:
             api_key=api_key,
             timeout=self.timeout_seconds,
             max_retries=0,
+            **({"base_url": base_url} if base_url else {}),
         )
 
     def interrupt(self):
@@ -374,25 +373,26 @@ class OpenAIResponsesClient:
             raise Interrupted()
 
         effort = "none" if no_thinking else self.reasoning_effort
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "input": input_items,
-            "max_output_tokens": int(max_tokens or self.max_output_tokens),
-            "store": self.store,
-        }
-        if effort is not None:
-            payload["reasoning"] = {"effort": effort}
-        if tools:
-            payload["tools"] = tools
-        if json_schema:
-            payload["text"] = {
-                "format": {
-                    "type": "json_schema",
-                    "name": "math_research_agent_response",
-                    "schema": json_schema,
-                    "strict": True,
+        payload = ResponsesRequest(
+            model=self.model,
+            input=input_items,
+            max_output_tokens=int(max_tokens or self.max_output_tokens),
+            reasoning_effort=effort,
+            tools=tools,
+            text=(
+                {
+                    "format": {
+                        "type": "json_schema",
+                        "name": "math_research_agent_response",
+                        "schema": json_schema,
+                        "strict": True,
+                    }
                 }
-            }
+                if json_schema
+                else None
+            ),
+            store=self.store,
+        ).to_payload()
 
         started = time.perf_counter()
         retry_count = 0
@@ -615,6 +615,7 @@ class OpenAIResponsesClient:
             retryable=bool(info["retryable"]),
             retry_exhausted=retry_exhausted,
             human_explanation=explanation,
+            provider=self.provider_name,
         )
 
     def _archive(
@@ -646,4 +647,19 @@ class OpenAIResponsesClient:
             archive_path,
             thinking=thinking,
             result_text=result_text,
+        )
+
+
+class OpenAICompatibleResponsesClient(OpenAIResponsesClient):
+    """Responses client for any endpoint implementing the OpenAI API shape."""
+
+    def __init__(self, model: str, archive_dir: Path, *, base_url: str, **kwargs: Any):
+        if not base_url.strip():
+            raise ValueError("OpenAI-compatible Responses base_url is required")
+        super().__init__(
+            model,
+            archive_dir,
+            base_url=base_url,
+            provider_name="openai_compatible",
+            **kwargs,
         )

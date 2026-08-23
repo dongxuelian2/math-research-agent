@@ -9,8 +9,10 @@ from pydantic import BaseModel
 from math_research_agent.providers.support import is_transient_error
 from math_research_agent.research.openai_provider import (
     OpenAIProviderError,
+    OpenAICompatibleResponsesClient,
     OpenAIResponsesClient,
 )
+from math_research_agent.providers.responses import ResponsesRequest
 from math_research_agent.research.project import ProjectError
 from math_research_agent.research.providers import (
     create_client,
@@ -133,6 +135,39 @@ def test_text_call_preserves_roles_reasoning_and_usage(tmp_path):
         "user",
     ]
     assert "sk-test-secret" not in archive_path.read_text(encoding="utf-8")
+
+
+def test_responses_request_is_canonical_and_compatible_endpoint_is_configurable(tmp_path):
+    request = ResponsesRequest(
+        model="local-proof-model",
+        input=[{"role": "user", "content": "prove it"}],
+        reasoning_effort="high",
+        max_output_tokens=123,
+        store=False,
+    )
+    assert request.to_payload() == {
+        "model": "local-proof-model",
+        "input": [{"role": "user", "content": "prove it"}],
+        "max_output_tokens": 123,
+        "reasoning": {"effort": "high"},
+        "store": False,
+    }
+
+    fake = FakeClient([FakeResponse("compatible response")])
+    client = OpenAICompatibleResponsesClient(
+        "local-proof-model",
+        tmp_path,
+        api_key="local-secret",
+        api_key_env="LOCAL_RESPONSES_KEY",
+        base_url="http://127.0.0.1:8000/v1",
+        role_name="worker",
+        client=fake,
+    )
+    result = client.call("prove it", "system")
+    assert result["result"] == "compatible response"
+    assert fake.calls[0]["model"] == "local-proof-model"
+    assert client.base_url == "http://127.0.0.1:8000/v1"
+    assert result["raw"]["id"] == "resp_test"
 
 
 def test_pydantic_response_contract_is_materialized_as_responses_json_schema(tmp_path):
@@ -279,4 +314,20 @@ def test_missing_key_and_key_in_config_are_rejected(tmp_path, monkeypatch):
     path = tmp_path / "models.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     with pytest.raises(ProjectError, match="must not contain api_key"):
+        load_model_config(path)
+
+
+def test_openai_compatible_config_accepts_arbitrary_model_and_endpoint_env(tmp_path):
+    config = config_data(provider="openai_compatible")
+    for role in config["roles"].values():
+        role["base_url_env"] = "LOCAL_RESPONSES_BASE_URL"
+        role["api_key_env"] = "LOCAL_RESPONSES_KEY"
+    path = tmp_path / "models.json"
+    path.write_text(json.dumps(config), encoding="utf-8")
+    loaded = load_model_config(path)
+    assert loaded["roles"]["planner"]["model"] == "configured-model"
+
+    invalid = config_data(provider="openai_compatible")
+    path.write_text(json.dumps(invalid), encoding="utf-8")
+    with pytest.raises(ProjectError, match="base_url or base_url_env"):
         load_model_config(path)

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "description": "Mixed Responses API routing. Replace model names and set the referenced environment variables.",
+  "isolation": true,
+  "history_budget": 0,
+  "budget": {
+    "mode": "time",
+    "limit": 14400,
+    "conclude_after": 0.99
+  },
+  "roles": {
+    "planner": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "api_key_env": "OPENAI_API_KEY",
+      "max_output_tokens": 8192,
+      "store": false
+    },
+    "worker": {
+      "provider": "openai_compatible",
+      "model": "your-local-or-hosted-model",
+      "base_url_env": "OPENAI_COMPATIBLE_BASE_URL",
+      "api_key_env": "OPENAI_COMPATIBLE_API_KEY",
+      "reasoning_effort": "low",
+      "max_output_tokens": 8192,
+      "store": false
+    },
+    "counterexample": {
+      "provider": "openai_compatible",
+      "model": "your-fast-model",
+      "base_url_env": "OPENAI_COMPATIBLE_BASE_URL",
+      "api_key_env": "OPENAI_COMPATIBLE_API_KEY",
+      "reasoning_effort": "none",
+      "max_output_tokens": 4096,
+      "store": false
+    },
+    "auditor": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "api_key_env": "OPENAI_API_KEY",
+      "max_output_tokens": 8192,
+      "store": false
+    },
+    "final_auditor": {
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "high",
+      "api_key_env": "OPENAI_API_KEY",
+      "max_output_tokens": 8192,
+      "store": false
+    }
+  }
+}
