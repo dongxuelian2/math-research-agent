@@ -51,7 +51,7 @@ if (-not $env:UV_LINK_MODE) {
     $env:UV_LINK_MODE = 'copy'
 }
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    throw 'uv is required. Run .\scripts\bootstrap.ps1 after installing uv.'
+    throw 'uv is required. Run .\scripts\install.ps1 after installing uv.'
 }
 
 if ([System.IO.Path]::IsPathRooted($Project)) {

@@ -19,11 +19,15 @@ Context Builder → Planner → Workers → Candidate Proof
 ## 快速启动
 
 ```bash
-uv sync --extra dev
-bash scripts/bootstrap.sh
+bash scripts/install.sh
+bash scripts/start.sh
 ```
 
-脚本会生成零成本的 Observatory 演示并在 `http://127.0.0.1:8765` 启动本地界面。真实 Gemini 运行需要配置 `GEMINI_API_KEY`；也支持 Vertex Gemini、OpenAI、任意 OpenAI Responses 兼容端点和 Codex CLI 路由。
+安装脚本会配置 Python 研究后端、构建 Rust 终端客户端，然后由 `start.sh` 启动 MathAgent。也可以用 `bash scripts/install.sh --launch` 一步安装并启动。Windows 使用 `.\scripts\install.ps1 -Launch`。
+
+安装前需要系统已有 `uv` 和 Rust/Cargo；脚本会自动创建或更新项目的 `.venv`，并构建本地终端二进制。安装和启动入口统一在 `scripts/`，不会再维护另一套 Observatory bootstrap 流程。
+
+终端内默认显示项目状态、当前目标、定理列表和研究日志。输入 `/help` 查看命令；例如 `/run demo-odd-sum` 会在后台启动一次研究运行。真实 Gemini 运行需要配置 `configs/.env.example` 中的环境变量；也支持 Vertex Gemini、OpenAI、任意 OpenAI Responses 兼容端点和 Codex CLI 路由。
 
 单独生成演示：
 
@@ -47,15 +51,18 @@ uv run math-research run \
 
 ```text
 configs/        模型、环境模板和 benchmark manifest
+apps/           Rust 终端客户端（ratatui/crossterm）
 docs/           架构、信任边界、运行说明与历史归档
 examples/       独立数学题与证明样例
 projects/       可运行项目的命题、来源、指令和运行数据
-scripts/        所有 Bash/PowerShell 启动、运行和 benchmark 脚本
+scripts/        所有 Bash/PowerShell 安装、启动、运行和 benchmark 脚本
 src/            Python 包源码
 tests/          核心、研究层、Provider 和端到端测试
 ```
 
 根目录只保留项目元数据和标准入口：`README.md`、`LICENSE`、`pyproject.toml`、`uv.lock`、`.gitignore`。`pytest` 配置已合并进 `pyproject.toml`，不会再额外维护根目录 `pytest.ini`。
+
+Rust 终端与 Python 研究后端分层：Rust 只负责交互、键盘、状态展示和后台任务；数学证明生成、Provider 路由、审计门和信任内核仍由 `src/math_research_agent/` 提供。TUI 通过 `uv run --project ... python -m math_research_agent.research` 调用后端，因此不会复制第二套研究状态机。
 
 Responses API 约定
 
