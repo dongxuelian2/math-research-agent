@@ -41,4 +41,4 @@ if ($RunTests) {
 }
 
 Write-Host 'Windows bootstrap completed successfully.' -ForegroundColor Green
-Write-Host 'Try: .\run_math_agent.ps1 -Command status -Project demo'
+Write-Host 'Try: .\scripts\run_math_agent.ps1 -Command status -Project demo'

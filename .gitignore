@@ -25,7 +25,7 @@ htmlcov/
 # Secrets, credentials, local overrides
 .env
 .env.*
-!.env.example
+!configs/.env.example
 configs/*.local.json
 configs/*.local.toml
 *.pem
