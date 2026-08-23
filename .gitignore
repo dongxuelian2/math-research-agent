@@ -53,3 +53,6 @@ projects/*/logs/
 
 # Local research runtime outputs
 benchmark-results/
+
+# Rust build output
+apps/*/target/

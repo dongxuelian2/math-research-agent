@@ -1,0 +1,12 @@
+[package]
+name = "mathagent-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Rust terminal client for the Math Research Agent"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+crossterm = "0.29"
+ratatui = "0.29"
+serde_json = "1"

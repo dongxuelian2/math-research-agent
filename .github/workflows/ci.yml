@@ -11,6 +11,23 @@ permissions:
   contents: read
 
 jobs:
+  rust-tui:
+    name: Rust terminal client
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path apps/mathagent-tui/Cargo.toml --all -- --check
+
+      - name: Check Rust terminal client
+        run: cargo test --manifest-path apps/mathagent-tui/Cargo.toml
+
   quality:
     name: Ruff, tests, and showcase
     runs-on: ubuntu-latest
@@ -69,9 +86,12 @@ jobs:
       - name: Install Python
         run: uv python install 3.12
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Bootstrap Windows environment
         shell: pwsh
-        run: .\scripts\bootstrap.ps1
+        run: .\scripts\install.ps1
 
       - name: Exercise PowerShell launcher
         shell: pwsh
