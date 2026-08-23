@@ -46,16 +46,16 @@ uv run math-research run \
 ## 仓库结构
 
 ```text
-src/math_research_agent/
-├── core/       自研候选生成内核：预算、知识条目、动作协议、worker loop
-├── research/   项目编排、审计门、状态机、路由、持久化和 Observatory
-├── providers/  Provider 公共传输工具
-└── formal/     可选 Lean 编译器桥接与证明完整性检查
-tests/          核心、研究层和端到端测试
-docs/           架构、信任边界和运行说明
-scripts/        Bash/PowerShell 启动与 benchmark 脚本
-examples/       数学题与证明样例
+configs/        模型、环境模板和 benchmark manifest
+docs/           架构、信任边界、运行说明与历史归档
+examples/       独立数学题与证明样例
+projects/       可运行项目的命题、来源、指令和运行数据
+scripts/        所有 Bash/PowerShell 启动、运行和 benchmark 脚本
+src/            Python 包源码
+tests/          核心、研究层、Provider 和端到端测试
 ```
+
+根目录只保留项目元数据和标准入口：`README.md`、`LICENSE`、`pyproject.toml`、`uv.lock`、`.gitignore`。`pytest` 配置已合并进 `pyproject.toml`，不会再额外维护根目录 `pytest.ini`。
 
 Responses API 约定
 

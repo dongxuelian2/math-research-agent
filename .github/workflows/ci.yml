@@ -75,4 +75,4 @@ jobs:
 
       - name: Exercise PowerShell launcher
         shell: pwsh
-        run: .\run_math_agent.ps1 -Command status -Project demo -Target demo-odd-sum
+        run: .\scripts\run_math_agent.ps1 -Command status -Project demo -Target demo-odd-sum

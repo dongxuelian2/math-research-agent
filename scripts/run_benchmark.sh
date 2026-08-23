@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-MANIFEST="${1:-$ROOT_DIR/benchmarks/gemini-observatory-v1.json}"
+MANIFEST="${1:-$ROOT_DIR/configs/benchmarks/gemini-observatory-v1.json}"
 CONFIG="${GEMINI_CONFIG:-$ROOT_DIR/configs/models.gemini.example.json}"
 OUTPUT="${BENCHMARK_OUTPUT:-$ROOT_DIR/benchmark-results/$(date +%Y%m%d-%H%M%S)}"
 
