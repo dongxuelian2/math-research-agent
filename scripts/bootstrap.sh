@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-OPENPROVER_DIR="$ROOT_DIR/openprover"
 PROJECT_DIR="${OBSERVATORY_PROJECT:-$ROOT_DIR/projects/observatory-demo}"
 HOST="${OBSERVATORY_HOST:-127.0.0.1}"
 PORT="${OBSERVATORY_PORT:-8765}"
@@ -16,7 +15,7 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 2
 fi
 
-cd "$OPENPROVER_DIR"
+cd "$ROOT_DIR"
 
 # Keep uv's cache inside the checkout so the command is reproducible on a
 # fresh machine without relying on a pre-existing user Python environment.
@@ -28,10 +27,10 @@ printf '%s\n' '→ syncing the uv environment'
 uv sync --extra dev
 
 printf '%s\n' '→ generating the hidden-defect repair showcase'
-uv run python -m openprover.math_research demo --project "$PROJECT_DIR"
+uv run python -m math_research_agent.research demo --project "$PROJECT_DIR"
 
 printf '%s\n' "→ starting the Research Observatory at http://$HOST:$PORT"
-exec uv run python -m openprover.math_research observatory \
+exec uv run python -m math_research_agent.research observatory \
   --project "$PROJECT_DIR" \
   --host "$HOST" \
   --port "$PORT"

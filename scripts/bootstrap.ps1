@@ -6,7 +6,6 @@ param(
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
-$OpenProverDir = Join-Path $RepoRoot 'openprover'
 
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw 'uv is required. Install uv, then rerun .\scripts\bootstrap.ps1.'
@@ -22,20 +21,20 @@ if (-not $env:UV_LINK_MODE) {
 }
 
 Write-Host '→ syncing the locked development environment'
-& uv sync --project $OpenProverDir --extra dev --locked
+& uv sync --project $RepoRoot --extra dev --locked
 if ($LASTEXITCODE -ne 0) {
     throw "uv sync failed with exit code $LASTEXITCODE"
 }
 
 Write-Host '→ verifying package imports'
-& uv run --project $OpenProverDir python -c "import openprover; import openprover.math_research; print('openprover import: OK')"
+& uv run --project $RepoRoot python -c "import math_research_agent; import math_research_agent.research; print('math_research_agent import: OK')"
 if ($LASTEXITCODE -ne 0) {
     throw "package import verification failed with exit code $LASTEXITCODE"
 }
 
 if ($RunTests) {
     Write-Host '→ running deterministic test suite'
-    & uv run --project $OpenProverDir pytest -q
+    & uv run --project $RepoRoot pytest -q
     if ($LASTEXITCODE -ne 0) {
         throw "pytest failed with exit code $LASTEXITCODE"
     }

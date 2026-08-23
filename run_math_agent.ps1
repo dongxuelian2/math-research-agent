@@ -43,7 +43,6 @@ $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $OutputEncoding = $Utf8NoBom
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$OpenProverDir = Join-Path $RepoRoot 'openprover'
 if (-not $env:UV_CACHE_DIR) {
     $env:UV_CACHE_DIR = Join-Path $RepoRoot '.uv-cache'
 }
@@ -68,7 +67,7 @@ if ($ReplayManifest -and -not [System.IO.Path]::IsPathRooted($ReplayManifest)) {
     $ReplayManifest = Join-Path $RepoRoot $ReplayManifest
 }
 
-$CliArgs = @('-m', 'openprover.math_research', $Command)
+$CliArgs = @('-m', 'math_research_agent.research', $Command)
 if ($Command -notin @('provider-smoke', 'benchmark')) {
     $CliArgs += @('--project', $ProjectPath)
 }
@@ -133,5 +132,5 @@ switch ($Command) {
 }
 $CliArgs += $ExtraArgs
 
-& uv run --project $OpenProverDir python @CliArgs
+& uv run --project $RepoRoot python @CliArgs
 exit $LASTEXITCODE

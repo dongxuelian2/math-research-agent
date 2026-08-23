@@ -38,7 +38,7 @@
       "from": "IN_RESEARCH",
       "to": "CANDIDATE_PROOF",
       "actor": "MasterPlanner",
-      "reason": "OpenProver candidate produced in demo-odd-sum-20260808-131154; not yet audited",
+      "reason": "Candidate produced by the local research engine in demo-odd-sum-20260808-131154; not yet audited",
       "at": "2026-08-08T05:11:54+00:00"
     },
     {
