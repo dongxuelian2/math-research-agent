@@ -26,7 +26,7 @@ flowchart TD
 | --- | --- | --- |
 | Core | `src/math_research_agent/core/` | 自研 planner/worker/verifier loop、预算、知识条目读写、`MRA_ACTION` 协议和提交前范围阻断 |
 | Research | `src/math_research_agent/research/` | 项目模型、上下文切片、Provider 路由、审计协调、状态机、失败路线、SQLite/WAL 运行时、Observatory |
-| Providers | `src/math_research_agent/research/providers.py` 与各 provider 模块 | Gemini、Vertex Gemini、OpenAI、Codex CLI、Mock 适配及调用归档 |
+| Providers | `src/math_research_agent/research/providers.py`、`research/*_provider.py` 与 `providers/responses.py` | Gemini、Vertex Gemini、官方 OpenAI Responses、任意 OpenAI Responses 兼容端点、Codex CLI、Mock 适配及调用归档 |
 | Formal | `src/math_research_agent/formal/` | Lean 工具桥接与 theorem declaration 完整性校验 |
 
 `CandidateEngine` 只负责把研究运行参数交给 `core.ResearchEngine`，不再依赖外部 proving engine，也不通过私有控制循环耦合审计层。
@@ -46,6 +46,22 @@ PROVED 或 FAILED_ROUTE
 ```
 
 候选生成层只能产生 `CANDIDATE_PROOF`。只有独立审计证据满足门槛时，Archivist 状态转换才可以写入 `PROVED`。
+
+## 多模型接入契约
+
+Responses API 兼容模型统一经过 `ResponsesRequest` 生成 `responses.create(**payload)` 请求。模型名不是代码枚举，路由配置可以直接指定新模型；需要自定义服务时只增加 `provider: "openai_compatible"`、`base_url`（或 `base_url_env`）和密钥环境变量，不需要新增 Python provider。
+
+```text
+role route
+   ↓
+ResponsesRequest
+   ↓
+official OpenAI / OpenAI-compatible /v1/responses
+   ↓
+normalized result: result + tool_calls + usage + finish_reason
+   ↓
+audit and trust kernel
+```
 
 ## 持久化工件
 

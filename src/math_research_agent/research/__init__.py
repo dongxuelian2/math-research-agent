@@ -52,6 +52,11 @@ from .claim_snapshot import (
 )
 from .gemini_provider import GeminiClient, GeminiProviderError
 from .formalization import run_formalization
+from .openai_provider import (
+    OpenAICompatibleResponsesClient,
+    OpenAIProviderError,
+    OpenAIResponsesClient,
+)
 from .governance import (
     ArchitectureReviewClock,
     ArchitectureReviewTrigger,
@@ -202,6 +207,9 @@ __all__ = [
     "FoundationRegistry",
     "GeminiClient",
     "GeminiProviderError",
+    "OpenAICompatibleResponsesClient",
+    "OpenAIProviderError",
+    "OpenAIResponsesClient",
     "FailureMap",
     "FormalizationResultSchema",
     "ExternalAuthorityRegistry",

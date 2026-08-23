@@ -13,7 +13,11 @@ from pathlib import Path
 from .codex_cli_provider import CODEX_REASONING_EFFORTS, CodexCLIClient
 from .gemini_provider import GeminiClient
 from .gemini_tools import make_tool_executor
-from .openai_provider import OPENAI_REASONING_EFFORTS, OpenAIResponsesClient
+from .openai_provider import (
+    OPENAI_REASONING_EFFORTS,
+    OpenAICompatibleResponsesClient,
+    OpenAIResponsesClient,
+)
 from .project import ProjectError
 
 
@@ -28,6 +32,7 @@ SUPPORTED_PROVIDERS = {
     "vertex_gemini",
     "codex_cli",
     "openai",
+    "openai_compatible",
     "mock",
 }
 
@@ -46,6 +51,7 @@ _PROVIDER_CAPABILITIES = {
     "vertex_gemini": ProviderCapabilities(True, True, True, True, True),
     "codex_cli": ProviderCapabilities(True, False, True, True, True),
     "openai": ProviderCapabilities(True, True, True, True, True),
+    "openai_compatible": ProviderCapabilities(True, True, True, True, True),
     "mock": ProviderCapabilities(True, False, True, True, False),
 }
 
@@ -616,9 +622,38 @@ def _validate_role(name: str, role: dict) -> None:
             raise ProjectError(f"OpenAI role {name} requires a non-empty model")
         if "api_key" in role:
             raise ProjectError(f"OpenAI role {name} must not contain api_key; use OPENAI_API_KEY")
+        api_key_env = role.get("api_key_env", "OPENAI_API_KEY")
+        if not isinstance(api_key_env, str) or not api_key_env.strip():
+            raise ProjectError(f"OpenAI role {name} api_key_env must be non-empty")
         effort = role.get("reasoning_effort")
         if effort not in OPENAI_REASONING_EFFORTS | {None}:
             raise ProjectError(f"OpenAI role {name} has invalid reasoning_effort: {effort}")
+        _validate_common_provider_limits(name, role)
+        return
+    if provider == "openai_compatible":
+        model = role.get("model")
+        if not isinstance(model, str) or not model.strip():
+            raise ProjectError(f"OpenAI-compatible role {name} requires a non-empty model")
+        if "api_key" in role:
+            raise ProjectError(
+                f"OpenAI-compatible role {name} must not contain api_key; use api_key_env"
+            )
+        api_key_env = role.get("api_key_env", "OPENAI_API_KEY")
+        if not isinstance(api_key_env, str) or not api_key_env.strip():
+            raise ProjectError(f"OpenAI-compatible role {name} api_key_env must be non-empty")
+        base_url = role.get("base_url")
+        base_url_env = role.get("base_url_env")
+        if not isinstance(base_url, str) and not isinstance(base_url_env, str):
+            raise ProjectError(f"OpenAI-compatible role {name} requires base_url or base_url_env")
+        if isinstance(base_url, str) and not base_url.strip():
+            raise ProjectError(f"OpenAI-compatible role {name} base_url must be non-empty")
+        if isinstance(base_url_env, str) and not base_url_env.strip():
+            raise ProjectError(f"OpenAI-compatible role {name} base_url_env must be non-empty")
+        effort = role.get("reasoning_effort")
+        if effort not in OPENAI_REASONING_EFFORTS | {None}:
+            raise ProjectError(
+                f"OpenAI-compatible role {name} has invalid reasoning_effort: {effort}"
+            )
         _validate_common_provider_limits(name, role)
         return
     if provider == "codex_cli":
@@ -740,15 +775,48 @@ def create_client(
             allow_web_search=bool(role.get("allow_web_search", False)),
         )
     if provider == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key_env = str(role.get("api_key_env", "OPENAI_API_KEY"))
+        api_key = os.environ.get(api_key_env)
         if not api_key:
             raise ProjectError(
-                f"OPENAI_API_KEY is required by the configured OpenAI role {role_name}"
+                f"{api_key_env} is required by the configured OpenAI role {role_name}"
             )
         return OpenAIResponsesClient(
             model,
             archive_dir,
             api_key=api_key,
+            role_name=role_name,
+            reasoning_effort=role.get("reasoning_effort"),
+            timeout_seconds=float(role.get("timeout_seconds", 600)),
+            max_retries=int(role.get("max_retries", 2)),
+            retry_base_seconds=float(role.get("retry_base_seconds", 1)),
+            max_output_tokens=int(role.get("max_output_tokens", 8192)),
+            answer_reserve=answer_reserve,
+            context_length=int(role.get("context_length", 200_000)),
+            store=bool(role.get("store", False)),
+            api_key_env=api_key_env,
+        )
+    if provider == "openai_compatible":
+        api_key_env = str(role.get("api_key_env", "OPENAI_API_KEY"))
+        api_key = os.environ.get(api_key_env)
+        base_url_env = role.get("base_url_env")
+        base_url = role.get("base_url") or (
+            os.environ.get(str(base_url_env)) if base_url_env else None
+        )
+        if not api_key:
+            raise ProjectError(
+                f"{api_key_env} is required by the configured OpenAI-compatible role {role_name}"
+            )
+        if not base_url:
+            raise ProjectError(
+                f"base_url or base_url_env is required by the configured OpenAI-compatible role {role_name}"
+            )
+        return OpenAICompatibleResponsesClient(
+            model,
+            archive_dir,
+            api_key=api_key,
+            api_key_env=api_key_env,
+            base_url=str(base_url),
             role_name=role_name,
             reasoning_effort=role.get("reasoning_effort"),
             timeout_seconds=float(role.get("timeout_seconds", 600)),
