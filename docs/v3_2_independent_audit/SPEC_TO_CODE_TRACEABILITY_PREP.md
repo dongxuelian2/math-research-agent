@@ -56,3 +56,10 @@ After the authoritative document is supplied, replace each PENDING row with:
 SPEC_REQUIREMENT -> PRODUCTION_MODULE -> SYMBOL -> STATE/RECEIPT -> TEST -> CURRENT_EVIDENCE -> GAP
 
 The supplied document must be pinned by path and hash; earlier handoff prose must remain a separate evidence class.
+
+## Superseded status
+
+This Pass A preparation artifact is retained as historical audit evidence. It is
+superseded by the completed normative traceability in
+`pass_b/SPEC_TO_CODE_TRACEABILITY.md`, which is bound to the external
+authoritative v3.2 specification by `AUTHORITATIVE_SPEC_REFERENCE.md`.
