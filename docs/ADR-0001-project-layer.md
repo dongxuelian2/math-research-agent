@@ -1,25 +1,16 @@
-# ADR-0001: Make the Gemini research layer the product boundary
+# ADR-0001：研究层与自研证明候选内核分层
 
-Status: accepted
+## 决策
 
-## Context
+`math_research_agent.research` 是项目层唯一公开编排入口；候选生成由同仓库的 `math_research_agent.core.ResearchEngine` 负责。研究层通过明确的数据对象和策略回调接收 worker 事件，不依赖另一个 proving framework 的类层次或私有方法。
 
-The proving engine supplies candidate search, parallel workers, repository
-artifacts, recovery, and optional Lean execution. The product needs a durable
-theorem graph, strict typed control messages, independent audits, and a visible
-repair lifecycle.
+## 原因
 
-## Decision
+仓库的主要产品是数学研究 agent，不是对某个上游 proving framework 的二次包装。自研内核让候选生成的协议、工件、预算和失败语义都由本项目控制，也使审计门保持在候选生成之外。
 
-Use `openprover.math_research` as the sole product boundary. It builds the
-dependency context, routes every model call through Gemini, calls the proving
-engine through the public `research_policy` hook, validates provider responses
-with Pydantic, and applies project-level audit/state transitions. Durable
-metadata remains UTF-8 JSON plus Markdown reports.
+## 不变式
 
-## Consequences
-
-- Candidate search and audit coordination are separate components.
-- A candidate proof cannot bypass the typed audit gate.
-- Failed routes always produce a repair successor and immutable evidence.
-- The supported developer workflow is Bash plus `uv`.
+1. 候选生成只能写 `CANDIDATE_PROOF.md`，不能直接写 `PROVED`。
+2. Provider 输出必须先通过完整结构化校验。
+3. 失败路线要留下可恢复的父子运行关系和修复上下文。
+4. Lean 成功证书是形式化证据，不自动改变自然语言命题状态。

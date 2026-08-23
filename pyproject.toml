@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "math-research-agent"
+version = "1.0.1"
+description = "A research agent for generating, auditing, and formalizing mathematical proofs."
+readme = "README.md"
+authors = [{name = "Matěj Kripner", email = "kripner@ufal.mff.cuni.cz"}]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0",
+    "openai>=2.53.0,<3",
+    "pydantic>=2.7,<3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.9.0",
+]
+
+[project.scripts]
+math-research-agent = "math_research_agent.research.cli:main"
+math-research = "math_research_agent.research.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["math_research_agent*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

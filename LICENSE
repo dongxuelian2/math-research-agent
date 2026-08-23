@@ -19,9 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This repository incorporates code from third-party open-source software:
-- OpenProver (Copyright (c) 2026 Matěj Kripner), licensed under the MIT License.
-See THIRD_PARTY_NOTICES.md and openprover/LICENSE for detailed copyright notices.
