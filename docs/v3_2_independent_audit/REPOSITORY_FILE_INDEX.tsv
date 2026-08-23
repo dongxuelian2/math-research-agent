@@ -1,0 +1,277 @@
+path	type	extension	tracked	logical_area	likely_role	test_or_prod	notes
+.env.example	file	.example	yes	configuration	environment template	configuration	example environment variables
+.github/workflows/ci.yml	file	.yml	yes	ci	workflow	tooling	CI workflow
+.gitignore	file	.gitignore	yes	repository metadata	ignore rules	metadata	untracked/generated exclusions
+LICENSE	file		yes	metadata	legal/notice	metadata	license or attribution
+README.md	file	.md	yes	documentation	repository overview	documentation	entry documentation
+THIRD_PARTY_NOTICES.md	file	.md	yes	metadata	legal/notice	metadata	license or attribution
+benchmarks/gemini-observatory-v1.json	file	.json	yes	benchmark	benchmark manifest	data	measured benchmark input
+configs/models.codex.example.json	file	.json	yes	configuration	model configuration example	configuration	provider/model routing input
+configs/models.gemini.example.json	file	.json	yes	configuration	model configuration example	configuration	provider/model routing input
+configs/models.mock.json	file	.json	yes	configuration	model configuration example	configuration	provider/model routing input
+configs/models.openai.example.json	file	.json	yes	configuration	model configuration example	configuration	provider/model routing input
+docs/ADR-0001-project-layer.md	file	.md	yes	documentation	architecture/design/report	documentation	repository documentation
+docs/ARCHITECTURE.md	file	.md	yes	documentation	architecture/design/report	documentation	repository documentation
+docs/reconciliation/LOCAL_REMOTE_CAPABILITY_RECONCILIATION.md	file	.md	yes	documentation	architecture/design/report	documentation	repository documentation
+docs/v3_2_migration/ARCHITECTURE_CRITIC_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/ARCHITECTURE_DEVIATIONS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/ARCHITECTURE_REVIEW_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/ATTEMPT_LEASE_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/CANONICAL_ARTIFACT_AUTHORITY_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/CHECKPOINT_MIGRATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/CLAIM_SNAPSHOT_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/EXACTLY_ONCE_EFFECT_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/INTERRUPTION_RUNTIME_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/PATCH_AUTHORIZATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/PHASE3_TRUTH_PATH_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/PHASE4_RESEARCH_PATH_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/PHASE5_GOVERNANCE_PATH_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/PHASE6_RUNTIME_PATH_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/PROVIDER_PRESERVATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/RECONCILIATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/REGRESSION_EVIDENCE.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/RESEARCH_MAP_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/RESEARCH_OBLIGATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/ROUTE_FAILURE_MIGRATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/SESSION_CLOSURE_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/SQLITE_CONTROL_PLANE_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/STRUCTURAL_EFFECT_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/STRUCTURAL_PROBE_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/TRANSACTIONAL_OUTBOX_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/TRANSITION_JOURNAL_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/TRUTH_IDENTITY_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/TRUTH_MUTATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/V3_2_ARCHITECTURE_DECISIONS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/V3_2_IMPLEMENTATION_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/V3_2_MIGRATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/COMMITS_AND_DIFF.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/CURRENT_STATE.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/DEBUG_REPRODUCERS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/DEFERRED_NONBLOCKING_OBSERVATIONS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/FINAL_CANDIDATE_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/FRIEND_NEXT_STEPS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/OPEN_FINDINGS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/PHASE_7_IMPLEMENTATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/PHASE_7_SCOPE_LEDGER.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/README.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/final_debug_handoff/TEST_AND_VALIDATION_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/COMMIT_COUNT_CORRECTION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/CROSS_PLANE_TEST_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/EXACTLY_ONCE_CERTIFICATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/FAULT_INJECTION_EVIDENCE.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/FINDINGS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/NO_SCOPE_LOSS_CERTIFICATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/OWNERSHIP_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/PRE_ROOT_SYNTHESIS_AUDIT_PLAN.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/PRE_ROOT_SYNTHESIS_CERTIFICATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/RUNTIME_BYPASS_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/STALE_STATE_CERTIFICATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_audit/run_cross_plane_probes.py	file	.py	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/CROSS_PLANE_ADVERSARIAL_RESULTS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/FINAL_REAUTHORIZATION_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/FINDING_FINAL_DISPOSITION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/HOSTED_CI_AND_POSIX_EVIDENCE.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/PHASE_7_AUTHORIZATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/X1_X16_FINAL_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_final_reauthorization/run_final_adversarial_probes.py	file	.py	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/CROSS_PLANE_REAUDIT_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/FINDING_CLOSURE_CERTIFICATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/GOVERNANCE_REAUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/NEW_FINDINGS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/PRE_ROOT_REAUDIT_PLAN.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/PRE_ROOT_SYNTHESIS_REAUTHORIZATION.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/PRODUCTION_EFFECT_SLOT_AUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/RUNTIME_RECOVERY_REAUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/STALE_AUTHORITY_REAUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_reaudit/run_pre_root_reaudit_probes.py	file	.py	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/BLOCKER_TO_PATCH_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/CRITIC_INDEPENDENCE_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/CROSS_PLANE_BINDING_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/DISPATCHED_RECOVERY_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/GOVERNANCE_BYPASS_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/LEASE_FENCING_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/PRE_ROOT_BLOCKER_REPAIR_MATRIX.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/PRE_ROOT_BLOCKER_REPAIR_PLAN.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/PRE_ROOT_REPAIR_REGRESSION_EVIDENCE.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/PRODUCTION_EFFECT_SLOT_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/PRODUCTION_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/READY_FOR_REAUDIT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/REPAIR_PROBE_RESULTS.json	file	.json	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/STALE_SESSION_REPAIR_REPORT.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/TARGETED_REGRESSION_RESULTS.md	file	.md	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+docs/v3_2_migration/pre_root_repair/run_pre_root_repair_probes.py	file	.py	yes	historical migration	migration audit or handoff	documentation	historical evidence; not normative by default
+openprover/.gitignore	file	.gitignore	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/DOCS.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/LICENSE	file		yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/README.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/assets/openprover_system.pdf	file	.pdf	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/assets/openprover_system.png	file	.png	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/benchmarks/ga1-1-certification-v1.json	file	.json	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/docs/TRUST_KERNEL.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/addition.lean	file	.lean	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/addition.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/cauchy_schwarz.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/collatz.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/e_irrational.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/erdos_205.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/erdos_838.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/infinite_primes.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/martin/1.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/martin/2.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/martin/3.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/martin/4.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/proofbench.csv	file	.csv	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/sqrt2_irrational.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/examples/test.md	file	.md	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/lumi/deploy.sh	file	.sh	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/lumi/jobs/job_interact.sh	file	.sh	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/lumi/jobs/job_interact_cpu.sh	file	.sh	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/lumi/jobs/job_trm_train.sh	file	.sh	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/lumi/nanoproof-container.def	file	.def	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/lumi/scripts/build_container.sh	file	.sh	yes	repository metadata	top-level metadata	metadata	top-level tracked file
+openprover/openprover/__init__.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/__main__.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/budget.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/cli.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/inspect.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/lean/__init__.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/lean/core.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/lean/data.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/lean/mcp_server.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/lean/tools.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/llm/__init__.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/llm/_base.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/math_research/__init__.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/__main__.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/architecture_critic.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/architecture_patch.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/architecture_review.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/audit_coordinator.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/audit_prompts.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/audit_protocol.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/benchmark.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/campaign.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/campaign_cli.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/candidate_engine.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/canonical_artifacts.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/certification.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/checkpoint_migration.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/claim_snapshot.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/cli.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/codex_cli_provider.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/directive.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/formalization.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/gemini_provider.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/gemini_tools.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/governance.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/literature.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/migration.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/observatory.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/openai_provider.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/openprover_adapter.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/orchestrator.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/phase7.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/pipeline_primitives.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/pipelines.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/process_control.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/project.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/providers.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/registries/foundations.v1.json	file	.json	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/registries/ga1_certification_semantics.v1.json	file	.json	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/research_common.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/research_evidence.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/research_map.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/research_obligation.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/research_store.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/retrieval.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/route_failure.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/routing.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_artifacts.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_backend.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_bindings.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_dispatch.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_effects.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_model.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/runtime_reconciler.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/scheduler.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/schemas.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/scholarly.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/showcase_demo.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/state_machine.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/structural_effect.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/structural_probe.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/trust_kernel.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/truth_identity.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/truth_mutation.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/math_research/truth_store.py	file	.py	yes	production math-research	production module	production	active runtime/library source
+openprover/openprover/prompts.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/prover.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/__init__.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_colors.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_input.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_nav.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_render.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_steps.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_stream.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_tabs.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_text.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/_types.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/headless.py	file	.py	yes	production core	production library module	production	active package source
+openprover/openprover/tui/tui.py	file	.py	yes	production core	production library module	production	active package source
+openprover/pyproject.toml	file	.toml	yes	tooling	package/project metadata	tooling	package scripts and dependencies
+openprover/tests/math_research/test_architecture_critic_and_authorization.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_architecture_review_and_probe.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_async_literature_pipelines.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_audit_protocol_v2.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_campaign_cli.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_canonical_artifact_authority.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_certification.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_checkpoint_migration.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_codex_cli_provider.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_directive_projection.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_durable_runtime.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_external_applicability_trust.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_gemini_observatory.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_hard_gate_and_replay.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_heterogeneous_routing.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_literature_trust.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_openai_provider.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_phase4_research_plane_e2e.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_phase5_governance_e2e.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_phase7_implementation.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_plan_over_capacity.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_pre_root_authority_repairs.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_pre_root_blocker_repairs.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_premises_and_migration.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_production_async_integration.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_project_and_retrieval.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_research_map_and_obligations.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_route_failure_records.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_scheduler_and_profiles.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_scholarly_adapter.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_session_closure.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_state_machine.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_structural_effect_and_review_clock.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_trust_kernel.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_truth_identity.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_truth_mutation.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_truth_store_facade.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/math_research/test_worker_event_production_wiring.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/test_encoding_and_scope_gate.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/test_interrupt_race.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/tests/test_submit_lean_proof_name_check.py	file	.py	yes	tests	unit/integration/regression test	test	test evidence only
+openprover/uv.lock	file	.lock	yes	tooling	dependency lock	tooling	locked dependency resolution
+projects/demo/failed_routes.json	file	.json	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/index.json	file	.json	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/project.json	file	.json	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/reports/demo-odd-sum-resolution-20260808-131154.md	file	.md	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/sources/demo_next_square.md	file	.md	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/sources/demo_odd_sum.md	file	.md	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/steering/directives.json	file	.json	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/theorems/demo-next-square.json	file	.json	yes	project fixture	demo project data	data	sample project state; runs ignored
+projects/demo/theorems/demo-odd-sum.json	file	.json	yes	project fixture	demo project data	data	sample project state; runs ignored
+pytest.ini	file	.ini	yes	tooling	test configuration	tooling	pytest discovery/configuration
+run_math_agent.ps1	file	.ps1	yes	tooling	launcher	tooling	Windows command dispatcher
+scripts/bootstrap.ps1	file	.ps1	yes	tooling	bootstrap/benchmark script	tooling	operational helper
+scripts/bootstrap.sh	file	.sh	yes	tooling	bootstrap/benchmark script	tooling	operational helper
+scripts/run_benchmark.sh	file	.sh	yes	tooling	bootstrap/benchmark script	tooling	operational helper
