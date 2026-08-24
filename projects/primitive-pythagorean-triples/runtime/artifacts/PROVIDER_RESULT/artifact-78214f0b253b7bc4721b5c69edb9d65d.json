@@ -1,0 +1,36 @@
+{
+  "result": "{\"schema_version\": 3, \"role\": \"exhaustiveness_auditor\", \"domain_verdict\": \"PASS\", \"execution_status\": \"OK\", \"findings\": [\"No defect found in the finite induction argument.\"], \"failure_reasons\": [], \"cross_audit_notes\": [], \"computational_evidence\": [], \"authority_uses\": [], \"summary\": \"Structured mock specialist audit passed.\", \"execution_error\": \"\", \"criteria\": {}}",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "audit_exhaustiveness_auditor",
+    "usage": {
+      "input_tokens": 1740,
+      "output_tokens": 92
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1740,
+    "output_tokens": 92
+  },
+  "structured": {
+    "schema_version": 3,
+    "role": "exhaustiveness_auditor",
+    "domain_verdict": "PASS",
+    "execution_status": "OK",
+    "findings": [
+      "No defect found in the finite induction argument."
+    ],
+    "failure_reasons": [],
+    "cross_audit_notes": [],
+    "computational_evidence": [],
+    "authority_uses": [],
+    "summary": "Structured mock specialist audit passed.",
+    "execution_error": "",
+    "criteria": {}
+  }
+}

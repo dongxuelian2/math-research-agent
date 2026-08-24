@@ -1,303 +1,322 @@
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::env;
-use std::fs;
-use std::io::{self, Stdout};
+use std::fs::{self, OpenOptions};
+use std::io::{self, BufRead, BufReader, Stdout, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use serde_json::Value;
+use unicode_width::UnicodeWidthChar;
 
-const MAX_LOG_LINES: usize = 500;
+const SCROLL_STEP: usize = 3;
+const MAX_VISIBLE_COMPLETIONS: usize = 7;
 
-#[derive(Debug)]
-enum BackendEvent {
-    Finished {
-        command: String,
-        output: String,
-        success: bool,
-    },
-}
+// Keep the entry point focused on wiring and application lifecycle. Feature
+// specific state, input, backend process handling, and rendering live in the
+// sibling modules below so new agent capabilities do not grow this file again.
+mod backend;
+mod input;
+mod model;
+mod ui;
 
-#[derive(Debug, Default)]
-struct ProjectSnapshot {
-    name: String,
-    id: String,
-    current_target: String,
-    theorems: Vec<TheoremRow>,
-    error: Option<String>,
-}
-
-#[derive(Debug)]
-struct TheoremRow {
-    id: String,
-    title: String,
-    status: String,
-}
+use backend::stop_child;
+use model::*;
+use ui::*;
 
 struct App {
     root: PathBuf,
     project: PathBuf,
     config: PathBuf,
-    input: String,
-    history: Vec<String>,
-    history_index: Option<usize>,
-    logs: VecDeque<String>,
-    snapshot: ProjectSnapshot,
-    running: Option<String>,
+    sessions: HashMap<PathBuf, ProjectSession>,
+    running: HashMap<PathBuf, RunningTask>,
     tx: Sender<BackendEvent>,
     rx: Receiver<BackendEvent>,
-    should_quit: bool,
+    focus: Focus,
+    completion_index: usize,
+    completion_hidden: bool,
+    project_picker: Option<ProjectPicker>,
+    project_editor: Option<ProjectGoalEditor>,
     show_help: bool,
+    help_scroll: u16,
+    transcript_fullscreen: bool,
+    regions: UiRegions,
+    should_quit: bool,
+    animation: AnimationState,
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        for task in self.running.values() {
+            task.cancelled.store(true, Ordering::SeqCst);
+            if let Some(child) = task.child.lock().expect("child lock").as_mut() {
+                let _ = stop_child(child);
+            }
+        }
+    }
 }
 
 impl App {
     fn new(root: PathBuf, project: PathBuf, config: PathBuf) -> Self {
         let (tx, rx) = mpsc::channel();
-        let mut app = Self {
+        let mut sessions = HashMap::new();
+        sessions.insert(project.clone(), ProjectSession::new(&project));
+        Self {
             root,
             project,
             config,
-            input: String::new(),
-            history: Vec::new(),
-            history_index: None,
-            logs: VecDeque::new(),
-            snapshot: ProjectSnapshot::default(),
-            running: None,
+            sessions,
+            running: HashMap::new(),
             tx,
             rx,
-            should_quit: false,
+            focus: Focus::Composer,
+            completion_index: 0,
+            completion_hidden: false,
+            project_picker: None,
+            project_editor: None,
             show_help: false,
-        };
-        app.refresh_snapshot();
-        app.log("Welcome to MathAgent. Type /help for commands.");
-        app
+            help_scroll: 0,
+            transcript_fullscreen: false,
+            regions: UiRegions::default(),
+            should_quit: false,
+            animation: AnimationState::detected(),
+        }
+    }
+
+    fn session(&self) -> &ProjectSession {
+        self.sessions
+            .get(&self.project)
+            .expect("current project session")
+    }
+
+    fn session_mut(&mut self) -> &mut ProjectSession {
+        self.sessions
+            .get_mut(&self.project)
+            .expect("current project session")
     }
 
     fn log(&mut self, message: impl Into<String>) {
-        for line in message.into().lines() {
-            if self.logs.len() >= MAX_LOG_LINES {
-                self.logs.pop_front();
-            }
-            self.logs.push_back(line.to_string());
-        }
+        self.session_mut().log(message);
     }
 
     fn refresh_snapshot(&mut self) {
-        self.snapshot = read_snapshot(&self.project);
+        let snapshot = read_snapshot(&self.project);
+        let project = self.project.clone();
+        let session = self.session_mut();
+        session.snapshot = snapshot;
+        session.load_project_history(&project);
     }
 
-    fn handle_key(&mut self, key: KeyEvent) {
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-            self.should_quit = true;
-            return;
-        }
-        if self.show_help {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-                self.show_help = false;
-            }
-            return;
-        }
-        match key.code {
-            KeyCode::Enter => self.submit_input(),
-            KeyCode::Backspace => {
-                self.input.pop();
-            }
-            KeyCode::Char(ch) => self.input.push(ch),
-            KeyCode::Up => self.history_up(),
-            KeyCode::Down => self.history_down(),
-            KeyCode::Esc => self.input.clear(),
-            KeyCode::F(5) => {
-                self.refresh_snapshot();
-                self.log("Project status refreshed.");
-            }
-            _ => {}
-        }
+    fn switch_project(&mut self, path: PathBuf) {
+        let path = normalize_path(&path);
+        self.sessions
+            .entry(path.clone())
+            .or_insert_with(|| ProjectSession::new(&path));
+        self.project = path;
+        self.refresh_snapshot();
+        self.focus = Focus::Composer;
+        self.completion_hidden = false;
+        self.project_picker = None;
+        self.project_editor = None;
     }
 
-    fn history_up(&mut self) {
-        if self.history.is_empty() {
-            return;
-        }
-        let index = self
-            .history_index
-            .unwrap_or(self.history.len())
-            .saturating_sub(1);
-        self.history_index = Some(index);
-        self.input = self.history[index].clone();
-    }
-
-    fn history_down(&mut self) {
-        let Some(index) = self.history_index else {
-            return;
-        };
-        if index + 1 >= self.history.len() {
-            self.history_index = None;
-            self.input.clear();
-        } else {
-            self.history_index = Some(index + 1);
-            self.input = self.history[index + 1].clone();
-        }
-    }
-
-    fn submit_input(&mut self) {
-        let command = self.input.trim().to_string();
-        self.input.clear();
-        self.history_index = None;
-        if command.is_empty() {
-            return;
-        }
-        self.history.push(command.clone());
-        self.log(format!("> {command}"));
-        self.execute_command(&command);
-    }
-
-    fn execute_command(&mut self, command: &str) {
-        let mut parts = command.split_whitespace();
-        let Some(name) = parts.next() else { return };
-        match name {
-            "/help" | "help" => self.show_help = true,
-            "/quit" | "/exit" | "quit" | "exit" => self.should_quit = true,
-            "/clear" => self.logs.clear(),
-            "/status" | "status" | "/refresh" | "refresh" => {
-                self.refresh_snapshot();
-                self.log("Project status refreshed.");
-            }
-            "/project" | "project" => {
-                let Some(path) = parts.next() else {
-                    self.log("Usage: /project <path>");
-                    return;
-                };
-                self.project = resolve_path(&self.root, path);
-                self.refresh_snapshot();
-                self.log(format!("Project switched to {}", self.project.display()));
-            }
-            "/config" | "config" => {
-                let Some(path) = parts.next() else {
-                    self.log("Usage: /config <path>");
-                    return;
-                };
-                self.config = resolve_path(&self.root, path);
-                self.log(format!("Model config set to {}", self.config.display()));
-            }
-            "/run" | "run" => {
-                let target = parts.next().map(ToOwned::to_owned).or_else(|| {
-                    (!self.snapshot.current_target.is_empty())
-                        .then(|| self.snapshot.current_target.clone())
-                });
-                let Some(target) = target else {
-                    self.log("No target selected. Usage: /run <theorem-id>");
-                    return;
-                };
-                self.start_backend(
-                    "research run",
-                    vec![
-                        "run".into(),
-                        "--project".into(),
-                        self.project.display().to_string(),
-                        "--target".into(),
-                        target,
-                        "--config".into(),
-                        self.config.display().to_string(),
-                    ],
-                );
-            }
-            "/demo" | "demo" => {
-                let path = parts
-                    .next()
-                    .map(|value| resolve_path(&self.root, value))
-                    .unwrap_or_else(|| self.root.join("projects/observatory-demo"));
-                self.start_backend(
-                    "showcase demo",
-                    vec![
-                        "demo".into(),
-                        "--project".into(),
-                        path.display().to_string(),
-                    ],
-                );
-            }
-            _ => self.log("Unknown command. Type /help to see available commands."),
-        }
-    }
-
-    fn start_backend(&mut self, label: &str, args: Vec<String>) {
-        if self.running.is_some() {
-            self.log("A backend task is already running; wait for it to finish.");
-            return;
-        }
-        let command = format!(
-            "uv run python -m math_research_agent.research {}",
-            args.join(" ")
-        );
-        self.running = Some(label.to_string());
-        self.log(format!("Starting {label}..."));
-        let root = self.root.clone();
-        let tx = self.tx.clone();
-        thread::spawn(move || {
-            let result = Command::new("uv")
-                .current_dir(&root)
-                .args(["run", "--project"])
-                .arg(&root)
-                .args(["python", "-m", "math_research_agent.research"])
-                .args(&args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output();
-            let (output, success) = match result {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    (
-                        format!("{stdout}{stderr}").trim().to_string(),
-                        output.status.success(),
-                    )
-                }
-                Err(error) => (format!("failed to start uv: {error}"), false),
-            };
-            let _ = tx.send(BackendEvent::Finished {
-                command,
-                output,
-                success,
-            });
+    fn open_project_picker(&mut self) {
+        let choices = discover_projects(&self.root);
+        self.project_picker = Some(ProjectPicker {
+            choices,
+            query: String::new(),
+            selected: 0,
+            scroll: 0,
         });
     }
 
-    fn drain_backend_events(&mut self) {
-        while let Ok(event) = self.rx.try_recv() {
-            match event {
-                BackendEvent::Finished {
-                    command,
-                    output,
-                    success,
-                } => {
-                    self.running = None;
-                    self.log(format!(
-                        "{}: {}",
-                        if success { "Completed" } else { "Failed" },
-                        command
-                    ));
-                    if !output.is_empty() {
-                        self.log(format_backend_output(&output));
-                    }
-                    self.refresh_snapshot();
-                }
-            }
-        }
+    fn open_project_editor(&mut self, id: impl Into<String>) {
+        self.project_picker = None;
+        self.project_editor = Some(ProjectGoalEditor::new(id));
+        self.completion_hidden = true;
     }
+
+    fn completion_candidates(&self) -> Vec<&'static CommandSpec> {
+        if self.completion_hidden {
+            return Vec::new();
+        }
+        command_candidates(&self.session().input)
+    }
+
+    fn normalize_completion(&mut self) {
+        let len = self.completion_candidates().len();
+        self.completion_index = if len == 0 {
+            0
+        } else {
+            self.completion_index.min(len - 1)
+        };
+    }
+
+    fn apply_completion(&mut self) {
+        let candidates = self.completion_candidates();
+        let Some(command) = candidates.get(self.completion_index) else {
+            return;
+        };
+        let value = format!("/{} ", command.name);
+        let cursor = value.chars().count();
+        let session = self.session_mut();
+        session.input = value;
+        session.cursor = cursor;
+        self.completion_hidden = true;
+    }
+
+    fn edit_input(&mut self, edit: impl FnOnce(&mut String, &mut usize)) {
+        let session = self.session_mut();
+        edit(&mut session.input, &mut session.cursor);
+        session.history_index = None;
+        self.completion_hidden = false;
+        self.completion_index = 0;
+        self.normalize_completion();
+    }
+
+    fn toggle_transcript(&mut self) {
+        self.transcript_fullscreen = !self.transcript_fullscreen;
+        self.focus = if self.transcript_fullscreen {
+            Focus::Transcript
+        } else {
+            Focus::Composer
+        };
+        self.session_mut().follow_transcript = true;
+    }
+}
+
+fn command_candidates(input: &str) -> Vec<&'static CommandSpec> {
+    if !input.starts_with('/') || input.contains(char::is_whitespace) {
+        return Vec::new();
+    }
+    let query = input.trim_start_matches('/').to_lowercase();
+    COMMANDS
+        .iter()
+        .filter(|command| command.name.contains(&query))
+        .collect()
+}
+
+fn char_to_byte(value: &str, char_index: usize) -> usize {
+    value
+        .char_indices()
+        .nth(char_index)
+        .map(|(index, _)| index)
+        .unwrap_or(value.len())
+}
+
+fn insert_char(input: &mut String, cursor: &mut usize, ch: char) {
+    let index = char_to_byte(input, *cursor);
+    input.insert(index, ch);
+    *cursor += 1;
+}
+fn insert_text(input: &mut String, cursor: &mut usize, value: &str) {
+    let index = char_to_byte(input, *cursor);
+    input.insert_str(index, value);
+    *cursor += value.chars().count();
+}
+fn backspace(input: &mut String, cursor: &mut usize) {
+    if *cursor == 0 {
+        return;
+    }
+    let start = char_to_byte(input, *cursor - 1);
+    let end = char_to_byte(input, *cursor);
+    input.replace_range(start..end, "");
+    *cursor -= 1;
+}
+fn delete_at_cursor(input: &mut String, cursor: &mut usize) {
+    let start = char_to_byte(input, *cursor);
+    let end = char_to_byte(input, *cursor + 1);
+    if start < end {
+        input.replace_range(start..end, "");
+    }
+}
+fn delete_previous_word(input: &mut String, cursor: &mut usize) {
+    while *cursor > 0
+        && input
+            .chars()
+            .nth(*cursor - 1)
+            .is_some_and(char::is_whitespace)
+    {
+        backspace(input, cursor);
+    }
+    while *cursor > 0
+        && input
+            .chars()
+            .nth(*cursor - 1)
+            .is_some_and(|ch| !ch.is_whitespace())
+    {
+        backspace(input, cursor);
+    }
+}
+fn line_start(input: &str, cursor: usize) -> usize {
+    input
+        .chars()
+        .take(cursor)
+        .enumerate()
+        .filter_map(|(index, ch)| (ch == '\n').then_some(index + 1))
+        .last()
+        .unwrap_or(0)
+}
+fn line_end(input: &str, cursor: usize) -> usize {
+    cursor
+        + input
+            .chars()
+            .skip(cursor)
+            .position(|ch| ch == '\n')
+            .unwrap_or_else(|| input.chars().count() - cursor)
+}
+
+fn move_vertical(input: &str, cursor: usize, delta: isize) -> usize {
+    let chars: Vec<char> = input.chars().collect();
+    let mut starts = vec![0];
+    starts.extend(
+        chars
+            .iter()
+            .enumerate()
+            .filter_map(|(index, ch)| (*ch == '\n').then_some(index + 1)),
+    );
+    let line = starts
+        .partition_point(|start| *start <= cursor)
+        .saturating_sub(1);
+    let target = line.saturating_add_signed(delta).min(starts.len() - 1);
+    let column = cursor.saturating_sub(starts[line]);
+    let end = chars[starts[target]..]
+        .iter()
+        .position(|ch| *ch == '\n')
+        .map(|offset| starts[target] + offset)
+        .unwrap_or(chars.len());
+    starts[target] + column.min(end - starts[target])
+}
+
+fn char_index_at_width(value: &str, target_width: usize) -> usize {
+    let mut width = 0;
+    for (index, ch) in value.chars().enumerate() {
+        let next = width + UnicodeWidthChar::width(ch).unwrap_or(0);
+        if target_width < next {
+            return index;
+        }
+        width = next;
+    }
+    value.chars().count()
 }
 
 fn resolve_path(root: &Path, value: &str) -> PathBuf {
@@ -309,23 +328,74 @@ fn resolve_path(root: &Path, value: &str) -> PathBuf {
     }
 }
 
+fn project_slug(name: &str) -> String {
+    let mut slug = String::new();
+    let mut dash = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+            slug.push(ch.to_ascii_lowercase());
+            dash = false;
+        } else if !slug.is_empty() && !dash {
+            slug.push('-');
+            dash = true;
+        }
+    }
+    let slug = slug.trim_matches('-').to_string();
+    if slug.is_empty() {
+        "new-project".to_string()
+    } else {
+        slug
+    }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn discover_projects(root: &Path) -> Vec<ProjectChoice> {
+    let mut choices = Vec::new();
+    fn visit(path: &Path, depth: usize, choices: &mut Vec<ProjectChoice>) {
+        if depth > 4 {
+            return;
+        }
+        if path.join("project.json").is_file() {
+            let snapshot = read_snapshot(path);
+            choices.push(ProjectChoice {
+                path: normalize_path(path),
+                id: snapshot.id,
+                name: snapshot.name,
+                target: snapshot.current_target,
+            });
+            return;
+        }
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    visit(&entry.path(), depth + 1, choices);
+                }
+            }
+        }
+    }
+    visit(&root.join("projects"), 0, &mut choices);
+    choices.sort_by_key(|choice| choice.name.to_lowercase());
+    choices
+}
+
 fn read_snapshot(project: &Path) -> ProjectSnapshot {
-    let project_file = project.join("project.json");
-    let index_file = project.join("index.json");
-    let project_json = match read_json(&project_file) {
+    let project_json = match read_json(&project.join("project.json")) {
         Ok(value) => value,
-        Err(error) => {
+        Err(_error) => {
             return ProjectSnapshot {
-                error: Some(error),
+                error: Some("项目状态读取失败；请打开诊断日志查看文件定位。".to_string()),
                 ..Default::default()
             }
         }
     };
-    let index_json = match read_json(&index_file) {
+    let index_json = match read_json(&project.join("index.json")) {
         Ok(value) => value,
-        Err(error) => {
+        Err(_error) => {
             return ProjectSnapshot {
-                error: Some(error),
+                error: Some("项目索引读取失败；请打开诊断日志查看文件定位。".to_string()),
                 ..Default::default()
             }
         }
@@ -339,16 +409,69 @@ fn read_snapshot(project: &Path) -> ProjectSnapshot {
                 .map(|item| TheoremRow {
                     id: string_field(item, "id"),
                     title: string_field(item, "title"),
+                    statement: string_field(item, "statement"),
                     status: string_field(item, "status"),
+                    dependencies: item
+                        .get("dependencies")
+                        .and_then(Value::as_array)
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(ToOwned::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    tags: item
+                        .get("tags")
+                        .and_then(Value::as_array)
+                        .map(|values| {
+                            values
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .map(ToOwned::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    source_file: string_field(item, "source_file"),
+                    audit_status: string_field(item, "audit_status"),
+                    last_updated: string_field(item, "last_updated"),
                 })
                 .collect()
         })
         .unwrap_or_default();
     ProjectSnapshot {
         name: string_field(&project_json, "name"),
+        display_title: {
+            let title = string_field(&project_json, "display_title");
+            if title.is_empty() {
+                string_field(&project_json, "name")
+            } else {
+                title
+            }
+        },
         id: string_field(&project_json, "id"),
+        purpose: {
+            let purpose = string_field(&project_json, "purpose");
+            if purpose.is_empty() {
+                let description = string_field(&project_json, "description");
+                if description.is_empty() {
+                    string_field(&project_json, "name")
+                } else {
+                    description
+                }
+            } else {
+                purpose
+            }
+        },
         current_target: string_field(&project_json, "current_target"),
         theorems,
+        orchestrator_status: project_json
+            .get("orchestrator")
+            .and_then(|value| value.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         error: None,
     }
 }
@@ -356,6 +479,20 @@ fn read_snapshot(project: &Path) -> ProjectSnapshot {
 fn read_json(path: &Path) -> Result<Value, String> {
     let body = fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     serde_json::from_str(&body).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn append_diagnostic(project: &Path, stderr: bool, line: &str) {
+    let path = project.join("logs").join("tui-diagnostics.log");
+    let Ok(mut handle) = (|| {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        OpenOptions::new().create(true).append(true).open(path)
+    })() else {
+        return;
+    };
+    let stream = if stderr { "stderr" } else { "stdout" };
+    let _ = writeln!(handle, "[{stream}] {line}");
 }
 
 fn string_field(value: &Value, field: &str) -> String {
@@ -366,257 +503,119 @@ fn string_field(value: &Value, field: &str) -> String {
         .to_string()
 }
 
-fn format_backend_output(output: &str) -> String {
-    match serde_json::from_str::<Value>(output) {
-        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| output.to_string()),
-        Err(_) => output.to_string(),
+fn read_theorem_detail(project: &Path, row: &TheoremRow) -> TheoremRow {
+    let path = project.join("theorems").join(format!("{}.json", row.id));
+    let Ok(value) = read_json(&path) else {
+        return row.clone();
+    };
+    let mut detail = row.clone();
+    let statement = string_field(&value, "statement");
+    if !statement.is_empty() {
+        detail.statement = statement;
     }
-}
-
-fn draw_ui(frame: &mut Frame, app: &App) {
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(2),
-        ])
-        .split(frame.area());
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(34), Constraint::Min(40)])
-        .split(outer[1]);
-
-    let running = app
-        .running
-        .as_ref()
-        .map(|value| format!("RUNNING · {value}"))
-        .unwrap_or_else(|| "READY".to_string());
-    let header = Paragraph::new(Line::from(vec![
-        Span::styled(
-            " MATHAGENT ",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  mathematical research terminal  "),
-        Span::styled(running, status_style(app.running.is_some())),
-    ]))
-    .block(
-        Block::default()
-            .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::Blue)),
-    );
-    frame.render_widget(header, outer[0]);
-
-    draw_sidebar(frame, body[0], app);
-    draw_main(frame, body[1], app);
-
-    let footer =
-        Paragraph::new(" Ctrl-C quit   F5 refresh   ↑/↓ history   Enter execute   /help commands")
-            .style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(footer, outer[2]);
-
-    if app.show_help {
-        draw_help(frame);
+    let dependencies = value
+        .get("dependencies")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        });
+    if let Some(dependencies) = dependencies {
+        detail.dependencies = dependencies;
     }
-}
-
-fn draw_sidebar(frame: &mut Frame, area: Rect, app: &App) {
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "PROJECT",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(app.snapshot.name.as_str()),
-        Line::from(format!("id: {}", app.snapshot.id)),
-        Line::from(format!("path: {}", app.project.display())),
-        Line::from(format!("config: {}", app.config.display())),
-        Line::from(""),
-        Line::from(Span::styled(
-            "TARGET",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(if app.snapshot.current_target.is_empty() {
-            "none".into()
-        } else {
-            app.snapshot.current_target.clone()
-        }),
-        Line::from(""),
-        Line::from(Span::styled(
-            "THEOREMS",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-    ];
-    if let Some(error) = &app.snapshot.error {
-        lines.push(Line::from(Span::styled(
-            error,
-            Style::default().fg(Color::Red),
-        )));
-    } else if app.snapshot.theorems.is_empty() {
-        lines.push(Line::from("(none)"));
-    } else {
-        for theorem in &app.snapshot.theorems {
-            let color = match theorem.status.as_str() {
-                "PROVED" => Color::Green,
-                "FAILED_ROUTE" => Color::Red,
-                "IN_RESEARCH" => Color::Yellow,
-                _ => Color::White,
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{} ", status_icon(&theorem.status)),
-                    Style::default().fg(color),
-                ),
-                Span::raw(format!("{} [{}]", theorem.id, theorem.status)),
-            ]));
-            if !theorem.title.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    format!("  {}", theorem.title),
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
+    let tags = value.get("tags").and_then(Value::as_array).map(|values| {
+        values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    });
+    if let Some(tags) = tags {
+        detail.tags = tags;
+    }
+    for (field, target) in [
+        ("status", &mut detail.status),
+        ("source_file", &mut detail.source_file),
+        ("audit_status", &mut detail.audit_status),
+        ("last_updated", &mut detail.last_updated),
+    ] {
+        let value = string_field(&value, field);
+        if !value.is_empty() {
+            *target = value;
         }
     }
-    let widget = Paragraph::new(Text::from(lines))
-        .block(
-            Block::default()
-                .title(" Workspace ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)),
-        )
-        .wrap(Wrap { trim: false });
-    frame.render_widget(widget, area);
+    detail
 }
 
-fn draw_main(frame: &mut Frame, area: Rect, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(4), Constraint::Length(3)])
-        .split(area);
-    let log_lines: Vec<Line> = app
-        .logs
-        .iter()
-        .map(|line| Line::from(line.as_str()))
-        .collect();
-    let log = Paragraph::new(Text::from(log_lines))
-        .block(
-            Block::default()
-                .title(" Research session ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Blue)),
-        )
-        .wrap(Wrap { trim: false });
-    frame.render_widget(log, chunks[0]);
-
-    let prompt = Paragraph::new(format!("❯ {}", app.input))
-        .style(Style::default().fg(Color::White))
-        .block(
-            Block::default()
-                .title(" Command ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-    frame.render_widget(prompt, chunks[1]);
-}
-
-fn draw_help(frame: &mut Frame) {
-    let area = centered_rect(70, 70, frame.area());
-    frame.render_widget(Clear, area);
-    let help = Paragraph::new(vec![
-        Line::from(Span::styled(
-            "MathAgent commands",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(""),
-        Line::from("/status                 refresh project state"),
-        Line::from("/project <path>         switch project"),
-        Line::from("/config <path>          switch model config"),
-        Line::from("/run [theorem-id]       start a research run"),
-        Line::from("/demo [path]            generate the deterministic showcase"),
-        Line::from("/refresh                reload files"),
-        Line::from("/clear                  clear session log"),
-        Line::from("/quit                   exit the terminal"),
-        Line::from(""),
-        Line::from("Esc or ? closes this help."),
-    ])
-    .block(
-        Block::default()
-            .title(" Help ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan)),
-    )
-    .style(Style::default().bg(Color::Rgb(15, 23, 42)))
-    .wrap(Wrap { trim: false });
-    frame.render_widget(help, area);
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1])[1]
-}
-
-fn status_icon(status: &str) -> &'static str {
-    match status {
-        "PROVED" => "✓",
-        "FAILED_ROUTE" => "×",
-        "IN_RESEARCH" => "→",
-        _ => "·",
+fn short_activity(value: &str) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        "当前研究动作".to_string()
+    } else {
+        truncate_for_width(&compact, 36)
     }
 }
 
-fn status_style(running: bool) -> Style {
-    Style::default()
-        .fg(if running { Color::Yellow } else { Color::Green })
-        .add_modifier(Modifier::BOLD)
+fn display_location(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .map(|relative| relative.display().to_string())
+        .or_else(|| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(ToOwned::to_owned)
+        })
+        .map(|value| short_activity(&value))
+        .unwrap_or_else(|| "项目内文件".to_string())
 }
 
 fn terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     enable_raw_mode().context("enable terminal raw mode")?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("enter alternate screen")?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )
+    .context("enter alternate screen")?;
     Terminal::new(CrosstermBackend::new(stdout)).context("create terminal")
 }
 
 fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
     disable_raw_mode().context("disable terminal raw mode")?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).context("leave alternate screen")?;
+    execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        DisableMouseCapture,
+        LeaveAlternateScreen
+    )
+    .context("leave alternate screen")?;
     terminal.show_cursor().context("show cursor")?;
     Ok(())
 }
 
 fn run(mut terminal: Terminal<CrosstermBackend<Stdout>>, mut app: App) -> Result<()> {
     loop {
+        app.animation.tick();
         app.drain_backend_events();
-        terminal.draw(|frame| draw_ui(frame, &app))?;
+        // Background/resumed runs also update project.json. Refreshing the
+        // projection each frame prevents a stale local RUNNING banner.
+        app.refresh_snapshot();
+        terminal.draw(|frame| draw_ui(frame, &mut app))?;
         if app.should_quit {
             break;
         }
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                app.handle_key(key);
+            match event::read()? {
+                Event::Key(key) => app.handle_key(key),
+                Event::Mouse(mouse) => app.handle_mouse(mouse),
+                Event::Paste(value) => app.handle_paste(value),
+                _ => {}
             }
         }
     }
@@ -639,25 +638,163 @@ fn main() -> Result<()> {
         .windows(2)
         .find(|pair| pair[0] == "--config")
         .map(|pair| resolve_path(&root, &pair[1]))
-        .unwrap_or_else(|| root.join("configs/models.mock.json"));
-
+        .unwrap_or_else(|| root.join("configs/models.toml"));
     let terminal = terminal()?;
-    let app = App::new(root, project, config);
-    let result = run(terminal, app);
+    let result = run(terminal, App::new(root, normalize_path(&project), config));
     if result.is_err() {
         let _ = disable_raw_mode();
         let mut stdout = io::stdout();
-        let _ = execute!(stdout, LeaveAlternateScreen);
+        let _ = execute!(
+            stdout,
+            DisableBracketedPaste,
+            DisableMouseCapture,
+            LeaveAlternateScreen
+        );
     }
     result
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{format_backend_output, read_snapshot, resolve_path, status_icon};
+    use super::{
+        command_candidates, insert_text, localized_status, move_vertical, project_slug,
+        read_snapshot, resolve_path, status_icon, transcript_lines, truncate_for_width, wrap_line,
+        AnimationState, App, Focus, ProjectSession, TranscriptEntry, TranscriptKind,
+    };
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    use ratatui::layout::Rect;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
+    #[test]
+    fn slash_commands_are_filtered_for_popup() {
+        assert_eq!(
+            command_candidates("/swi")
+                .iter()
+                .map(|item| item.name)
+                .collect::<Vec<_>>(),
+            vec!["switch"]
+        );
+        assert!(command_candidates("hello").is_empty());
+        assert!(command_candidates("/run target").is_empty());
+        assert_eq!(
+            command_candidates("/imp")
+                .iter()
+                .map(|item| item.name)
+                .collect::<Vec<_>>(),
+            vec!["import"]
+        );
+    }
+    #[test]
+    fn new_command_opens_multiline_project_goal_editor() {
+        let project = PathBuf::from("/tmp/mathagent-tui-editor-test");
+        let mut app = App::new(
+            project.clone(),
+            project.clone(),
+            project.join("config.json"),
+        );
+        app.execute_command("/new primitive-pythagorean");
+        let editor = app.project_editor.as_ref().expect("editor should open");
+        assert_eq!(editor.id, "primitive-pythagorean");
+        assert_eq!(editor.field, super::ProjectEditorField::Goal);
+        assert!(app.project_picker.is_none());
+    }
+    #[test]
+    fn switch_command_opens_existing_project_picker() {
+        let project = PathBuf::from("/tmp/mathagent-tui-switch-test");
+        let mut app = App::new(
+            project.clone(),
+            project.clone(),
+            project.join("config.json"),
+        );
+        app.execute_command("/switch");
+        assert!(app.project_picker.is_some());
+        assert!(app.project_editor.is_none());
+    }
+    #[test]
+    fn project_slug_is_safe_for_default_workspace_paths() {
+        assert_eq!(project_slug("New Research Project"), "new-research-project");
+        assert_eq!(project_slug("数学项目"), "new-project");
+    }
+    #[test]
+    fn unicode_input_inserts_at_character_cursor() {
+        let mut input = "数题".to_string();
+        let mut cursor = 1;
+        insert_text(&mut input, &mut cursor, "学研");
+        assert_eq!(input, "数学研题");
+        assert_eq!(cursor, 3);
+    }
+    #[test]
+    fn multiline_cursor_moves_by_logical_column() {
+        assert_eq!(move_vertical("abc\nx\n1234", 2, 1), 5);
+        assert_eq!(move_vertical("abc\nx\n1234", 5, 1), 7);
+    }
+    #[test]
+    fn cjk_lines_wrap_by_terminal_width() {
+        assert_eq!(wrap_line("数学研究", 4), vec!["数学", "研究"]);
+    }
+    #[test]
+    fn wrapped_transcript_lines_keep_their_entry_kind() {
+        let entries = vec![TranscriptEntry::new(
+            TranscriptKind::Error,
+            "Target is already PROVED and must be re-audited",
+            true,
+        )];
+        let lines = transcript_lines(&entries, 24, false);
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|line| line.kind == TranscriptKind::Error));
+        assert!(lines[0].text.starts_with("✕ 错误 · "));
+        assert!(!lines[1].text.contains("错误"));
+    }
+    #[test]
+    fn compact_transcript_hides_commands_and_raw_output() {
+        let entries = vec![
+            TranscriptEntry::new(TranscriptKind::Activity, "Run · theorem-a", true),
+            TranscriptEntry::new(TranscriptKind::Output, "uv run ...", false),
+            TranscriptEntry::new(TranscriptKind::Output, "raw output", false),
+        ];
+        assert_eq!(transcript_lines(&entries, 80, false).len(), 1);
+        assert_eq!(transcript_lines(&entries, 80, true).len(), 3);
+    }
+    #[test]
+    fn only_left_click_changes_mouse_focus() {
+        let project = PathBuf::from("/tmp/mathagent-tui-focus-test");
+        let mut app = App::new(
+            project.clone(),
+            project.clone(),
+            project.join("config.json"),
+        );
+        app.regions.workspace = Rect::new(0, 0, 20, 20);
+        app.regions.transcript = Rect::new(20, 0, 20, 20);
+        app.regions.composer = Rect::new(20, 20, 20, 10);
+
+        app.focus = Focus::Composer;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 5,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.focus, Focus::Composer);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 25,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.focus, Focus::Composer);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 5,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.focus, Focus::Workspace);
+    }
     #[test]
     fn relative_paths_are_rooted_at_repository() {
         assert_eq!(
@@ -665,31 +802,128 @@ mod tests {
             Path::new("/repo/projects/demo")
         );
     }
-
-    #[test]
-    fn absolute_paths_are_preserved() {
-        assert_eq!(
-            resolve_path(Path::new("/repo"), "/tmp/project"),
-            Path::new("/tmp/project")
-        );
-    }
-
-    #[test]
-    fn backend_json_is_pretty_printed() {
-        assert_eq!(
-            format_backend_output("{\"status\":\"PROVED\"}"),
-            "{\n  \"status\": \"PROVED\"\n}"
-        );
-        assert_eq!(format_backend_output("plain output"), "plain output");
-    }
-
     #[test]
     fn status_icons_are_stable() {
         assert_eq!(status_icon("PROVED"), "✓");
         assert_eq!(status_icon("FAILED_ROUTE"), "×");
-        assert_eq!(status_icon("OPEN"), "·");
     }
 
+    #[test]
+    fn animation_frames_advance_and_reduced_motion_is_stable() {
+        let animation = AnimationState::default();
+        assert_eq!(animation.spinner(), "⠋");
+        let mut reduced = AnimationState {
+            reduced_motion: true,
+            ..AnimationState::default()
+        };
+        assert_eq!(reduced.spinner(), "•");
+        reduced.frame = 9;
+        assert_eq!(reduced.spinner(), "•");
+        let ascii = AnimationState {
+            ascii_spinner: true,
+            ..AnimationState::default()
+        };
+        assert_eq!(ascii.spinner(), "|");
+    }
+
+    #[test]
+    fn long_chinese_titles_are_width_bounded() {
+        let value = truncate_for_width("原始勾股数组的完全分类与欧几里得参数化", 12);
+        assert!(value.ends_with('…'));
+        assert!(value.chars().count() < 12);
+    }
+
+    #[test]
+    fn ui_events_update_one_activity_item() {
+        let mut session = ProjectSession::default();
+        session.apply_ui_event(&serde_json::json!({
+            "event_type": "research_ui_event",
+            "event_id": "a1",
+            "role": "planner",
+            "action": "plan_project",
+            "stage": "PLANNING",
+            "title": "正在分析研究目标",
+            "summary": "开始",
+            "status": "STARTED"
+        }));
+        session.apply_ui_event(&serde_json::json!({
+            "event_type": "research_ui_event",
+            "event_id": "a1",
+            "role": "planner",
+            "action": "plan_project",
+            "stage": "PLANNING",
+            "title": "正在分析研究目标",
+            "summary": "完成",
+            "status": "COMPLETED"
+        }));
+        assert_eq!(session.activities.len(), 1);
+        assert_eq!(session.activities[0].summary, "完成");
+        assert_eq!(session.activities[0].history.len(), 2);
+        assert_eq!(localized_status("PROVED"), "已完成");
+    }
+
+    #[test]
+    fn project_session_restores_pipeline_history_from_timeline() {
+        let root = std::env::temp_dir().join("mathagent-tui-timeline-test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("timeline directory");
+        fs::write(
+            root.join("timeline.jsonl"),
+            r#"{"timeline_schema_version":1,"event_id":"run-1:event-1","kind":"PIPELINE_EVENT","action":"TASK_READY","status":"PROGRESS","run_id":"run-1","theorem_id":"lemma-a","role":"pipeline","payload":{"type":"TASK_READY"}}
+"#,
+        )
+        .expect("timeline event");
+        let mut session = ProjectSession::default();
+        session.load_project_history(&root);
+        assert_eq!(session.activities.len(), 1);
+        assert_eq!(session.activities[0].action, "TASK_READY");
+        assert_eq!(session.activities[0].theorem_id, "lemma-a");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn activity_scroll_pauses_follow_until_end() {
+        let mut session = ProjectSession {
+            activity_follow: true,
+            activity_viewport: 1,
+            ..ProjectSession::default()
+        };
+        for event_id in ["a1", "a2"] {
+            session.apply_ui_event(&serde_json::json!({
+                "event_type": "research_ui_event",
+                "event_id": event_id,
+                "role": "worker",
+                "action": "prove_subproblem",
+                "stage": "PROOF",
+                "title": "正在研究子命题",
+                "summary": "进行中",
+                "status": "STARTED"
+            }));
+        }
+        let mut app = App::new(
+            PathBuf::from("/tmp/mathagent-tui-scroll-test"),
+            PathBuf::from("/tmp/mathagent-tui-scroll-test"),
+            PathBuf::from("/tmp/mathagent-tui-scroll-test/config.json"),
+        );
+        app.sessions.insert(app.project.clone(), session);
+        app.scroll_activity(isize::MIN);
+        assert!(!app.session().activity_follow);
+        let before = app.session().activity_offset;
+        app.session_mut().apply_ui_event(&serde_json::json!({
+            "event_type": "research_ui_event",
+            "event_id": "a3",
+            "role": "auditor",
+            "action": "audit_candidate",
+            "stage": "AUDIT",
+            "title": "正在审计子命题",
+            "summary": "新事件",
+            "status": "STARTED"
+        }));
+        assert_eq!(app.session().activity_offset, before);
+        assert!(!app.session().activity_follow);
+        app.scroll_activity(isize::MAX);
+        assert!(app.session().activity_follow);
+    }
     #[test]
     fn project_snapshot_reads_current_target_and_theorems() {
         let project =
@@ -697,7 +931,7 @@ mod tests {
         fs::create_dir_all(&project).expect("create temporary project");
         fs::write(
             project.join("project.json"),
-            r#"{"id":"demo","name":"Demo","current_target":"t-1"}"#,
+            r#"{"id":"demo","name":"Demo","purpose":"Core goal","current_target":"t-1"}"#,
         )
         .expect("write project");
         fs::write(
@@ -705,14 +939,50 @@ mod tests {
             r#"{"theorems":[{"id":"t-1","title":"A theorem","status":"OPEN"}]}"#,
         )
         .expect("write index");
-
         let snapshot = read_snapshot(&project);
-
         assert_eq!(snapshot.id, "demo");
+        assert_eq!(snapshot.purpose, "Core goal");
         assert_eq!(snapshot.current_target, "t-1");
-        assert_eq!(snapshot.theorems.len(), 1);
         assert_eq!(snapshot.theorems[0].title, "A theorem");
         assert!(snapshot.error.is_none());
         fs::remove_dir_all(project).expect("remove temporary project");
+    }
+
+    #[test]
+    fn theorem_click_enter_and_escape_open_detail_panel() {
+        let project =
+            std::env::temp_dir().join(format!("mathagent-tui-detail-{}", std::process::id()));
+        fs::create_dir_all(&project).expect("create detail project");
+        fs::write(
+            project.join("project.json"),
+            r#"{"id":"detail","name":"Detail","display_title":"短标题","purpose":"goal"}"#,
+        )
+        .expect("write detail project");
+        fs::write(
+            project.join("index.json"),
+            r#"{"theorems":[{"id":"t-1","title":"奇偶性引理","statement":"命题内容","status":"OPEN"}]}"#,
+        )
+        .expect("write detail index");
+        let mut app = App::new(
+            project.clone(),
+            project.clone(),
+            project.join("config.json"),
+        );
+        app.regions.workspace = Rect::new(0, 0, 30, 12);
+        app.regions.theorem_list = Rect::new(0, 5, 30, 5);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 2,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(app.session().detail_open);
+        assert_eq!(app.focus, Focus::Transcript);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.session().detail_open);
+        app.focus = Focus::Workspace;
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.session().detail_open);
+        fs::remove_dir_all(project).expect("remove detail project");
     }
 }

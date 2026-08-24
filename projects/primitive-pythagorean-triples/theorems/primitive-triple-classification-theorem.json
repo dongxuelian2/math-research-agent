@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "primitive-triple-classification-theorem",
+  "title": "Complete classification of primitive Pythagorean triples",
+  "status": "PARTIAL",
+  "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+  "statement": "For all positive integers a, b, c, the condition a^2 + b^2 = c^2 and gcd(a,b,c) = 1 holds if and only if, after swapping a and b if necessary, there exist positive integers m > n with gcd(m,n) = 1 and m and n of opposite parity such that a = m^2 - n^2, b = 2mn, and c = m^2 + n^2.",
+  "dependencies": [
+    "euclid-forward-derivation",
+    "euclid-backward-construction"
+  ],
+  "downstream_dependents": [],
+  "tags": [
+    "classification",
+    "euclid-formula",
+    "main-theorem"
+  ],
+  "branch": "main",
+  "proof_type": "NATURAL_LANGUAGE",
+  "claim_type": "iff",
+  "notation_scope": "",
+  "audit_status": "NOT_AUDITED",
+  "created_at": "2026-08-23T18:25:33+00:00",
+  "last_updated": "2026-08-23T18:37:59+00:00",
+  "status_history": [
+    {
+      "from": null,
+      "to": "OPEN",
+      "actor": "Human",
+      "reason": "Theorem record created",
+      "at": "2026-08-23T18:25:33+00:00"
+    },
+    {
+      "from": "OPEN",
+      "to": "IN_RESEARCH",
+      "actor": "MasterPlanner",
+      "reason": "Research run primitive-triple-classification-theorem-20260824-023642 started",
+      "at": "2026-08-23T18:36:42+00:00"
+    },
+    {
+      "from": "IN_RESEARCH",
+      "to": "PARTIAL",
+      "actor": "MasterPlanner",
+      "reason": "Math Research Agent ended without a candidate proof",
+      "at": "2026-08-23T18:37:59+00:00"
+    }
+  ]
+}

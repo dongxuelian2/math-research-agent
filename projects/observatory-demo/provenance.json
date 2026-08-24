@@ -1,0 +1,11 @@
+{
+  "schema_version": 3,
+  "entries": [
+    {
+      "claim": "bounded theorem statement",
+      "source": "bounded_euler_polynomial.md",
+      "sha256": "sha256:268242e60f5292c4b6dd29ca7f06e1b008586fb9c6481e8f33fae3978c779ebe",
+      "registry": "showcase-foundation-registry-v1"
+    }
+  ]
+}

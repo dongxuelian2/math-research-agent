@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_OBLIGATION_CURRENT_PROJECTION",
+  "obligation_id": "ro-purpose-analysis-root",
+  "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:d728c2ce2fe90f2ef870693c6fe3533124097897e288ecfc912991156952d761",
+  "research_map_id": "map-purpose-analysis-20260824-013241",
+  "research_map_version": 3,
+  "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe"
+}

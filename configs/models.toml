@@ -1,0 +1,144 @@
+version = 1
+description = "Math Research Agent 的唯一模型配置。模型目录与角色策略分离。"
+
+# 角色没有单独写出的字段使用这里的默认值。
+[role_defaults]
+timeout_seconds = 600
+max_retries = 2
+retry_base_seconds = 1
+# Plenty of room for reasoning-heavy models. The provider still performs a
+# bounded reasoning-effort fallback when a model consumes the whole budget.
+max_output_tokens = 32768
+answer_reserve = 4096
+context_length = 200000
+
+# 全局运行控制。
+[runtime]
+budget_seconds = 10800
+budget_mode = "time"
+conclude_after = 0.99
+isolation = true
+history_budget = 0
+
+[runtime.routing]
+planner_mode = "strategic"
+fallback_tier = "research"
+routine_failure_threshold = 2
+research_failure_threshold = 3
+stalled_frontier_cycles = 3
+max_strategic_calls = 24
+max_strategic_calls_per_step = 3
+max_strategic_calls_per_obligation = 4
+allow_dual_track = true
+
+# 模型目录：每个模型只声明一次 Provider、模型名、地址和认证方式。
+# api_key 可以直接填写，但建议留空并使用 api_key_env。
+[models.mock]
+provider = "mock"
+model = "mock"
+
+[models.gemini_flash]
+provider = "gemini"
+model = "gemini-3.5-flash"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+api_key = ""
+api_key_env = "GEMINI_API_KEY"
+
+[models.gemini_pro]
+provider = "gemini"
+model = "gemini-3.1-pro-preview"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+api_key = ""
+api_key_env = "GEMINI_API_KEY"
+
+[models.openai]
+provider = "openai"
+model = "gpt-5.6-sol"
+base_url = "https://api.openai.com/v1"
+api_key = ""
+api_key_env = "OPENAI_API_KEY"
+
+[models.deepseek_v4_flash]
+provider = "openai_compatible"
+model = "deepseek-v4-flash"
+base_url = "https://api.deepseek.com/"
+api_key = "sk-b8ecb7d43a644e61bde86ba9c0907329"
+api_key_env = "OPENAI_COMPATIBLE_API_KEY"
+
+[models.codex]
+provider = "codex_cli"
+sandbox = "read-only"
+
+# 角色映射：model 是上面 models 表中的名字；时长和重试策略只在需要区别时覆盖默认值。
+# 当前所有角色统一使用 DeepSeek V4 Flash。
+[roles.planner]
+model = "deepseek_v4_flash"
+timeout_seconds = 900
+max_output_tokens = 32768
+
+[roles.worker]
+model = "deepseek_v4_flash"
+timeout_seconds = 900
+
+[roles.constructive]
+model = "deepseek_v4_flash"
+
+[roles.theorem_verifier]
+model = "deepseek_v4_flash"
+
+[roles.reconstruction]
+model = "deepseek_v4_flash"
+
+[roles.worker_verifier]
+model = "deepseek_v4_flash"
+timeout_seconds = 300
+
+[roles.counterexample_hunter]
+model = "deepseek_v4_flash"
+timeout_seconds = 600
+
+[roles.dependency_auditor]
+model = "deepseek_v4_flash"
+timeout_seconds = 300
+
+[roles.exhaustiveness_auditor]
+model = "deepseek_v4_flash"
+
+[roles.boundary_auditor]
+model = "deepseek_v4_flash"
+
+[roles.final_proof_auditor]
+model = "deepseek_v4_flash"
+timeout_seconds = 900
+
+[roles.formalization_agent]
+model = "deepseek_v4_flash"
+
+[roles.literature_lead]
+model = "deepseek_v4_flash"
+
+[roles.literature_searcher]
+model = "deepseek_v4_flash"
+
+[roles.literature_reader]
+model = "deepseek_v4_flash"
+
+[roles.literature_deep_reader]
+model = "deepseek_v4_flash"
+
+[roles.literature_synthesizer]
+model = "deepseek_v4_flash"
+
+[roles.literature_authority_auditor]
+model = "deepseek_v4_flash"
+
+[roles.architecture_audit]
+model = "deepseek_v4_flash"
+
+[roles.secondary_verifier]
+model = "deepseek_v4_flash"
+
+[tools]
+# Pi-style compact coding-agent surface.  The TOML loader applies this list
+# to every role unless a role adds extra tools explicitly.
+default = ["read", "bash", "edit", "write", "grep", "find", "web_search"]

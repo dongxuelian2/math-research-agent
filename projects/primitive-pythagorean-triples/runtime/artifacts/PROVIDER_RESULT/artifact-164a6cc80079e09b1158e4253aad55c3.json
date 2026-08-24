@@ -1,0 +1,4 @@
+{
+  "route_description": "main: (n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json",
+  "exact_failure_condition": "(n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json; Materialize only a manifest-approved predecessor authority or prove the lemma locally."
+}

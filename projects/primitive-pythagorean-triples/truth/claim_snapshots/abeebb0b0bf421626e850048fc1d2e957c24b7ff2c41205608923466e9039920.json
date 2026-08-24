@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "parity-gcd-lemma",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "parity-gcd-lemma",
+    "canonical_statement": "For all positive integers a, b, c, if a^2 + b^2 = c^2 and gcd(a,b,c) = 1, then exactly one of a and b is even, c is odd, and gcd(a,b) = gcd(a,c) = gcd(b,c) = 1.",
+    "claim_type": "implication",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81"
+  },
+  "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+    "dependencies": [],
+    "dependency_snapshot_hash": "sha256:ad64d4a99a2d92eccca08ed4c27835b56b0a46397198ac3af4ec02d368d3bcea"
+  },
+  "dependency_snapshot_hash": "sha256:ad64d4a99a2d92eccca08ed4c27835b56b0a46397198ac3af4ec02d368d3bcea",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "parity-gcd-lemma",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:ef9034d1383f768ba18baecf8fa4c68b25615317ae050985a510ec8c2eaced72"
+  },
+  "assumption_snapshot_hash": "sha256:ef9034d1383f768ba18baecf8fa4c68b25615317ae050985a510ec8c2eaced72",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:6118cce76dc5d8197110a300f7f4a1b1c0459bacb059274de488005e9c05efad"
+    }
+  ],
+  "authority_binding_hash": "sha256:8662ad2101e6caa1d8af94bc7f4af0a6b8bee79122477a5dfde8a8ca90734520",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:fdbf11e4174d8fc6a44a4b1d95c21b6381ac370f0ef322d664b70c9fcca0f7b9",
+  "captured_status": "OPEN",
+  "captured_at": "2026-08-23T18:25:33+00:00",
+  "project_record_hash": "sha256:e878b8aecd8440269e80cf4fc38c45df1ecf921b22436cbbc7c778b42093e5cd",
+  "claim_snapshot_hash": "sha256:abeebb0b0bf421626e850048fc1d2e957c24b7ff2c41205608923466e9039920"
+}

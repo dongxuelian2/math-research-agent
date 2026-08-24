@@ -54,7 +54,16 @@ class ResearchEngine:
         self.steps_dir = self.work_dir / "steps"
         self.steps_dir.mkdir(exist_ok=True)
         self.metrics: dict[str, object] = {}
-        self._step = 0
+        self._step = max(
+            (
+                int(path.name.removeprefix("step_"))
+                for path in self.steps_dir.iterdir()
+                if path.is_dir()
+                and path.name.startswith("step_")
+                and path.name.removeprefix("step_").isdigit()
+            ),
+            default=0,
+        )
         self._lock = threading.Lock()
 
     def run(self) -> Path | None:

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "routes": [
+    {
+      "id": "route-unbounded-primality",
+      "strategy": "universal-primality-upgrade",
+      "target": "bounded-euler-polynomial",
+      "obtained": "A finite observation was presented as a universal proof.",
+      "failure_point": "n=41 gives 41^2",
+      "insufficiency": "The candidate omitted the theorem's finite boundary and had no authority for the universal lemma.",
+      "recovery_conditions": "Restore 0 <= n <= 39 and provide a replayable finite certificate.",
+      "theorem_ids": [
+        "bounded-euler-polynomial"
+      ],
+      "tags": [
+        "counterexample",
+        "repairable",
+        "showcase"
+      ],
+      "status": "FAILED_ROUTE",
+      "last_updated": "2026-08-23T15:54:38+00:00"
+    }
+  ]
+}

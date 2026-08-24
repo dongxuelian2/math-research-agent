@@ -1,0 +1,18 @@
+{
+  "blocker_refs": [],
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:bb3da3e96a6c6d95b348b6baacc7a7216a166e07ad88dbe743c7b014863165d3",
+  "disposition_id": "od-5cc91d7a956e72d6c7f5f3b6",
+  "evidence_refs": [],
+  "object_type": "OBLIGATION_DISPOSITION",
+  "obligation_hash": "sha256:1025358f0bc6c45ff2bb20e70458de21f258320060e7024f4a8947bcc91bbd3d",
+  "obligation_id": "ro-coprime-square-lemma-root",
+  "previous_disposition_hash": null,
+  "reason": "initial research frontier",
+  "recorded_at": "2026-08-23T18:26:45+00:00",
+  "recorded_by": "ResearchOrchestrator",
+  "resolution_basis": "",
+  "route_failure_refs": [],
+  "schema_version": 1,
+  "superseded_by": []
+}

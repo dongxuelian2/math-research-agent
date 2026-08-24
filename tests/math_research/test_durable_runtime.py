@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import sqlite3
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -178,6 +179,25 @@ def test_d3_intent_and_outbox_are_durable_before_provider_invocation(tmp_path: P
     assert observed["attempts"][0]["state"] == "RUNNING"
     assert observed["outbox"][0]["state"] == "DISPATCHED"
     assert response["runtime"]["accepted"] is True
+
+
+def test_durable_dispatch_renews_lease_during_slow_provider_call(tmp_path: Path):
+    backend = SQLiteRuntimeBackend(tmp_path / "project")
+    job = _job(backend)
+
+    response = DurableProviderDispatcher(backend, lease_ttl_seconds=0.15).execute(
+        logical_job_id=job["logical_job_id"],
+        provider="mock",
+        model="slow-mock",
+        reasoning_tier="research",
+        payload={"prompt": "bounded"},
+        invoke=lambda: time.sleep(0.4) or {"result": "still-live"},
+    )
+
+    attempt = backend.list_rows("attempts")[0]
+    assert response["runtime"]["accepted"] is True
+    assert attempt["state"] == AttemptState.COMPLETED
+    assert attempt["heartbeat_at"] is not None
 
 
 def test_d4_outbox_survives_crash_before_dispatch(tmp_path: Path):

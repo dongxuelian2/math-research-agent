@@ -16,6 +16,7 @@ from typing import Any
 
 from .canonical_artifacts import authority_promotion_decision
 from .project import ProjectError, utc_now
+from .timeline import ProjectTimeline
 from .pipeline_primitives import (
     AtomicResourceBudget,
     DISPATCHABLE_TASK_STATUSES,
@@ -37,13 +38,28 @@ class AsyncDAGScheduler:
         *,
         state: dict | None = None,
         state_path: str | Path | None = None,
+        timeline_path: str | Path | None = None,
+        project_id: str = "",
+        run_id: str = "",
+        parent_run_id: str = "",
         config: dict | None = None,
     ):
         self.state_path = Path(state_path) if state_path else None
+        self.timeline = (
+            ProjectTimeline(Path(timeline_path).parent, path=timeline_path)
+            if timeline_path
+            else None
+        )
         loaded_from_disk = state is None and bool(self.state_path and self.state_path.exists())
         if state is None and self.state_path and self.state_path.exists():
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
         self.state = initialize_pipeline_state(state)
+        if project_id:
+            self.state["project_id"] = str(project_id)
+        if run_id:
+            self.state["run_id"] = str(run_id)
+        if parent_run_id:
+            self.state["parent_run_id"] = str(parent_run_id)
         self.config = copy.deepcopy(config or {})
         self._lock = threading.RLock()
         self.runtime = None
@@ -1461,15 +1477,39 @@ class AsyncDAGScheduler:
     def _event(self, event_type: str, obligation_id: str, payload: dict | None = None) -> None:
         number = int(self.state["next_event_number"])
         self.state["next_event_number"] = number + 1
-        self.state["events"].append(
-            {
-                "event_id": f"event-{number:08d}",
-                "type": event_type,
-                "obligation_id": obligation_id,
-                "payload": copy.deepcopy(payload or {}),
-                "created_at": utc_now(),
-            }
-        )
+        event = {
+            "event_id": f"event-{number:08d}",
+            "type": event_type,
+            "obligation_id": obligation_id,
+            "payload": copy.deepcopy(payload or {}),
+            "created_at": utc_now(),
+        }
+        self.state["events"].append(event)
+        if self.timeline is not None:
+            status = (
+                "STARTED"
+                if event_type.endswith("STARTED") or event_type == "TASK_READY"
+                else "FAILED"
+                if "FAILED" in event_type or "ERROR" in event_type
+                else "COMPLETED"
+                if "COMPLETED" in event_type or event_type == "TASK_COMPLETED"
+                else "PROGRESS"
+            )
+            self.timeline.append(
+                kind="PIPELINE_EVENT",
+                action=event_type,
+                status=status,
+                summary=f"{event_type} · {obligation_id}",
+                project_id=str(self.state.get("project_id", "")),
+                run_id=str(self.state.get("run_id", "")),
+                parent_run_id=str(self.state.get("parent_run_id", "")),
+                theorem_id=str(obligation_id),
+                role="pipeline",
+                event_id=(
+                    f"{self.state.get('run_id', 'pipeline')}:{event['event_id']}"
+                ),
+                payload=event,
+            )
 
     def _config(self, key: str, default: Any) -> Any:
         routing = self.config.get("routing", {})

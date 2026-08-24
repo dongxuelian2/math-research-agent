@@ -136,6 +136,7 @@ class GeminiClient:
         archive_dir: Path,
         *,
         api_key: str | None = None,
+        base_url: str | None = None,
         project: str | None = None,
         location: str = "us-central1",
         access_token: str | None = None,
@@ -174,6 +175,7 @@ class GeminiClient:
         self.project = project
         self.location = location
         self.api_key = api_key
+        self.base_url = base_url.rstrip("/") if base_url else None
         self.access_token = access_token
         self.vertex = bool(vertex)
         self.timeout_seconds = float(timeout_seconds)
@@ -455,7 +457,16 @@ class GeminiClient:
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
         configured_tools = list(tools or [])
-        if web_search:
+        has_local_web_search = any(
+            any(
+                declaration.get("name") == "web_search"
+                for declaration in item.get("functionDeclarations", [])
+                if isinstance(declaration, dict)
+            )
+            for item in configured_tools
+            if isinstance(item, dict)
+        )
+        if web_search and not has_local_web_search:
             configured_tools.append({"google_search": {}})
         if configured_tools:
             payload["tools"] = configured_tools
@@ -471,8 +482,9 @@ class GeminiClient:
                 f"models/{model}:generateContent"
             )
         model = urllib.parse.quote(self.model, safe=".-_")
+        base_url = self.base_url or "https://generativelanguage.googleapis.com/v1beta"
         return (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{base_url}/models/"
             f"{model}:generateContent?key={urllib.parse.quote(str(self.api_key), safe='')}"
         )
 

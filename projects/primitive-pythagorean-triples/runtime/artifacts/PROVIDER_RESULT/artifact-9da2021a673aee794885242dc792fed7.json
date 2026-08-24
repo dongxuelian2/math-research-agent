@@ -1,0 +1,20 @@
+{
+  "result": "I will ask three workers to pursue independent checks.\n\n<MRA_ACTION>\naction = \"spawn\"\n\n[[tasks]]\nsummary = \"Inductive route\"\ndescription = \"\"\"Prove the stated odd-sum identity by induction, explicitly handling n=0 and using only the allowed dependency demo-next-square.\"\"\"\n\n[[tasks]]\nsummary = \"Telescoping route\"\ndescription = \"\"\"Explore the distinct telescoping-square route (k^2-(k-1)^2=2k-1) and report a complete proof or exact obstruction.\"\"\"\n\n[[tasks]]\nsummary = \"Adversarial boundary check\"\ndescription = \"\"\"Act adversarially: test n=0, n=1, the empty-sum convention, indexing, and any hidden assumptions. Seek a counterexample rather than helping the proof.\"\"\"\n</MRA_ACTION>",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "planner_step_1",
+    "usage": {
+      "input_tokens": 1424,
+      "output_tokens": 170
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1424,
+    "output_tokens": 170
+  }
+}

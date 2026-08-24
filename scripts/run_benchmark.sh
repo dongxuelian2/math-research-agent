@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="${1:-$ROOT_DIR/configs/benchmarks/gemini-observatory-v1.json}"
-CONFIG="${GEMINI_CONFIG:-$ROOT_DIR/configs/models.gemini.example.json}"
+CONFIG="${MATH_RESEARCH_CONFIG:-$ROOT_DIR/configs/models.toml}"
 OUTPUT="${BENCHMARK_OUTPUT:-$ROOT_DIR/benchmark-results/$(date +%Y%m%d-%H%M%S)}"
 
 if [[ ! -f "$MANIFEST" ]]; then
@@ -12,7 +12,7 @@ if [[ ! -f "$MANIFEST" ]]; then
   exit 2
 fi
 if [[ ! -f "$CONFIG" ]]; then
-  printf 'Gemini config not found: %s\n' "$CONFIG" >&2
+  printf 'Model config not found: %s\n' "$CONFIG" >&2
   exit 2
 fi
 

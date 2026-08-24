@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-23T18:37:59+00:00",
+  "theorems": [
+    {
+      "id": "coprime-square-lemma",
+      "title": "A square with coprime factors has square factors",
+      "status": "PARTIAL",
+      "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+      "dependencies": [],
+      "tags": [
+        "number-theory",
+        "square-factors",
+        "unique-factorization"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "NOT_AUDITED",
+      "last_updated": "2026-08-23T18:30:10+00:00",
+      "notation_scope": ""
+    },
+    {
+      "id": "euclid-backward-construction",
+      "title": "Euclid parameters always generate a primitive triple",
+      "status": "PARTIAL",
+      "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+      "dependencies": [],
+      "tags": [
+        "converse",
+        "euclid-formula",
+        "primitive-triple"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "NOT_AUDITED",
+      "last_updated": "2026-08-23T18:36:42+00:00",
+      "notation_scope": ""
+    },
+    {
+      "id": "euclid-forward-derivation",
+      "title": "Every primitive triple has a Euclid parameterization",
+      "status": "PARTIAL",
+      "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+      "dependencies": [
+        "parity-gcd-lemma",
+        "coprime-square-lemma"
+      ],
+      "tags": [
+        "euclid-formula",
+        "forward-direction",
+        "pythagorean-triples"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "NOT_AUDITED",
+      "last_updated": "2026-08-23T18:34:31+00:00",
+      "notation_scope": ""
+    },
+    {
+      "id": "parity-gcd-lemma",
+      "title": "Parity and pairwise coprimality of primitive triples",
+      "status": "PARTIAL",
+      "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+      "dependencies": [],
+      "tags": [
+        "coprime",
+        "parity",
+        "pythagorean-triples"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "NOT_AUDITED",
+      "last_updated": "2026-08-23T18:26:45+00:00",
+      "notation_scope": ""
+    },
+    {
+      "id": "primitive-triple-classification-theorem",
+      "title": "Complete classification of primitive Pythagorean triples",
+      "status": "PARTIAL",
+      "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+      "dependencies": [
+        "euclid-forward-derivation",
+        "euclid-backward-construction"
+      ],
+      "tags": [
+        "classification",
+        "euclid-formula",
+        "main-theorem"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "NOT_AUDITED",
+      "last_updated": "2026-08-23T18:37:59+00:00",
+      "notation_scope": ""
+    },
+    {
+      "id": "purpose-analysis",
+      "title": "Purpose analysis obligation",
+      "status": "REJECTED",
+      "source_file": "runs/orchestrator/20260823-173241-890946/project_plan.json",
+      "dependencies": [],
+      "tags": [
+        "mock",
+        "orchestrator"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE",
+      "audit_status": "FAIL",
+      "last_updated": "2026-08-23T17:32:42+00:00",
+      "notation_scope": ""
+    }
+  ]
+}

@@ -14,6 +14,7 @@ from math_research_agent.research.openai_provider import (
 )
 from math_research_agent.providers.responses import ResponsesRequest
 from math_research_agent.research.project import ProjectError
+from math_research_agent.research.schemas import strict_json_schema_for
 from math_research_agent.research.providers import (
     create_client,
     load_model_config,
@@ -22,11 +23,13 @@ from math_research_agent.research.providers import (
 
 
 class FakeResponse:
-    def __init__(self, text="OK", *, output=None, status="completed"):
+    def __init__(self, text="OK", *, output=None, status="completed", incomplete_reason=None):
         self.output_text = text
         self.output = output or []
         self.status = status
-        self.incomplete_details = None
+        self.incomplete_details = (
+            SimpleNamespace(reason=incomplete_reason) if incomplete_reason else None
+        )
         self.error = None
         self.usage = SimpleNamespace(
             input_tokens=11,
@@ -74,6 +77,21 @@ class FakeClient:
 
 class StructuredContract(BaseModel):
     verdict: str
+    note: str = ""
+
+
+class NestedStructuredContract(BaseModel):
+    required: str
+    optional: str = ""
+
+
+class StructuredEnvelope(BaseModel):
+    item: NestedStructuredContract
+    items: list[NestedStructuredContract] = []
+
+
+class FreeFormContract(BaseModel):
+    values: dict[str, object] = {}
 
 
 def make_client(tmp_path, fake, **kwargs):
@@ -82,7 +100,7 @@ def make_client(tmp_path, fake, **kwargs):
         tmp_path,
         api_key="sk-test-secret",
         role_name="planner",
-        reasoning_effort="high",
+        reasoning_effort=kwargs.pop("reasoning_effort", "high"),
         timeout_seconds=17,
         max_retries=kwargs.pop("max_retries", 2),
         retry_base_seconds=0,
@@ -177,7 +195,30 @@ def test_pydantic_response_contract_is_materialized_as_responses_json_schema(tmp
     )
     schema = fake.calls[0]["text"]["format"]["schema"]
     assert schema["properties"]["verdict"]["type"] == "string"
+    assert schema["required"] == ["verdict", "note"]
+    assert "default" not in schema["properties"]["note"]
+    assert response["structured_output_mode"] == "strict_json_schema"
     assert response["result"] == '{"verdict":"PASS"}'
+
+
+def test_strict_schema_lowering_is_recursive_and_provider_portable():
+    schema = strict_json_schema_for(StructuredEnvelope)
+    assert schema["required"] == ["item", "items"]
+    assert schema["additionalProperties"] is False
+    nested = schema["$defs"]["NestedStructuredContract"]
+    assert nested["required"] == ["required", "optional"]
+    assert nested["additionalProperties"] is False
+    assert "default" not in nested["properties"]["optional"]
+
+
+def test_free_form_mapping_falls_back_to_json_object_mode(tmp_path):
+    fake = FakeClient([FakeResponse('{"values": {"answer": 1}}')])
+    response = make_client(tmp_path, fake).call(
+        "return JSON", "system", response_schema=FreeFormContract
+    )
+    assert fake.calls[0]["text"] == {"format": {"type": "json_object"}}
+    assert response["structured_output_mode"] == "json_object_fallback"
+    assert response["result"] == '{"values": {"answer": 1}}'
 
 
 def test_streaming_and_tool_call_parsing(tmp_path):
@@ -208,6 +249,84 @@ def test_streaming_and_tool_call_parsing(tmp_path):
     assert chunks == [("stream", "text"), ("ed", "text")]
     assert response["finish_reason"] == "tool_calls"
     assert response["tool_calls"][0]["function"]["name"] == "lean_verify"
+
+
+def test_openai_tool_loop_executes_local_function(tmp_path):
+    first = FakeResponse(
+        "",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                call_id="call_1",
+                id="item_1",
+                name="read",
+                arguments='{"path":"README.md"}',
+            )
+        ],
+    )
+    fake = FakeClient([first, FakeResponse("done")])
+    seen = []
+
+    def execute(name, args):
+        seen.append((name, args))
+        return {"status": "OK", "content": "README"}
+
+    client = make_client(tmp_path, fake, tool_executor=execute)
+    response = client.call(
+        "inspect the readme",
+        "Use tools when needed.",
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "read",
+                    "description": "read",
+                    "parameters": {"type": "object"},
+                },
+            }
+        ],
+    )
+
+    assert seen == [("read", {"path": "README.md"})]
+    assert response["result"] == "done"
+    assert response["tool_rounds"] == 1
+    assert fake.calls[1]["input"][-1]["type"] == "function_call_output"
+
+
+def test_incomplete_response_is_reported_at_provider_boundary(tmp_path):
+    fake = FakeClient(
+        [FakeResponse("", status="incomplete", incomplete_reason="max_output_tokens")]
+    )
+    client = make_client(tmp_path, fake, max_retries=0)
+    with pytest.raises(OpenAIProviderError) as caught:
+        client.call("return JSON", "system", response_schema=StructuredContract)
+    assert caught.value.details["error_type"] == "response_incomplete"
+    assert "max_output_tokens" in caught.value.details["upstream_message"]
+    assert "complete response" in caught.value.details["human_explanation"]
+
+
+def test_incomplete_reasoning_budget_downshifts_and_retries(tmp_path):
+    fake = FakeClient(
+        [
+            FakeResponse("", status="incomplete", incomplete_reason="max_output_tokens"),
+            FakeResponse('{"verdict":"PASS","note":"done"}'),
+        ]
+    )
+    client = make_client(
+        tmp_path,
+        fake,
+        reasoning_effort=None,
+        max_retries=1,
+        max_output_tokens=32768,
+    )
+
+    result = client.call("return JSON", "system", response_schema=StructuredContract)
+
+    assert result["result"] == '{"verdict":"PASS","note":"done"}'
+    assert result["retry_count"] == 1
+    assert client.total_retries == 1
+    assert "reasoning" not in fake.calls[0]
+    assert fake.calls[1]["reasoning"] == {"effort": "none"}
 
 
 def test_retryable_429_is_bounded_and_reported(tmp_path):
@@ -285,25 +404,46 @@ def config_data(provider="openai", effort="low"):
     }
 
 
+def write_toml_config(path, config):
+    roles = config["roles"]
+    first = next(iter(roles.values()))
+    model = {
+        key: first[key]
+        for key in ("provider", "model", "base_url", "base_url_env", "api_key", "api_key_env")
+        if key in first and first[key] is not None
+    }
+    lines = ["version = 1", "", "[models.test]", "provider = " + json.dumps(model["provider"])]
+    if model.get("model") is not None:
+        lines.append("model = " + json.dumps(model["model"]))
+    for key in ("base_url", "base_url_env", "api_key", "api_key_env"):
+        if key in model:
+            lines.append(f"{key} = {json.dumps(model[key])}")
+    for role_name, role in roles.items():
+        lines.extend(["", f"[roles.{role_name}]", 'model = "test"'])
+        for key, value in role.items():
+            if key in model or key in {"provider", "model"} or value is None:
+                continue
+            lines.append(f"{key} = {json.dumps(value)}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 def test_config_parsing_role_aliases_and_validation(tmp_path):
-    path = tmp_path / "models.json"
-    path.write_text(json.dumps(config_data()), encoding="utf-8")
+    path = tmp_path / "models.toml"
+    write_toml_config(path, config_data())
     config = load_model_config(path)
     assert resolve_role_config(config, "counterexample_hunter") is config["roles"]["counterexample"]
     assert resolve_role_config(config, "dependency_auditor") is config["roles"]["auditor"]
 
     invalid = config_data(provider="unknown")
-    path.write_text(json.dumps(invalid), encoding="utf-8")
+    write_toml_config(path, invalid)
     with pytest.raises(ProjectError, match="Unsupported provider"):
         load_model_config(path)
 
     invalid = config_data(effort="minimal")
-    path.write_text(json.dumps(invalid), encoding="utf-8")
+    write_toml_config(path, invalid)
     with pytest.raises(ProjectError, match="reasoning_effort"):
         load_model_config(path)
 
 
-def test_missing_key_and_key_in_config_are_rejected(tmp_path, monkeypatch):
+def test_missing_key_and_direct_key_in_config_are_supported(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     role = config_data()["roles"]["planner"]
     with pytest.raises(ProjectError, match="OPENAI_API_KEY"):
@@ -311,10 +451,9 @@ def test_missing_key_and_key_in_config_are_rejected(tmp_path, monkeypatch):
 
     config = config_data()
     config["roles"]["planner"]["api_key"] = "must-not-be-here"
-    path = tmp_path / "models.json"
-    path.write_text(json.dumps(config), encoding="utf-8")
-    with pytest.raises(ProjectError, match="must not contain api_key"):
-        load_model_config(path)
+    path = tmp_path / "models.toml"
+    write_toml_config(path, config)
+    assert load_model_config(path)["roles"]["planner"]["api_key"] == "must-not-be-here"
 
 
 def test_openai_compatible_config_accepts_arbitrary_model_and_endpoint_env(tmp_path):
@@ -322,12 +461,12 @@ def test_openai_compatible_config_accepts_arbitrary_model_and_endpoint_env(tmp_p
     for role in config["roles"].values():
         role["base_url_env"] = "LOCAL_RESPONSES_BASE_URL"
         role["api_key_env"] = "LOCAL_RESPONSES_KEY"
-    path = tmp_path / "models.json"
-    path.write_text(json.dumps(config), encoding="utf-8")
+    path = tmp_path / "models.toml"
+    write_toml_config(path, config)
     loaded = load_model_config(path)
     assert loaded["roles"]["planner"]["model"] == "configured-model"
 
     invalid = config_data(provider="openai_compatible")
-    path.write_text(json.dumps(invalid), encoding="utf-8")
+    write_toml_config(path, invalid)
     with pytest.raises(ProjectError, match="base_url or base_url_env"):
         load_model_config(path)

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "euclid-backward-construction",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "euclid-backward-construction",
+    "canonical_statement": "For all positive integers m and n with m > n, gcd(m,n) = 1, and m and n of opposite parity, if a = m^2 - n^2, b = 2mn, and c = m^2 + n^2, then a, b, c are positive integers satisfying a^2 + b^2 = c^2 and gcd(a,b,c) = 1.",
+    "claim_type": "implication",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:b705f73fcac2b870f6d463a590238cc9af452a0e0a51fb981928f4f1a12252b8"
+  },
+  "assertion_identity_hash": "sha256:b705f73fcac2b870f6d463a590238cc9af452a0e0a51fb981928f4f1a12252b8",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:b705f73fcac2b870f6d463a590238cc9af452a0e0a51fb981928f4f1a12252b8",
+    "dependencies": [],
+    "dependency_snapshot_hash": "sha256:8e0d5da04ed84f4a06a1289bdf464b7be9624fb6df9b20fbcb691eb0a17ca06a"
+  },
+  "dependency_snapshot_hash": "sha256:8e0d5da04ed84f4a06a1289bdf464b7be9624fb6df9b20fbcb691eb0a17ca06a",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "euclid-backward-construction",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:ca70a884f5304af38bf2be6d7605bdea64175a17387f009bae127f620ef3442b"
+  },
+  "assumption_snapshot_hash": "sha256:ca70a884f5304af38bf2be6d7605bdea64175a17387f009bae127f620ef3442b",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:b705f73fcac2b870f6d463a590238cc9af452a0e0a51fb981928f4f1a12252b8",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:5a27169c40a9809c2e2db306ead65938650448ba119673f7612a6c832123ca8e"
+    }
+  ],
+  "authority_binding_hash": "sha256:03e55c1e33e9b32244941e9cf8e1037934df8f4ff5fd59908380414bdaef0def",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:a1120af8b9b87a81f815ec86f72b5fbf85341808ec7576f4267c392a460c4f25",
+  "captured_status": "PARTIAL",
+  "captured_at": "2026-08-23T18:36:42+00:00",
+  "project_record_hash": "sha256:2c57038f6ddfeba1f20ab651e9852d625fd1669ebf48999e82e777ca6bce3937",
+  "claim_snapshot_hash": "sha256:f57f88584fdef8714c5bfab319d6adf4b2d53209ba906ee657819d49873d3baa"
+}

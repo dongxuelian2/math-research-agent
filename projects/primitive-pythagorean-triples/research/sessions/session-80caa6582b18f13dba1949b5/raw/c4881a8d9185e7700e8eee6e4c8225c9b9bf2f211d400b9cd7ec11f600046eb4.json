@@ -1,0 +1,34 @@
+{
+  "forward_implication": true,
+  "converse_if_applicable": true,
+  "exhaustive_cases": true,
+  "parameter_ranges": true,
+  "boundary_cases": true,
+  "dependencies_valid": false,
+  "no_counterexample": true,
+  "auditors_pass": false,
+  "final_auditor_pass": true,
+  "computational_evidence_separated": true,
+  "failure_reasons": [
+    "(n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json",
+    "Mock auditors cannot promote a non-demo project to PROVED"
+  ],
+  "execution_errors": [],
+  "inconclusive_audits": [],
+  "dependency_report": {
+    "foundations": [],
+    "semantics": [],
+    "project_theorems": [],
+    "local_proofs": [],
+    "computational_certificates": [],
+    "foundation_ids_used": [],
+    "missing_authorities": [],
+    "errors": [
+      "(n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json"
+    ],
+    "admissible": false
+  },
+  "audited_claim_snapshot_hash": "sha256:e899061450a999a70bcf27a588ebfd9be1be3c6cdd25d87271280a91946cd551",
+  "outcome": "MATHEMATICAL_FAIL",
+  "passed": false
+}

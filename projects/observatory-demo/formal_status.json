@@ -1,0 +1,8 @@
+{
+  "schema_version": 3,
+  "status": "PENDING_FORMALIZATION",
+  "agent": "formalization_agent",
+  "tool": "lean_verify",
+  "certificate": "",
+  "note": "The natural-language gate is complete; the optional Lean lane is visible but not claimed as run by the local replay."
+}

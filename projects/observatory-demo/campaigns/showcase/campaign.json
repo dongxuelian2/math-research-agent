@@ -1,0 +1,13 @@
+{
+  "schema_version": 3,
+  "campaign_id": "showcase",
+  "target_id": "bounded-euler-polynomial",
+  "status": "PROVED",
+  "runs": [
+    "run-01-hidden-defect",
+    "run-02-repair"
+  ],
+  "failed_route": "route-unbounded-primality",
+  "parent_run_id": "run-01-hidden-defect",
+  "successor_run_id": "run-02-repair"
+}

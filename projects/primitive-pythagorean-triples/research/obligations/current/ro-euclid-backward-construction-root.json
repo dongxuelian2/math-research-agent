@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_OBLIGATION_CURRENT_PROJECTION",
+  "obligation_id": "ro-euclid-backward-construction-root",
+  "obligation_hash": "sha256:117029d8037596251c80b37efd184fa125fe599663230e4bc40e348a0800f29d",
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:2834bcd5f5b010b543eccd17898af59a7e9216b2682f101cf73124d25b75b03a",
+  "research_map_id": "map-euclid-backward-construction-20260824-023431",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:dbd988f6c0f29a3dbf4bbc8c5ec6a08e2706586dd0f8bec35340fbc5d43f8c4f"
+}

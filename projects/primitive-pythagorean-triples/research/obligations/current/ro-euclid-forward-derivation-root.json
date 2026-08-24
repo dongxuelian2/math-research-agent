@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_OBLIGATION_CURRENT_PROJECTION",
+  "obligation_id": "ro-euclid-forward-derivation-root",
+  "obligation_hash": "sha256:14ff2acbfa4d60581fdfc3a7246dae934605e43223fc2f381dd79714086e882f",
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:648b8502d2049b12b11a48b3bd6aaa0bed7ea5bbe8dbe78a1c3782835411adfd",
+  "research_map_id": "map-euclid-forward-derivation-20260824-023010",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:859b81e0d9bddf814df3b4a9558ff8968cddfd9e6932db0a91e2b3f833adade8"
+}

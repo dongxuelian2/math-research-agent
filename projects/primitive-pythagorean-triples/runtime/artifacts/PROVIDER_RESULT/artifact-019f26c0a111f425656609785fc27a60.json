@@ -1,0 +1,20 @@
+{
+  "result": "No counterexample occurs at n=0 or n=1. Indexing and the empty-sum convention are consistent; no division or gcd assumptions occur.\n\n<!-- MRA_WORKER_EVENT\n{\"event\":\"COMPLETED\",\"verdict\":\"CORRECT\",\"failure_kind\":\"\",\"details\":[],\"progress_signals\":[],\"literature_request\":null,\"high_value\":false}\n-->",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "worker_2",
+    "usage": {
+      "input_tokens": 1420,
+      "output_tokens": 74
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1420,
+    "output_tokens": 74
+  }
+}

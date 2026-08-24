@@ -1,0 +1,20 @@
+{
+  "result": "Induction proves the identity, with base n=0 and step using (n+1)^2=n^2+2n+1. No computational evidence is needed.\n\n<!-- MRA_WORKER_EVENT\n{\"event\":\"PROGRESS\",\"verdict\":\"CORRECT\",\"failure_kind\":\"\",\"details\":[],\"progress_signals\":[\"VERIFIED_LEMMA\"],\"literature_request\":null,\"high_value\":true}\n-->",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "worker_0",
+    "usage": {
+      "input_tokens": 1414,
+      "output_tokens": 73
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1414,
+    "output_tokens": 73
+  }
+}

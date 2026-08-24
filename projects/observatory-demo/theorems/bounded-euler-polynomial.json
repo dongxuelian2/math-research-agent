@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "bounded-euler-polynomial",
+  "title": "Euler polynomial on a finite boundary",
+  "status": "PROVED",
+  "source_file": "sources/bounded_euler_polynomial.md",
+  "statement": "For every integer n with 0 <= n <= 39, n^2 + n + 41 is prime.",
+  "dependencies": [],
+  "downstream_dependents": [],
+  "tags": [
+    "counterexample",
+    "finite-certificate",
+    "showcase"
+  ],
+  "branch": "main",
+  "proof_type": "NATURAL_LANGUAGE_WITH_CERTIFICATE",
+  "claim_type": "implication",
+  "notation_scope": "",
+  "audit_status": "PASS",
+  "created_at": "2026-08-23T15:54:38+00:00",
+  "last_updated": "2026-08-23T15:54:38+00:00",
+  "status_history": [
+    {
+      "from": null,
+      "to": "OPEN",
+      "actor": "Human",
+      "reason": "Theorem record created",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "OPEN",
+      "to": "IN_RESEARCH",
+      "actor": "MasterPlanner",
+      "reason": "showcase route started",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "IN_RESEARCH",
+      "to": "CANDIDATE_PROOF",
+      "actor": "MasterPlanner",
+      "reason": "candidate assembled",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "CANDIDATE_PROOF",
+      "to": "AUDITING",
+      "actor": "MasterPlanner",
+      "reason": "candidate sent to independent gate",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "AUDITING",
+      "to": "REJECTED",
+      "actor": "Archivist",
+      "reason": "independent audit gate rejected candidate",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "REJECTED",
+      "to": "IN_RESEARCH",
+      "actor": "MasterPlanner",
+      "reason": "FAILED_ROUTE launched bounded repair",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "IN_RESEARCH",
+      "to": "CANDIDATE_PROOF",
+      "actor": "MasterPlanner",
+      "reason": "repaired candidate assembled",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "CANDIDATE_PROOF",
+      "to": "AUDITING",
+      "actor": "MasterPlanner",
+      "reason": "repaired candidate sent to independent gate",
+      "at": "2026-08-23T15:54:38+00:00"
+    },
+    {
+      "from": "AUDITING",
+      "to": "PROVED",
+      "actor": "Archivist",
+      "reason": "repaired candidate passed all deterministic and independent audit gates",
+      "at": "2026-08-23T15:54:38+00:00"
+    }
+  ]
+}

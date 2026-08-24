@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_MAP_CURRENT_PROJECTION",
+  "research_map_id": "map-euclid-forward-derivation-20260824-023010",
+  "version": 1,
+  "research_map_hash": "sha256:5d098c63b5b9abd4d060d5243f128b5a92ad2b23efe6229b0a9b4e534f6bfd0b",
+  "root_claim_snapshot_hash": "sha256:859b81e0d9bddf814df3b4a9558ff8968cddfd9e6932db0a91e2b3f833adade8",
+  "open_obligation_ids": [
+    "ro-euclid-forward-derivation-root"
+  ]
+}

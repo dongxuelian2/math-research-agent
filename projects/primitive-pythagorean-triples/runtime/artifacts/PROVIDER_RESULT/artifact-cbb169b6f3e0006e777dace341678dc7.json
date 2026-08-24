@@ -1,0 +1,4 @@
+{
+  "route_description": "main: Mock auditors cannot promote a non-demo project to PROVED",
+  "exact_failure_condition": "Mock auditors cannot promote a non-demo project to PROVED; Repair the exact recorded obligation; do not reopen the whole theorem."
+}

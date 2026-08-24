@@ -1,0 +1,857 @@
+{
+  "planner": {
+    "calls": 2,
+    "cost_usd": 0.0,
+    "wall_clock_seconds": 0.178,
+    "success": true,
+    "retry_count": 0,
+    "provider_retry_count": 0,
+    "api_request_count": 0,
+    "billing_mode": "gemini_heterogeneous",
+    "usage": {
+      "input_tokens": 3070,
+      "output_tokens": 591,
+      "reasoning_tokens": 0,
+      "cached_tokens": 0
+    }
+  },
+  "worker_and_verifier": {
+    "calls": 6,
+    "worker_calls": 3,
+    "verifier_calls": 3,
+    "output_tokens": 1007,
+    "cost_usd": 0.0,
+    "success": true,
+    "retry_count": 0,
+    "provider_retry_count": 0,
+    "api_request_count": 0,
+    "billing_mode": "gemini_heterogeneous",
+    "usage": {
+      "input_tokens": 8630,
+      "output_tokens": 416,
+      "reasoning_tokens": 0,
+      "cached_tokens": 0
+    }
+  },
+  "routing": {
+    "schema_version": 2,
+    "next_call_number": 15,
+    "obligations": {},
+    "calls": [
+      {
+        "call_id": "call-00000001",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "planner",
+        "requested_tier": "strategic",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "strategic",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "strategic",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 2,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:41+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1424,
+          "output_tokens": 170,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000002",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "worker",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1414,
+          "output_tokens": 73,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000003",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "worker",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1411,
+          "output_tokens": 74,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000004",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "worker",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1420,
+          "output_tokens": 74,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000005",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "worker_verifier",
+        "requested_tier": "routine",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "routine",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "routine",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 0,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1461,
+          "output_tokens": 65,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000006",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "worker_verifier",
+        "requested_tier": "routine",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "routine",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "routine",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 0,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1462,
+          "output_tokens": 65,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000007",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "worker_verifier",
+        "requested_tier": "routine",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "routine",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "routine",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 0,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1462,
+          "output_tokens": 65,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000008",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "planner",
+        "requested_tier": "strategic",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "strategic",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "strategic",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 2,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1646,
+          "output_tokens": 421,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000009",
+        "parent_call_id": null,
+        "obligation_id": "purpose-analysis",
+        "role": "theorem_verifier",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "ERROR",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "error": "mock structured response is not a complete JSON document",
+        "usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000010",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "counterexample_hunter",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1740,
+          "output_tokens": 91,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000011",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "dependency_auditor",
+        "requested_tier": "routine",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "routine",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "routine",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 0,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1740,
+          "output_tokens": 130,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000012",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "exhaustiveness_auditor",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1740,
+          "output_tokens": 92,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000013",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "boundary_auditor",
+        "requested_tier": "research",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "research",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "research",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 1,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 1740,
+          "output_tokens": 90,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      },
+      {
+        "call_id": "call-00000014",
+        "parent_call_id": null,
+        "obligation_id": null,
+        "role": "final_proof_auditor",
+        "requested_tier": "strategic",
+        "requested_provider": "mock",
+        "requested_model": "mock",
+        "tier": "strategic",
+        "provider": "mock",
+        "model": "mock",
+        "actual_tier": "strategic",
+        "actual_provider": "mock",
+        "actual_model": "mock",
+        "reasoning_effort": null,
+        "escalation_level": 2,
+        "escalation_reason": null,
+        "branch_id": null,
+        "fallback": false,
+        "fallback_reason": null,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "status": "COMPLETE",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "usage": {
+          "input_tokens": 2753,
+          "output_tokens": 139,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0
+        }
+      }
+    ],
+    "usage_by_tier": {
+      "routine": {
+        "calls": 4,
+        "input_tokens": 6125,
+        "output_tokens": 325,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "research": {
+        "calls": 7,
+        "input_tokens": 9465,
+        "output_tokens": 494,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      },
+      "strategic": {
+        "calls": 3,
+        "input_tokens": 5823,
+        "output_tokens": 730,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0
+      }
+    },
+    "calls_by_model": {
+      "mock": 14
+    },
+    "calls_by_role": {
+      "planner": 2,
+      "worker": 3,
+      "worker_verifier": 3,
+      "theorem_verifier": 1,
+      "counterexample_hunter": 1,
+      "dependency_auditor": 1,
+      "exhaustiveness_auditor": 1,
+      "boundary_auditor": 1,
+      "final_proof_auditor": 1
+    },
+    "escalations": 0,
+    "escalations_by_reason": {},
+    "fallbacks": 0,
+    "strategic_interventions": 0,
+    "verifier_disagreements": 0,
+    "strategic_reservations": {
+      "total": 3,
+      "by_step": {
+        "1": 1,
+        "2": 1,
+        "<none>": 1
+      },
+      "by_obligation": {
+        "<none>": 3
+      }
+    }
+  },
+  "pipelines": {
+    "schema_version": 3,
+    "next_task_number": 3,
+    "next_event_number": 7,
+    "obligations": {
+      "purpose-analysis": {
+        "obligation_id": "purpose-analysis",
+        "target_statement": "Derive and verify the first exact consequence required by the project purpose.",
+        "statement": "Derive and verify the first exact consequence required by the project purpose.",
+        "normalized_statement": "derive and verify the first exact consequence required by the project purpose.",
+        "branch_id": "main",
+        "parent_obligation_id": null,
+        "created_by_call_id": null,
+        "created_by_role": null,
+        "dependencies": [],
+        "dependents": [],
+        "risk_level": "normal",
+        "impact_level": "normal",
+        "current_tier": "routine",
+        "minimum_inherited_tier": "routine",
+        "fresh_independent_obligation": false,
+        "literature_status": "PENDING",
+        "proof_status": "RESULT_AVAILABLE",
+        "verification_status": "PENDING",
+        "priority": 0,
+        "context": {
+          "existing_campaign_target": true
+        },
+        "canonical_source_requirements": [],
+        "canonical_authority": [],
+        "authority_blockers": [],
+        "literature_first": false,
+        "dual_track": false,
+        "status": "VERIFICATION_READY",
+        "created_at": "2026-08-23T17:32:41+00:00",
+        "updated_at": "2026-08-23T17:32:41+00:00",
+        "failure_counters": {
+          "HANDLER_ERROR": 1
+        }
+      }
+    },
+    "tasks": {
+      "task-00000001": {
+        "task_id": "task-00000001",
+        "pipeline": "proof",
+        "obligation_id": "purpose-analysis",
+        "role": "constructive",
+        "payload": {},
+        "priority": 0,
+        "parent_task_id": null,
+        "speculative": false,
+        "citation_depth": 0,
+        "status": "COMPLETE",
+        "call_id": null,
+        "attempt_id": "attempt-e5780999df4b",
+        "created_process_id": 31,
+        "created_at": "2026-08-23T17:32:41+00:00",
+        "started_at": "2026-08-23T17:32:41+00:00",
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "result": {
+          "success": true,
+          "proof_candidate": true,
+          "high_value": true
+        }
+      },
+      "task-00000002": {
+        "task_id": "task-00000002",
+        "pipeline": "verification",
+        "obligation_id": "purpose-analysis",
+        "role": "theorem_verifier",
+        "payload": {
+          "proof_task_id": "task-00000001",
+          "high_value": true
+        },
+        "priority": 0,
+        "parent_task_id": null,
+        "speculative": false,
+        "citation_depth": 0,
+        "status": "ERROR",
+        "call_id": "pipeline-call-task-00000002-attempt-cbc8553380e8",
+        "attempt_id": "attempt-cbc8553380e8",
+        "created_process_id": 31,
+        "created_at": "2026-08-23T17:32:42+00:00",
+        "started_at": "2026-08-23T17:32:42+00:00",
+        "usage_reconciliation": {
+          "reservation_id": "reservation-130df3e956954b8b992c2d3cd9f565a3",
+          "reserved": {
+            "provider_calls": 1,
+            "input_tokens": 1024,
+            "output_tokens": 512,
+            "reasoning_tokens": 512,
+            "cached_tokens": 0,
+            "total_tokens": 1536
+          },
+          "actual": {
+            "provider_calls": 1,
+            "input_tokens": 1024,
+            "output_tokens": 512,
+            "reasoning_tokens": 512,
+            "cached_tokens": 0,
+            "total_tokens": 1536
+          },
+          "released": {
+            "provider_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0
+          },
+          "additional_commit": {
+            "provider_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0
+          },
+          "usage_known": false,
+          "unknown_usage_policy": "reserved_as_committed",
+          "status": "USAGE_UNKNOWN_AFTER_INTERRUPT",
+          "hard_cap_exceeded": false,
+          "exceeded": {},
+          "reconciled_at": "2026-08-23T17:32:42+00:00"
+        },
+        "completed_at": "2026-08-23T17:32:42+00:00",
+        "error": {
+          "kind": "HANDLER_ERROR",
+          "detail": "RuntimeError: mock structured response is not a complete JSON document"
+        }
+      }
+    },
+    "queues": {
+      "PROOF_QUEUE": [],
+      "LITERATURE_QUEUE": [],
+      "VERIFICATION_QUEUE": [],
+      "BLOCKED_QUEUE": []
+    },
+    "active": {
+      "proof": [],
+      "literature": [],
+      "verification": []
+    },
+    "events": [
+      {
+        "event_id": "event-00000001",
+        "type": "TASK_READY",
+        "obligation_id": "purpose-analysis",
+        "payload": {
+          "task_id": "task-00000001",
+          "pipeline": "proof"
+        },
+        "created_at": "2026-08-23T17:32:41+00:00"
+      },
+      {
+        "event_id": "event-00000002",
+        "type": "TASK_STARTED",
+        "obligation_id": "purpose-analysis",
+        "payload": {
+          "task_id": "task-00000001"
+        },
+        "created_at": "2026-08-23T17:32:41+00:00"
+      },
+      {
+        "event_id": "event-00000003",
+        "type": "TASK_COMPLETED",
+        "obligation_id": "purpose-analysis",
+        "payload": {
+          "task_id": "task-00000001"
+        },
+        "created_at": "2026-08-23T17:32:42+00:00"
+      },
+      {
+        "event_id": "event-00000004",
+        "type": "TASK_READY",
+        "obligation_id": "purpose-analysis",
+        "payload": {
+          "task_id": "task-00000002",
+          "pipeline": "verification"
+        },
+        "created_at": "2026-08-23T17:32:42+00:00"
+      },
+      {
+        "event_id": "event-00000005",
+        "type": "TASK_STARTED",
+        "obligation_id": "purpose-analysis",
+        "payload": {
+          "task_id": "task-00000002"
+        },
+        "created_at": "2026-08-23T17:32:42+00:00"
+      },
+      {
+        "event_id": "event-00000006",
+        "type": "TASK_FAILED",
+        "obligation_id": "purpose-analysis",
+        "payload": {
+          "kind": "HANDLER_ERROR",
+          "detail": "RuntimeError: mock structured response is not a complete JSON document"
+        },
+        "created_at": "2026-08-23T17:32:42+00:00"
+      }
+    ],
+    "completed_task_ids": [
+      "task-00000001"
+    ],
+    "dual_tracks": {},
+    "processed_event_ids": [],
+    "resource_budget": {
+      "limits": {
+        "provider_calls": 1000000000,
+        "input_tokens": 1000000000,
+        "output_tokens": 1000000000,
+        "reasoning_tokens": 1000000000,
+        "cached_tokens": 1000000000,
+        "total_tokens": 1000000000
+      },
+      "usage": {
+        "provider_calls": 1,
+        "input_tokens": 1024,
+        "output_tokens": 512,
+        "reasoning_tokens": 512,
+        "cached_tokens": 0,
+        "total_tokens": 1536
+      },
+      "committed": {
+        "provider_calls": 1,
+        "input_tokens": 1024,
+        "output_tokens": 512,
+        "reasoning_tokens": 512,
+        "cached_tokens": 0,
+        "total_tokens": 1536
+      },
+      "reserved": {
+        "provider_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0,
+        "total_tokens": 0
+      },
+      "active_reservations": {},
+      "reconciliations": [
+        {
+          "reservation_id": "reservation-130df3e956954b8b992c2d3cd9f565a3",
+          "reserved": {
+            "provider_calls": 1,
+            "input_tokens": 1024,
+            "output_tokens": 512,
+            "reasoning_tokens": 512,
+            "cached_tokens": 0,
+            "total_tokens": 1536
+          },
+          "actual": {
+            "provider_calls": 1,
+            "input_tokens": 1024,
+            "output_tokens": 512,
+            "reasoning_tokens": 512,
+            "cached_tokens": 0,
+            "total_tokens": 1536
+          },
+          "released": {
+            "provider_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0
+          },
+          "additional_commit": {
+            "provider_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0
+          },
+          "usage_known": false,
+          "unknown_usage_policy": "reserved_as_committed",
+          "status": "USAGE_UNKNOWN_AFTER_INTERRUPT",
+          "hard_cap_exceeded": false,
+          "exceeded": {},
+          "reconciled_at": "2026-08-23T17:32:42+00:00"
+        }
+      ],
+      "violations": [],
+      "halted": false,
+      "unknown_usage_policy": "reserved_as_committed",
+      "reserved_total_tokens": 0,
+      "committed_total_tokens": 1536
+    },
+    "runtime_id": "46a14c7cf63c4538bd691ddae5748cc7",
+    "sources": {},
+    "source_identifiers": {},
+    "literature": {
+      "lead_calls": 0,
+      "searcher_calls": 0,
+      "reader_calls": 0,
+      "sources_found": 0,
+      "sources_deep_read": 0,
+      "external_theorems_extracted": 0,
+      "verified_external_authorities": 0,
+      "exact_matches": 0,
+      "partial_matches": 0,
+      "method_matches": 0,
+      "literature_guided_closures": 0,
+      "duplicate_searches_avoided": 0,
+      "proof_calls_avoided_due_to_literature": 0
+    }
+  },
+  "specialist_auditors": {
+    "calls": 4,
+    "wall_clock_seconds": 0.116,
+    "success": false,
+    "retry_count": 0,
+    "provider_retry_count": 0,
+    "api_request_count": 0,
+    "billing_modes": [
+      "gemini_heterogeneous"
+    ],
+    "usage": {
+      "input_tokens": 6960,
+      "output_tokens": 403,
+      "reasoning_tokens": 0,
+      "cached_tokens": 0
+    }
+  },
+  "final_auditor": {
+    "calls": 1,
+    "success": true,
+    "retry_count": 0,
+    "provider_retry_count": 0,
+    "api_request_count": 0,
+    "billing_mode": "gemini_heterogeneous",
+    "usage": {
+      "input_tokens": 2753,
+      "output_tokens": 139,
+      "reasoning_tokens": 0,
+      "cached_tokens": 0
+    }
+  }
+}

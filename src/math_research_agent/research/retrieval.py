@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .canonical_artifacts import canonical_context_markdown
 from .directive import Directive
+from .file_ingestion import ProjectFileIngestor
 from .project import ProjectError, ProjectStore, utc_now
 from .trust_kernel import TrustKernel
 from .truth_identity import prompt_projection_hash
@@ -67,6 +68,10 @@ class ContextBuilder:
         claim_snapshot: dict | None = None,
         directive: Directive | None = None,
     ) -> ContextPackage:
+        # Direct theorem runs must see the same project-owned file material as
+        # project-level `/run`; this keeps the import contract independent of
+        # which entry point launched the child run.
+        ProjectFileIngestor(self.project).prepare_pending()
         target = self.project.load_theorem(target_id)
         dependency_ids, premise_ids, cycles = self._dependency_closure(target_id)
         dependencies = [self.project.load_theorem(item) for item in dependency_ids]
@@ -135,6 +140,30 @@ class ContextBuilder:
                     }
                 )
 
+        imported_sources = ProjectFileIngestor(self.project).ready_sources(max_chars=24000)
+        for imported in imported_sources:
+            sources.append(
+                {
+                    "theorem_id": f"imported:{imported['id']}",
+                    "source_file": imported["source_file"],
+                    "source_hash": imported.get("sha256"),
+                    "authority_layer": "PROJECT_WORK_FILE",
+                    "original_name": imported.get("original_name", ""),
+                    "analysis": imported.get("analysis") or {},
+                    "content": imported["content"],
+                }
+            )
+
+        imported_file_errors = [
+            {
+                "id": record.get("id", ""),
+                "original_name": record.get("original_name", ""),
+                "error": record.get("error", ""),
+            }
+            for record in ProjectFileIngestor(self.project).load_manifest().get("files", [])
+            if record.get("status") == "ERROR"
+        ]
+
         frozen = sorted(
             set(project_meta.get("frozen_branches", [])) | set(steering.get("freeze_branches", []))
         )
@@ -168,6 +197,8 @@ class ContextBuilder:
             "trust_kernel": trust_context,
             "added_lemmas": steering.get("added_lemmas", []),
             "sources": sources,
+            "imported_sources": imported_sources,
+            "imported_file_errors": imported_file_errors,
             "canonical_authority": list(canonical_authority or []),
             "claim_snapshot": dict(claim_snapshot or {}),
             "tactical_context": directive.tactical_context() if directive else None,
@@ -351,6 +382,9 @@ Registry `{data["trust_kernel"]["foundation_registry"]["id"]}` version
 8. Write a complete proof to the Math Research Agent repository and submit it only as a candidate for the outer audit gate.
 
 ## Source excerpts
+
+Imported project files are working material only. Their claims remain
+unverified until the normal proof and audit gates authorize them.
 
 {sources}
 

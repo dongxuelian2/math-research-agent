@@ -13,13 +13,16 @@ from .codex_cli_provider import CodexCLIProviderError
 from .gemini_provider import GeminiProviderError
 from .openai_provider import OpenAIProviderError
 from .formalization import run_formalization
+from .file_ingestion import ProjectFileIngestor
 from .orchestrator import ResearchOrchestrator, build_run_preview
 from .project import ProjectError, ProjectStore
+from .project_orchestrator import ProjectOrchestrator
 from .providers import create_client, load_model_config, resolve_role_config
 from .retrieval import ContextBuilder
 from .runtime_backend import SQLiteRuntimeBackend
 from .runtime_dispatch import DurableProviderDispatcher
 from .state_machine import THEOREM_STATUSES
+from .ui_events import UiEventEmitter, emit_cli_error
 
 
 def _csv(value: str | None) -> list[str]:
@@ -42,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="create a project without overwriting existing data")
     init.add_argument("--project", required=True)
     init.add_argument("--name", required=True)
+    init.add_argument("--purpose")
     init.add_argument("--id")
     init.add_argument("--demo", action="store_true")
 
@@ -68,6 +72,13 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--project", required=True)
     imp.add_argument("--source", required=True)
 
+    add_file = sub.add_parser(
+        "add-file", help="copy an unstructured Markdown, text, TeX, or PDF file into a project"
+    )
+    add_file.add_argument("--project", required=True)
+    add_file.add_argument("--file", required=True)
+    add_file.add_argument("--ui-events", action="store_true")
+
     ctx = sub.add_parser("context", help="build a dependency-sliced context package")
     ctx.add_argument("--project", required=True)
     ctx.add_argument("--target", required=True)
@@ -77,12 +88,26 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="run Math Research Agent candidate search and strict audits")
     run.add_argument("--project", required=True)
     run.add_argument("--target", required=True)
-    run.add_argument("--config", required=True)
+    run.add_argument("--config", default="configs/models.toml")
     run.add_argument("--workers", type=int, default=3)
     run.add_argument("--resume", nargs="?", const="latest")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--expand-context", action="store_true")
     run.add_argument("--stop-after", choices=["context", "candidate", "audits"])
+
+    orchestrate = sub.add_parser(
+        "orchestrate", help="analyze project purpose, create child obligations, and run them"
+    )
+    orchestrate.add_argument("--project", required=True)
+    orchestrate.add_argument("--config", default="configs/models.toml")
+    orchestrate.add_argument("--workers", type=int, default=3)
+    orchestrate.add_argument("--max-subproblems", type=int, default=6)
+    orchestrate.add_argument("--plan-only", action="store_true")
+    orchestrate.add_argument(
+        "--ui-events",
+        action="store_true",
+        help="emit compact NDJSON activity events for an interactive client",
+    )
 
     formalize = sub.add_parser(
         "formalize",
@@ -90,14 +115,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     formalize.add_argument("--project", required=True)
     formalize.add_argument("--target", required=True)
-    formalize.add_argument("--config", required=True)
+    formalize.add_argument("--config", default="configs/models.toml")
     formalize.add_argument("--run", required=True, help="completed run directory")
 
     smoke = sub.add_parser(
         "provider-smoke",
         help="send exactly one minimal configured-provider request",
     )
-    smoke.add_argument("--config", required=True)
+    smoke.add_argument("--config", default="configs/models.toml")
     smoke.add_argument("--role", default="final_proof_auditor")
     smoke.add_argument("--output", required=True)
     smoke.add_argument("--expect", default="GEMINI_PROVIDER_OK")
@@ -151,6 +176,7 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             args.project,
             args.name,
             project_id=args.id,
+            purpose=args.purpose,
             demo=args.demo,
         )
         return {"project": str(store.root), "status": "created"}
@@ -302,6 +328,49 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         )
     if args.command == "import":
         return store.import_markdown(args.source)
+    if args.command == "add-file":
+        emitter = None
+        if args.ui_events:
+            metadata = store.load_project()
+            emitter = UiEventEmitter(
+                project_id=str(metadata.get("id") or store.root.name),
+                project_root=store.root,
+                stream=sys.stdout,
+            )
+        event_id = (
+            emitter.start(
+                action="ingest_file",
+                title="正在归档项目文件",
+                summary="复制原件并准备可供研究使用的工作材料。",
+                role="system",
+                stage="INGESTION",
+            )
+            if emitter
+            else None
+        )
+        try:
+            record = ProjectFileIngestor(store).add(args.file)
+        except Exception as exc:
+            if emitter and event_id:
+                emitter.finish(
+                    event_id,
+                    success=False,
+                    summary="项目文件归档失败。",
+                    error={"message": str(exc)[:500]},
+                )
+            raise
+        if emitter and event_id:
+            emitter.finish(
+                event_id,
+                success=True,
+                summary=(
+                    "文件已存在，继续使用已有归档。"
+                    if record.get("duplicate")
+                    else "文件已归档；下一次 /run 将自动提取并纳入研究上下文。"
+                ),
+                artifacts=[str(record.get("inbox_path", ""))],
+            )
+        return record
     if args.command == "context":
         package = ContextBuilder(store).build(args.target, expand=args.expand)
         if args.output:
@@ -327,6 +396,22 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
             expand_context=args.expand_context,
         )
         return orchestrator.run(stop_after=args.stop_after)
+    if args.command == "orchestrate":
+        event_sink = None
+        if args.ui_events:
+            metadata = store.load_project()
+            event_sink = UiEventEmitter(
+                project_id=str(metadata.get("id") or store.root.name),
+                project_root=store.root,
+                stream=sys.stdout,
+            )
+        return ProjectOrchestrator(
+            store,
+            config_path=args.config,
+            worker_count=args.workers,
+            max_subproblems=args.max_subproblems,
+            event_sink=event_sink,
+        ).run(plan_only=args.plan_only)
     if args.command == "formalize":
         return run_formalization(
             store,
@@ -397,15 +482,30 @@ def main() -> None:
     args = parser.parse_args()
     try:
         result = dispatch(args)
-    except GeminiProviderError as exc:
-        print(
-            json.dumps({"error": exc.to_dict()}, ensure_ascii=False, indent=2),
-            file=sys.stderr,
-        )
+    except (GeminiProviderError, CodexCLIProviderError, OpenAIProviderError) as exc:
+        if getattr(args, "ui_events", False):
+            emit_cli_error(exc, project=getattr(args, "project", None))
+        else:
+            details = exc.to_dict() if hasattr(exc, "to_dict") else {"message": str(exc)}
+            print(
+                json.dumps({"error": details}, ensure_ascii=False, indent=2),
+                file=sys.stderr,
+            )
         raise SystemExit(3) from exc
     except (ProjectError, ValueError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        if getattr(args, "ui_events", False):
+            emit_cli_error(exc, project=getattr(args, "project", None))
+        else:
+            print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
+    except Exception as exc:
+        if getattr(args, "ui_events", False):
+            emit_cli_error(exc, project=getattr(args, "project", None))
+        else:
+            print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if getattr(args, "ui_events", False):
+        return
     if isinstance(result, str):
         print(result)
     else:

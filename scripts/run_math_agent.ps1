@@ -60,7 +60,7 @@ if ([System.IO.Path]::IsPathRooted($Project)) {
     $ProjectPath = Join-Path (Join-Path $RepoRoot 'projects') $Project
 }
 if (-not $Config) {
-    $Config = Join-Path $RepoRoot 'configs\models.mock.json'
+    $Config = Join-Path $RepoRoot 'configs\models.toml'
 } elseif (-not [System.IO.Path]::IsPathRooted($Config)) {
     $Config = Join-Path $RepoRoot $Config
 }

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-23T15:54:38+00:00",
+  "theorems": [
+    {
+      "id": "bounded-euler-polynomial",
+      "title": "Euler polynomial on a finite boundary",
+      "status": "PROVED",
+      "source_file": "sources/bounded_euler_polynomial.md",
+      "dependencies": [],
+      "tags": [
+        "counterexample",
+        "finite-certificate",
+        "showcase"
+      ],
+      "branch": "main",
+      "proof_type": "NATURAL_LANGUAGE_WITH_CERTIFICATE",
+      "audit_status": "PASS",
+      "last_updated": "2026-08-23T15:54:38+00:00",
+      "notation_scope": ""
+    }
+  ]
+}

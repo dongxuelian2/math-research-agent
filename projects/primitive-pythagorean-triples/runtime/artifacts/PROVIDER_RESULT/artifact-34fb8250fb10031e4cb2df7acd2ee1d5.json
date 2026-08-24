@@ -1,0 +1,20 @@
+{
+  "result": "The worker's claim follows by direct algebra and respects the stated scope.\n\nVERDICT: CORRECT\n\n<!-- MRA_WORKER_EVENT\n{\"event\":\"COMPLETED\",\"verdict\":\"CORRECT\",\"failure_kind\":\"\",\"details\":[],\"progress_signals\":[],\"literature_request\":null,\"high_value\":false}\n-->",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "verifier_2",
+    "usage": {
+      "input_tokens": 1462,
+      "output_tokens": 65
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1462,
+    "output_tokens": 65
+  }
+}

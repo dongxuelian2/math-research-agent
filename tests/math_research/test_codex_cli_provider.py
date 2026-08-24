@@ -23,6 +23,23 @@ def jsonl(*events):
     return "\n".join(json.dumps(event) for event in events) + "\n"
 
 
+def write_toml_roles(path, roles):
+    lines = ["version = 1", "", "[models.codex]", 'provider = "codex_cli"']
+    lines.extend(["", "[models.openai]", 'provider = "openai"', 'model = "api-model"'])
+    for role_name, role in roles.items():
+        lines.extend(["", f"[roles.{role_name}]", f'model = "{role_name}_model"'])
+        if role.get("provider") == "codex_cli":
+            lines[-1] = 'model = "codex"'
+        else:
+            lines[-1] = 'model = "openai"'
+        for key, value in role.items():
+            if key in {"provider", "model"} or value is None:
+                continue
+            if isinstance(value, str):
+                lines.append(f'{key} = "{value}"')
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 SUCCESS_JSONL = jsonl(
     {"type": "thread.started", "thread_id": "thread-test", "model": "resolved-model"},
     {"type": "turn.started"},
@@ -468,13 +485,13 @@ def test_mixed_provider_config_and_separate_reasoning_validation(tmp_path):
             "final_auditor": dict(openai),
         }
     }
-    path = tmp_path / "mixed.json"
-    path.write_text(json.dumps(config), encoding="utf-8")
+    path = tmp_path / "mixed.toml"
+    write_toml_roles(path, config["roles"])
     loaded = load_model_config(path)
     assert loaded["roles"]["worker"]["model"] is None
 
     config["roles"]["worker"]["reasoning_effort"] = "none"
-    path.write_text(json.dumps(config), encoding="utf-8")
+    write_toml_roles(path, config["roles"])
     with pytest.raises(ProjectError, match="Codex CLI reasoning_effort"):
         load_model_config(path)
 
@@ -489,8 +506,8 @@ def test_provider_smoke_uses_exactly_one_codex_process_and_no_api(tmp_path, monk
             "final_auditor": dict(role),
         }
     }
-    config_path = tmp_path / "codex.json"
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    config_path = tmp_path / "codex.toml"
+    write_toml_roles(config_path, config["roles"])
 
     class SmokeClient:
         call_count = 0

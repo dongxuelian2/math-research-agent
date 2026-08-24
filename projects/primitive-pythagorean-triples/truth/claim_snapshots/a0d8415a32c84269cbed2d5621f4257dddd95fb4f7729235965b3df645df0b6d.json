@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "primitive-triple-classification-theorem",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "primitive-triple-classification-theorem",
+    "canonical_statement": "For all positive integers a, b, c, the condition a^2 + b^2 = c^2 and gcd(a,b,c) = 1 holds if and only if, after swapping a and b if necessary, there exist positive integers m > n with gcd(m,n) = 1 and m and n of opposite parity such that a = m^2 - n^2, b = 2mn, and c = m^2 + n^2.",
+    "claim_type": "iff",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:076ac4ba78f47511ba52e3fe0e1316140c53afcf7bb2dc0783bdd8dbc7ad6a61"
+  },
+  "assertion_identity_hash": "sha256:076ac4ba78f47511ba52e3fe0e1316140c53afcf7bb2dc0783bdd8dbc7ad6a61",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:076ac4ba78f47511ba52e3fe0e1316140c53afcf7bb2dc0783bdd8dbc7ad6a61",
+    "dependencies": [
+      {
+        "dependency_id": "coprime-square-lemma",
+        "kind": "THEOREM",
+        "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+        "authority_binding_hash": "sha256:06dc538b80fc4feb6b6e84ac6d38b569c2f3e172f165af751e812c8dee657db3",
+        "captured_status": "PARTIAL"
+      },
+      {
+        "dependency_id": "euclid-backward-construction",
+        "kind": "THEOREM",
+        "assertion_identity_hash": "sha256:b705f73fcac2b870f6d463a590238cc9af452a0e0a51fb981928f4f1a12252b8",
+        "authority_binding_hash": "sha256:d119e5e3cb7c65e0b56e75d2ca2c46fd56a2aabb0684cf304e72a4e09add1e52",
+        "captured_status": "PARTIAL"
+      },
+      {
+        "dependency_id": "euclid-forward-derivation",
+        "kind": "THEOREM",
+        "assertion_identity_hash": "sha256:9707787da98d2c9e39ad8cf97966033854008a6118076820deb6b13ec5a775fa",
+        "authority_binding_hash": "sha256:34ef011f764948cd16d23e29546f313d28d0dd8c7ba148074bed20158c44eb4b",
+        "captured_status": "PARTIAL"
+      },
+      {
+        "dependency_id": "parity-gcd-lemma",
+        "kind": "THEOREM",
+        "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+        "authority_binding_hash": "sha256:13b41a6c460d166647f288da49ea2d78e455e7ab5a732e800a603c6bcc65901d",
+        "captured_status": "PARTIAL"
+      }
+    ],
+    "dependency_snapshot_hash": "sha256:0f19414b00a9f6fc54ff50a2ea507ea219c59ed50fdb69836afc35736f96251e"
+  },
+  "dependency_snapshot_hash": "sha256:0f19414b00a9f6fc54ff50a2ea507ea219c59ed50fdb69836afc35736f96251e",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "primitive-triple-classification-theorem",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:75dc513a7e81f3959b395ab1de3789b9301fffd1f19f73729747d59b251304f8"
+  },
+  "assumption_snapshot_hash": "sha256:75dc513a7e81f3959b395ab1de3789b9301fffd1f19f73729747d59b251304f8",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "PROJECT_THEOREM",
+      "authority_id": "coprime-square-lemma",
+      "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+      "authority_content_hash": "sha256:92711a4865ddb355a2944786f9164c36b9b2ba81f6fb6e55fb4c3e8a1d56b995",
+      "authority_status": "PARTIAL",
+      "provenance": {
+        "proof_file": null,
+        "theorem_id": "coprime-square-lemma"
+      },
+      "binding_hash": "sha256:06dc538b80fc4feb6b6e84ac6d38b569c2f3e172f165af751e812c8dee657db3"
+    },
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "PROJECT_THEOREM",
+      "authority_id": "parity-gcd-lemma",
+      "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+      "authority_content_hash": "sha256:1dcd0a9499d2890112988f7b357ef1a068d386727f2d67a1cf6251cd857bc021",
+      "authority_status": "PARTIAL",
+      "provenance": {
+        "proof_file": null,
+        "theorem_id": "parity-gcd-lemma"
+      },
+      "binding_hash": "sha256:13b41a6c460d166647f288da49ea2d78e455e7ab5a732e800a603c6bcc65901d"
+    },
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "PROJECT_THEOREM",
+      "authority_id": "euclid-forward-derivation",
+      "assertion_identity_hash": "sha256:9707787da98d2c9e39ad8cf97966033854008a6118076820deb6b13ec5a775fa",
+      "authority_content_hash": "sha256:df0c248af578328c46ab35b79473dca0e8968bd5b8a349814c32d9f1dc2d5526",
+      "authority_status": "PARTIAL",
+      "provenance": {
+        "proof_file": null,
+        "theorem_id": "euclid-forward-derivation"
+      },
+      "binding_hash": "sha256:34ef011f764948cd16d23e29546f313d28d0dd8c7ba148074bed20158c44eb4b"
+    },
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:076ac4ba78f47511ba52e3fe0e1316140c53afcf7bb2dc0783bdd8dbc7ad6a61",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:8c01618b800a88cc3530abaafa4d312428d3d289490222cb82ab3eb625a8887e"
+    },
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "PROJECT_THEOREM",
+      "authority_id": "euclid-backward-construction",
+      "assertion_identity_hash": "sha256:b705f73fcac2b870f6d463a590238cc9af452a0e0a51fb981928f4f1a12252b8",
+      "authority_content_hash": "sha256:a1fed3920fcb3ef333379b02329183b74901ec71b0ab9fbc6e048b9934a13c52",
+      "authority_status": "PARTIAL",
+      "provenance": {
+        "proof_file": null,
+        "theorem_id": "euclid-backward-construction"
+      },
+      "binding_hash": "sha256:d119e5e3cb7c65e0b56e75d2ca2c46fd56a2aabb0684cf304e72a4e09add1e52"
+    }
+  ],
+  "authority_binding_hash": "sha256:b058d5d6f5daff8b46874f6047bd16b433e0a04e743ad376d72710adb3edd0fb",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:35680894a7e16a52fea9c425f938a0543646f61c81415c7022160cc8a1be4b36",
+  "captured_status": "IN_RESEARCH",
+  "captured_at": "2026-08-23T18:36:42+00:00",
+  "project_record_hash": "sha256:3f6aef6f675afb624110c98268d2896d77a32f8145d50f59212827883cd6e4c8",
+  "claim_snapshot_hash": "sha256:a0d8415a32c84269cbed2d5621f4257dddd95fb4f7729235965b3df645df0b6d"
+}

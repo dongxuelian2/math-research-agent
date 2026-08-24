@@ -9,6 +9,7 @@ models first.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from enum import Enum
@@ -37,6 +38,34 @@ class StrictSchemaModel(BaseModel):
         strict=True,
         validate_assignment=True,
     )
+
+
+class ProjectSubproblemSchema(StrictSchemaModel):
+    """One typed child obligation proposed by the project supervisor."""
+
+    id: StrictStr
+    title: StrictStr
+    statement: StrictStr
+    dependencies: list[StrictStr] = Field(default_factory=list)
+    tags: list[StrictStr] = Field(default_factory=list)
+    branch: StrictStr = "main"
+    proof_type: StrictStr = "NATURAL_LANGUAGE"
+    claim_type: Literal["implication", "iff", "classification", "equality", "unclassified"] = (
+        "implication"
+    )
+
+
+class ProjectPlanSchema(StrictSchemaModel):
+    """Structured project-level decomposition; prose never mutates state."""
+
+    # Version 1 plans remain readable; new planners emit version 2 together
+    # with a short title so clients never need to render the full purpose as a
+    # persistent heading.
+    schema_version: Literal[1, 2]
+    project_title: StrictStr = ""
+    analysis_summary: StrictStr
+    subproblems: list[ProjectSubproblemSchema] = Field(min_length=1, max_length=12)
+    open_questions: list[StrictStr] = Field(default_factory=list)
 
 
 class AuthorityUseSchema(StrictSchemaModel):
@@ -255,6 +284,86 @@ def json_schema_for(schema: type[BaseModel] | dict[str, Any]) -> dict[str, Any]:
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         return response_schema(schema)
     raise TypeError("response_schema must be a Pydantic model class or JSON Schema object")
+
+
+# OpenAI Responses structured outputs and many OpenAI-compatible servers
+# implement a deliberately small JSON Schema profile.  In particular, every
+# property of an object must be required and object schemas must reject
+# unspecified keys.  Pydantic's schema correctly describes Python defaults,
+# but that is not the same remote contract: a defaulted field is optional in
+# ordinary JSON Schema.  This lowering makes the remote schema strict while
+# the Pydantic model remains the authoritative local validator.
+_STRICT_UNSUPPORTED_KEYWORDS = frozenset(
+    {
+        "default",
+        "examples",
+        "format",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "multipleOf",
+        "pattern",
+        "uniqueItems",
+    }
+)
+
+
+def strict_json_schema_for(schema: type[BaseModel] | dict[str, Any]) -> dict[str, Any]:
+    """Lower a schema to the portable strict-output subset.
+
+    Default values remain meaningful to Pydantic after the response returns,
+    but are not sent as remote JSON-Schema keywords because strict providers
+    disagree about them. A free-form mapping cannot be represented faithfully
+    by the strict object subset; callers should use JSON-object mode instead
+    of silently throwing away arbitrary keys.
+    """
+
+    source = copy.deepcopy(json_schema_for(schema))
+
+    def lower(value: Any, path: str) -> Any:
+        if isinstance(value, list):
+            return [lower(item, f"{path}[{index}]") for index, item in enumerate(value)]
+        if not isinstance(value, dict):
+            return value
+
+        result = {
+            key: lower(item, f"{path}.{key}")
+            for key, item in value.items()
+            if key not in _STRICT_UNSUPPORTED_KEYWORDS
+        }
+
+        properties = result.get("properties")
+        if properties is not None:
+            if not isinstance(properties, dict):
+                raise SchemaError(f"Strict schema properties must be an object at {path}")
+            additional = result.get("additionalProperties")
+            if additional not in (None, False):
+                raise SchemaError(
+                    f"Strict schema cannot represent free-form additional properties at {path}"
+                )
+            result["properties"] = {
+                name: lower(child, f"{path}.properties.{name}")
+                for name, child in properties.items()
+            }
+            result["required"] = list(properties)
+            result["additionalProperties"] = False
+        elif result.get("type") == "object":
+            additional = result.get("additionalProperties")
+            if additional not in (None, False):
+                raise SchemaError(
+                    f"Strict schema cannot represent free-form additional properties at {path}"
+                )
+            result["additionalProperties"] = False
+
+        return result
+
+    lowered = lower(source, "$")
+    if not isinstance(lowered, dict):
+        raise SchemaError("Strict response schema must be a JSON object")
+    return lowered
 
 
 def parse_structured_response(response: dict[str, Any], model: type[T]) -> T:

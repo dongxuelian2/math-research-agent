@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "primitive-pythagorean-triples",
+  "name": "primitive-pythagorean-triples",
+  "description": "原始勾股数组的完全分类：设 a,b,c 为正整数，满足 a²+b²=c² 且 gcd(a,b,c)=1；证明交换 a,b 后存在正整数 m>n，gcd(m,n)=1 且 m 不等于 n mod 2，使 a=m²-n²，b=2mn，c=m²+n²；同时证明反方向所有满足条件的 m,n 都产生原始勾股数组。",
+  "purpose": "原始勾股数组的完全分类：设 a,b,c 为正整数，满足 a²+b²=c² 且 gcd(a,b,c)=1；证明交换 a,b 后存在正整数 m>n，gcd(m,n)=1 且 m 不等于 n mod 2，使 a=m²-n²，b=2mn，c=m²+n²；同时证明反方向所有满足条件的 m,n 都产生原始勾股数组。",
+  "current_target": "primitive-triple-classification-theorem",
+  "demo": false,
+  "created_at": "2026-08-23T17:30:25+00:00",
+  "last_updated": "2026-08-23T18:37:59+00:00",
+  "frozen_branches": [],
+  "prohibited_routes": [],
+  "allowed_scope": [],
+  "branches": {},
+  "orchestrator": {
+    "status": "PARTIAL",
+    "purpose": "原始勾股数组的完全分类：设 a,b,c 为正整数，满足 a²+b²=c² 且 gcd(a,b,c)=1；证明交换 a,b 后存在正整数 m>n，gcd(m,n)=1 且 m 不等于 n mod 2，使 a=m²-n²，b=2mn，c=m²+n²；同时证明反方向所有满足条件的 m,n 都产生原始勾股数组。",
+    "plan_run": "20260823-182407-565694",
+    "plan_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+    "analysis_summary": "The previous monolithic purpose-analysis was rejected. This plan replaces it with a modular proof architecture: first extract parity and pairwise-coprimality facts from primitivity; second prove the elementary number-theoretic lemma that coprime factors of a square are squares; third use those lemmas to derive the Euclid parameters for an arbitrary primitive triple; fourth prove the converse construction directly; fifth combine the two directions into the complete classification statement. The parity lemma isolates the key case split: in every primitive triple exactly one leg is even, so after at most one swap the standard factorization (c-a)(c+a)=b^2 can be applied.",
+    "open_questions": [
+      "The stated purpose requires existence of the parameters m,n and the converse construction, but does not explicitly require uniqueness of m,n up to swapping the legs; uniqueness can be added as a separate child if 'complete classification' is intended to include it."
+    ],
+    "subproblem_ids": [
+      "parity-gcd-lemma",
+      "coprime-square-lemma",
+      "euclid-forward-derivation",
+      "euclid-backward-construction",
+      "primitive-triple-classification-theorem"
+    ],
+    "created_subproblem_ids": [
+      "parity-gcd-lemma",
+      "coprime-square-lemma",
+      "euclid-forward-derivation",
+      "euclid-backward-construction",
+      "primitive-triple-classification-theorem"
+    ],
+    "children": [
+      {
+        "id": "parity-gcd-lemma",
+        "status": "PARTIAL"
+      },
+      {
+        "id": "coprime-square-lemma",
+        "status": "PARTIAL"
+      },
+      {
+        "id": "euclid-forward-derivation",
+        "status": "PARTIAL"
+      },
+      {
+        "id": "euclid-backward-construction",
+        "status": "PARTIAL"
+      },
+      {
+        "id": "primitive-triple-classification-theorem",
+        "status": "PARTIAL"
+      }
+    ]
+  }
+}

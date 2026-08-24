@@ -7,12 +7,13 @@ import os
 import re
 import threading
 import time
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 from .codex_cli_provider import CODEX_REASONING_EFFORTS, CodexCLIClient
 from .gemini_provider import GeminiClient
-from .gemini_tools import make_tool_executor
+from ..tools import make_tool_executor
 from .openai_provider import (
     OPENAI_REASONING_EFFORTS,
     OpenAICompatibleResponsesClient,
@@ -301,6 +302,28 @@ class MockLLMClient:
         return f"Mock forced outcome: {outcome}"
 
     def _result_for(self, label: str, prompt: str, system_prompt: str) -> str:
+        if label == "project_plan":
+            return json.dumps(
+                {
+                    "schema_version": 1,
+                    "analysis_summary": "Mock supervisor decomposed the project purpose into one open child obligation.",
+                    "subproblems": [
+                        {
+                            "id": "purpose-analysis",
+                            "title": "Purpose analysis obligation",
+                            "statement": "Derive and verify the first exact consequence required by the project purpose.",
+                            "dependencies": [],
+                            "tags": ["orchestrator", "mock"],
+                            "branch": "main",
+                            "proof_type": "NATURAL_LANGUAGE",
+                            "claim_type": "implication",
+                        }
+                    ],
+                    "open_questions": [
+                        "The mock planner does not infer domain-specific child statements."
+                    ],
+                }
+            )
         if label == "formalization_agent":
             return json.dumps(
                 {
@@ -519,11 +542,87 @@ proof_slug = "candidate-proof"
         return "Mock response"
 
 
+def _normalize_toml_model_config(raw: dict, path: Path) -> dict:
+    if not isinstance(raw, dict):
+        raise ProjectError(f"TOML model config must be an object: {path}")
+    if raw.get("version", 1) != 1:
+        raise ProjectError(f"Unsupported TOML model config version: {raw.get('version')}")
+    models = raw.get("models")
+    roles = raw.get("roles")
+    if not isinstance(models, dict) or not models:
+        raise ProjectError("TOML model config requires a non-empty [models] catalog")
+    if not isinstance(roles, dict) or not roles:
+        raise ProjectError("TOML model config requires a non-empty [roles] mapping")
+
+    defaults = raw.get("role_defaults", {})
+    if not isinstance(defaults, dict):
+        raise ProjectError("TOML role_defaults must be a table")
+    configured_tools = raw.get("tools", {})
+    if configured_tools is not None and not isinstance(configured_tools, dict):
+        raise ProjectError("TOML tools must be a table")
+    default_tools = configured_tools.get("default", []) if configured_tools else []
+    resolved_roles: dict[str, dict] = {}
+    for role_name, role in roles.items():
+        if not isinstance(role_name, str) or not isinstance(role, dict):
+            raise ProjectError("TOML roles must map names to tables")
+        model_id = role.get("model")
+        if not isinstance(model_id, str) or not model_id.strip():
+            raise ProjectError(f"Role {role_name} requires a model name")
+        model = models.get(model_id)
+        if not isinstance(model, dict):
+            raise ProjectError(f"Role {role_name} references unknown model {model_id!r}")
+        if not isinstance(model.get("provider"), str) or not model["provider"].strip():
+            raise ProjectError(f"Model {model_id} requires a provider")
+        if "model" not in model and model["provider"] != "codex_cli":
+            raise ProjectError(f"Model {model_id} requires a provider model field")
+        merged = dict(defaults)
+        merged.update(model)
+        merged.update(role)
+        role_tools = list(default_tools or [])
+        role_tools.extend(configured_tools.get(role_name, []) if configured_tools else [])
+        if role_tools:
+            merged["tools"] = list(dict.fromkeys(role_tools))
+        merged["model_id"] = model_id
+        merged["model"] = model.get("model")
+        resolved_roles[role_name] = merged
+
+    runtime = raw.get("runtime", {})
+    if not isinstance(runtime, dict):
+        raise ProjectError("TOML runtime must be a table")
+    budget_seconds = int(runtime.get("budget_seconds", 900))
+    if budget_seconds <= 0:
+        raise ProjectError("runtime.budget_seconds must be positive")
+    config = {
+        "schema_version": 1,
+        "description": raw.get("description", "TOML model configuration"),
+        "isolation": bool(runtime.get("isolation", True)),
+        "history_budget": int(runtime.get("history_budget", 0)),
+        "budget": {
+            "mode": str(runtime.get("budget_mode", "time")),
+            "limit": budget_seconds,
+            "conclude_after": float(runtime.get("conclude_after", 0.99)),
+        },
+        "roles": resolved_roles,
+    }
+    routing = runtime.get("routing")
+    if routing is not None:
+        if not isinstance(routing, dict):
+            raise ProjectError("runtime.routing must be a table")
+        config["routing"] = dict(routing)
+    if configured_tools:
+        config["tools"] = dict(configured_tools)
+    return config
+
+
 def load_model_config(path: str | Path) -> dict:
     path = Path(path)
+    if path.suffix.lower() != ".toml":
+        raise ProjectError(f"Model config must be TOML: {path}")
     try:
-        config = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        config = _normalize_toml_model_config(
+            tomllib.loads(path.read_text(encoding="utf-8")), path
+        )
+    except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise ProjectError(f"Unable to load model config {path}: {exc}") from exc
     roles = config.get("roles", {})
     if not isinstance(roles, dict):
@@ -531,13 +630,13 @@ def load_model_config(path: str | Path) -> dict:
     tool_map = config.get("tools", {})
     if not isinstance(tool_map, dict):
         raise ProjectError("Model config tools must be an object")
-    from .gemini_tools import build_tool_payload
+    from ..tools import normalize_tool_names
 
     for role_name, tool_names in tool_map.items():
         if not isinstance(role_name, str):
             raise ProjectError("Model config tool role names must be strings")
         try:
-            build_tool_payload(tool_names)
+            normalize_tool_names(tool_names)
         except ValueError as exc:
             raise ProjectError(f"Invalid provider tools for role {role_name}: {exc}") from exc
     tiers = config.get("tiers")
@@ -599,8 +698,6 @@ def _validate_role(name: str, role: dict) -> None:
     if provider in {"gemini", "vertex_gemini"}:
         if not isinstance(role.get("model"), str) or not role["model"].strip():
             raise ProjectError(f"Gemini role {name} requires a non-empty model")
-        if "api_key" in role:
-            raise ProjectError(f"Gemini role {name} must not contain api_key; use GEMINI_API_KEY")
         timeout = float(role.get("timeout_seconds", 600))
         retries = int(role.get("max_retries", 2))
         retry_base = float(role.get("retry_base_seconds", 1))
@@ -620,8 +717,6 @@ def _validate_role(name: str, role: dict) -> None:
         model = role.get("model")
         if not isinstance(model, str) or not model.strip():
             raise ProjectError(f"OpenAI role {name} requires a non-empty model")
-        if "api_key" in role:
-            raise ProjectError(f"OpenAI role {name} must not contain api_key; use OPENAI_API_KEY")
         api_key_env = role.get("api_key_env", "OPENAI_API_KEY")
         if not isinstance(api_key_env, str) or not api_key_env.strip():
             raise ProjectError(f"OpenAI role {name} api_key_env must be non-empty")
@@ -634,10 +729,6 @@ def _validate_role(name: str, role: dict) -> None:
         model = role.get("model")
         if not isinstance(model, str) or not model.strip():
             raise ProjectError(f"OpenAI-compatible role {name} requires a non-empty model")
-        if "api_key" in role:
-            raise ProjectError(
-                f"OpenAI-compatible role {name} must not contain api_key; use api_key_env"
-            )
         api_key_env = role.get("api_key_env", "OPENAI_API_KEY")
         if not isinstance(api_key_env, str) or not api_key_env.strip():
             raise ProjectError(f"OpenAI-compatible role {name} api_key_env must be non-empty")
@@ -663,8 +754,6 @@ def _validate_role(name: str, role: dict) -> None:
         effort = role.get("reasoning_effort")
         if effort not in CODEX_REASONING_EFFORTS | {None}:
             raise ProjectError(f"Codex CLI reasoning_effort for role {name} is invalid: {effort}")
-        if "api_key" in role:
-            raise ProjectError(f"Codex CLI role {name} must not contain api_key")
         if role.get("sandbox", "read-only") not in {"read-only", "workspace-write"}:
             raise ProjectError(f"Codex CLI role {name} has invalid sandbox")
         if not isinstance(role.get("allow_web_search", False), bool):
@@ -719,7 +808,12 @@ def is_mock_config(config: dict) -> bool:
 
 
 def create_client(
-    role: dict, archive_dir: Path, *, role_name: str = "unknown", working_dir: Path | None = None
+    role: dict,
+    archive_dir: Path,
+    *,
+    role_name: str = "unknown",
+    working_dir: Path | None = None,
+    tool_event_sink=None,
 ):
     provider = role.get("provider")
     model = role.get("model", "")
@@ -728,15 +822,17 @@ def create_client(
         return MockLLMClient(model or "mock", archive_dir)
     if provider in {"gemini", "vertex_gemini"}:
         vertex = provider == "vertex_gemini"
-        api_key = os.environ.get("GEMINI_API_KEY") if not vertex else None
+        api_key_env = str(role.get("api_key_env", "GEMINI_API_KEY"))
+        api_key = (role.get("api_key") or os.environ.get(api_key_env)) if not vertex else None
         if not vertex and not api_key:
             raise ProjectError(
-                f"GEMINI_API_KEY is required by the configured Gemini role {role_name}"
+                f"{api_key_env} is required by the configured Gemini role {role_name}"
             )
         return GeminiClient(
             model,
             archive_dir,
             api_key=api_key,
+            base_url=role.get("base_url") or _env_value(role.get("base_url_env")),
             project=role.get("project") or os.environ.get("GOOGLE_CLOUD_PROJECT"),
             location=role.get("location", "us-central1"),
             access_token=role.get("access_token") or os.environ.get("GOOGLE_CLOUD_ACCESS_TOKEN"),
@@ -752,9 +848,11 @@ def create_client(
             ),
             tool_executor=make_tool_executor(
                 role.get("tools"),
-                worker_id=role_name,
-                working_dir=working_dir,
-                lean_project_dir=role.get("lean_project_dir"),
+                workspace_root=role.get("workspace_root") or working_dir,
+                max_output_chars=int(role.get("tool_output_chars", 20_000)),
+                default_timeout_seconds=float(role.get("tool_timeout_seconds", 30)),
+                tool_event_sink=tool_event_sink,
+                actor=role_name,
             ),
             max_tool_rounds=int(role.get("max_tool_rounds", 8)),
         )
@@ -776,7 +874,7 @@ def create_client(
         )
     if provider == "openai":
         api_key_env = str(role.get("api_key_env", "OPENAI_API_KEY"))
-        api_key = os.environ.get(api_key_env)
+        api_key = role.get("api_key") or os.environ.get(api_key_env)
         if not api_key:
             raise ProjectError(
                 f"{api_key_env} is required by the configured OpenAI role {role_name}"
@@ -794,15 +892,22 @@ def create_client(
             answer_reserve=answer_reserve,
             context_length=int(role.get("context_length", 200_000)),
             store=bool(role.get("store", False)),
+            base_url=role.get("base_url") or _env_value(role.get("base_url_env")),
             api_key_env=api_key_env,
+            tool_executor=make_tool_executor(
+                role.get("tools"),
+                workspace_root=role.get("workspace_root") or working_dir,
+                max_output_chars=int(role.get("tool_output_chars", 20_000)),
+                default_timeout_seconds=float(role.get("tool_timeout_seconds", 30)),
+                tool_event_sink=tool_event_sink,
+                actor=role_name,
+            ),
+            max_tool_rounds=int(role.get("max_tool_rounds", 8)),
         )
     if provider == "openai_compatible":
         api_key_env = str(role.get("api_key_env", "OPENAI_API_KEY"))
-        api_key = os.environ.get(api_key_env)
-        base_url_env = role.get("base_url_env")
-        base_url = role.get("base_url") or (
-            os.environ.get(str(base_url_env)) if base_url_env else None
-        )
+        api_key = role.get("api_key") or os.environ.get(api_key_env)
+        base_url = role.get("base_url") or _env_value(role.get("base_url_env"))
         if not api_key:
             raise ProjectError(
                 f"{api_key_env} is required by the configured OpenAI-compatible role {role_name}"
@@ -826,5 +931,20 @@ def create_client(
             answer_reserve=answer_reserve,
             context_length=int(role.get("context_length", 200_000)),
             store=bool(role.get("store", False)),
+            tool_executor=make_tool_executor(
+                role.get("tools"),
+                workspace_root=role.get("workspace_root") or working_dir,
+                max_output_chars=int(role.get("tool_output_chars", 20_000)),
+                default_timeout_seconds=float(role.get("tool_timeout_seconds", 30)),
+                tool_event_sink=tool_event_sink,
+                actor=role_name,
+            ),
+            max_tool_rounds=int(role.get("max_tool_rounds", 8)),
         )
     raise ProjectError(f"Unsupported provider type in model config: {provider}")
+
+
+def _env_value(name: object) -> str | None:
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return os.environ.get(name)

@@ -127,6 +127,7 @@ class ReplayCertificationRunner:
             root_claim_snapshot_hash=self.claim_snapshot.claim_snapshot_hash
         )
         self.config = load_model_config(self.config_path)
+        self.config["workspace_root"] = str(self.project.root.resolve())
         self.model_router = ModelRouter(
             self.config,
             state_path=self.output_dir / "routing_state.json",
@@ -654,7 +655,7 @@ def main() -> None:
     parser.add_argument("--spec", required=True)
     parser.add_argument("--repair-root", required=True)
     parser.add_argument("--source-root", required=True)
-    parser.add_argument("--config", required=True)
+    parser.add_argument("--config", default="configs/models.toml")
     parser.add_argument("--output", required=True)
     parser.add_argument("--semantic-registry", required=True)
     parser.add_argument("--prepare-only", action="store_true")

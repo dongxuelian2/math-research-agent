@@ -1,0 +1,44 @@
+{
+  "result": "{\"schema_version\": 3, \"role\": \"dependency_auditor\", \"domain_verdict\": \"PASS\", \"execution_status\": \"OK\", \"findings\": [\"No defect found in the finite induction argument.\"], \"failure_reasons\": [], \"cross_audit_notes\": [], \"computational_evidence\": [], \"authority_uses\": [{\"claim\": \"(n+1)^2=n^2+2n+1\", \"claim_class\": \"PROJECT_THEOREM\", \"authority_id\": \"demo-next-square\", \"authority_type\": \"project_theorem\", \"proof_location\": \"\"}], \"summary\": \"Structured mock specialist audit passed.\", \"execution_error\": \"\", \"criteria\": {}}",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "audit_dependency_auditor",
+    "usage": {
+      "input_tokens": 1740,
+      "output_tokens": 130
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1740,
+    "output_tokens": 130
+  },
+  "structured": {
+    "schema_version": 3,
+    "role": "dependency_auditor",
+    "domain_verdict": "PASS",
+    "execution_status": "OK",
+    "findings": [
+      "No defect found in the finite induction argument."
+    ],
+    "failure_reasons": [],
+    "cross_audit_notes": [],
+    "computational_evidence": [],
+    "authority_uses": [
+      {
+        "claim": "(n+1)^2=n^2+2n+1",
+        "claim_class": "PROJECT_THEOREM",
+        "authority_id": "demo-next-square",
+        "authority_type": "project_theorem",
+        "proof_location": ""
+      }
+    ],
+    "summary": "Structured mock specialist audit passed.",
+    "execution_error": "",
+    "criteria": {}
+  }
+}

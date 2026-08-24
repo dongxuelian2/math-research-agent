@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "artifact_id": "artifact-8200dec8601db46c3a722cddbe15412b",
+  "artifact_kind": "PROVIDER_RESULT",
+  "relative_path": "runtime/artifacts/PROVIDER_RESULT/artifact-8200dec8601db46c3a722cddbe15412b.json",
+  "sha256": "sha256:783a0688e906eb26e506a94b5473877ed6bfad293d0bed63632214f4370c942a",
+  "size": 45140,
+  "producer_attempt_id": "attempt-73af42cb68fa5849c1ceb227decb83f5",
+  "created_at": "2026-08-23T18:37:59+00:00",
+  "result_metadata": {
+    "completion_status": "SUCCESS",
+    "idempotency_key": "attempt-73af42cb68fa5849c1ceb227decb83f5:provider-result",
+    "provider_metadata": {
+      "provider": "openai_compatible",
+      "model": "deepseek-v4-flash",
+      "reasoning_tier": "strategic"
+    }
+  }
+}

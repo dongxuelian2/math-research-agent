@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_OBLIGATION_CURRENT_PROJECTION",
+  "obligation_id": "ro-coprime-square-lemma-root",
+  "obligation_hash": "sha256:1025358f0bc6c45ff2bb20e70458de21f258320060e7024f4a8947bcc91bbd3d",
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:bb3da3e96a6c6d95b348b6baacc7a7216a166e07ad88dbe743c7b014863165d3",
+  "research_map_id": "map-coprime-square-lemma-20260824-022645",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:c108c6f318fd9e9afd05a08080243e1e4bfacd5a041c8f3dec48881fe250a971"
+}

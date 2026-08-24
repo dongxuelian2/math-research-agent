@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .project import ProjectError, utc_now
-from .gemini_tools import build_tool_payload
+from ..tools import build_tool_payload
 from .runtime_bindings import CrossPlaneExecutionBinding
 from .runtime_model import RuntimeConflict, RuntimeResultRejected
 
@@ -264,6 +264,7 @@ class ModelRouter:
         execution_binding: CrossPlaneExecutionBinding | dict | None = None,
         execution_binding_validator=None,
         require_execution_binding: bool = False,
+        tool_event_sink=None,
     ):
         self.config = copy.deepcopy(config)
         self.layers = [
@@ -280,6 +281,7 @@ class ModelRouter:
         self.execution_binding = execution_binding
         self.execution_binding_validator = execution_binding_validator
         self.require_execution_binding = bool(require_execution_binding)
+        self.tool_event_sink = tool_event_sink
         self._lock = threading.RLock()
         self._save()
 
@@ -923,11 +925,17 @@ class RoutedLLMClient:
         if route.config.get("tools") and "tools" not in prepared:
             from .providers import provider_capabilities
 
+            # The deterministic mock intentionally ignores provider tools; its
+            # responses are fixtures, not an agent loop.
+            if route.provider == "mock":
+                return prepared
             if not provider_capabilities(route.provider).supports_native_tools:
                 raise ProjectError(
                     f"Provider {route.provider} does not support configured native tools"
                 )
-            prepared["tools"] = build_tool_payload(route.config["tools"])
+            prepared["tools"] = build_tool_payload(
+                route.config["tools"], provider=route.provider
+            )
         return prepared
 
     def _execute_route(
@@ -1078,11 +1086,16 @@ class RoutedLLMClient:
         with self._lock:
             if key not in self._clients:
                 safe_role = re.sub(r"[^a-zA-Z0-9_.-]+", "-", route.role)
+                client_config = copy.deepcopy(route.config)
+                workspace_root = self.router.config.get("workspace_root")
+                if workspace_root and "workspace_root" not in client_config:
+                    client_config["workspace_root"] = workspace_root
                 self._clients[key] = self.client_factory(
-                    route.config,
+                    client_config,
                     self.archive_dir / safe_role,
                     role_name=route.role,
                     working_dir=self.working_dir / safe_role,
+                    tool_event_sink=self.router.tool_event_sink,
                 )
             return self._clients[key]
 

@@ -1,0 +1,13 @@
+{
+  "foundations": [],
+  "semantics": [],
+  "project_theorems": [],
+  "local_proofs": [],
+  "computational_certificates": [],
+  "foundation_ids_used": [],
+  "missing_authorities": [],
+  "errors": [
+    "(n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json"
+  ],
+  "admissible": false
+}

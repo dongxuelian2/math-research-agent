@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_MAP_CURRENT_PROJECTION",
+  "research_map_id": "map-parity-gcd-lemma-20260824-022533",
+  "version": 1,
+  "research_map_hash": "sha256:7b114a156388003376f1008e1e43d6c35592d3a08c2d644ff22e071889603707",
+  "root_claim_snapshot_hash": "sha256:7485466a34ba00fc81ee7dfb96e19eef57abf5b2addec064b038781888f7aefc",
+  "open_obligation_ids": [
+    "ro-parity-gcd-lemma-root"
+  ]
+}

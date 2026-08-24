@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "purpose-analysis",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "purpose-analysis",
+    "canonical_statement": "Derive and verify the first exact consequence required by the project purpose.",
+    "claim_type": "implication",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:f71925a0399e7faa1f951e551631a827988d18fedf49dcb2134b8f7ff9318351"
+  },
+  "assertion_identity_hash": "sha256:f71925a0399e7faa1f951e551631a827988d18fedf49dcb2134b8f7ff9318351",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:f71925a0399e7faa1f951e551631a827988d18fedf49dcb2134b8f7ff9318351",
+    "dependencies": [],
+    "dependency_snapshot_hash": "sha256:c3b99ea4f9639c31f42fbe6fd57d719836eb7e0be6af4726402475c5c68d8de1"
+  },
+  "dependency_snapshot_hash": "sha256:c3b99ea4f9639c31f42fbe6fd57d719836eb7e0be6af4726402475c5c68d8de1",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "purpose-analysis",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:c8565ec1d87aa9fced55f90db4832f111de9ffd3c71de82da8f0d4ca594d6d94"
+  },
+  "assumption_snapshot_hash": "sha256:c8565ec1d87aa9fced55f90db4832f111de9ffd3c71de82da8f0d4ca594d6d94",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:f71925a0399e7faa1f951e551631a827988d18fedf49dcb2134b8f7ff9318351",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:70a54ea725a72c10e043ae915453a94e5d281328efcab2a1d51956d6adcd017b"
+    }
+  ],
+  "authority_binding_hash": "sha256:8a71ba87ed558a182d537b494d11c2f40a5c60856f8a3fa85e108ed607fe6b40",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:ad0a2eaa02517d5bb70db48a97b803b73c11358a5c828e1fcfbea6e93c87d715",
+  "captured_status": "IN_RESEARCH",
+  "captured_at": "2026-08-23T17:32:41+00:00",
+  "project_record_hash": "sha256:da22438a80cfe7beb8561ac09976cbe22b44071c2d29aa3dd0b9f12f53b4d9e0",
+  "claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe"
+}

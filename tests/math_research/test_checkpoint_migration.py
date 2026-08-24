@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -26,11 +27,11 @@ def _project(tmp_path: Path) -> ProjectStore:
 
 
 def _config_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "configs" / "models.mock.json"
+    return Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "models.mock.toml"
 
 
 def _migrator(project: ProjectStore) -> LegacyCheckpointMigrator:
-    config = json.loads(_config_path().read_text(encoding="utf-8"))
+    config = tomllib.loads(_config_path().read_text(encoding="utf-8"))
     return LegacyCheckpointMigrator(
         project,
         config_path=_config_path(),

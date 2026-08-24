@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-08-23T18:25:33+00:00",
+  "directive_hash": "sha256:0bf5e16ff4660a7fdbd5d82f64ff2571144fa064c11a0af811564566d6cb1967",
+  "directive_id": "directive-1f092512bc900f1c1a143619",
+  "execution_run_id": "parity-gcd-lemma-20260824-022533",
+  "execution_status": "RUNNING",
+  "object_type": "TACTICAL_SESSION",
+  "obligation_hash": "sha256:9fed95858d557eefacf7424ca3e4c72b97f7fdc30be3530b3db27807d991aad7",
+  "obligation_id": "ro-parity-gcd-lemma-root",
+  "parent_execution_run_id": null,
+  "research_map_hash": "sha256:7b114a156388003376f1008e1e43d6c35592d3a08c2d644ff22e071889603707",
+  "research_map_id": "map-parity-gcd-lemma-20260824-022533",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:7485466a34ba00fc81ee7dfb96e19eef57abf5b2addec064b038781888f7aefc",
+  "schema_version": 1,
+  "session_hash": "sha256:cb4ef9d7baf65c01637ab2b3b0f2db3148f951559b88b85f4685fb5ae7a69eaf",
+  "tactical_session_id": "session-0af1adfdda24fe4bf06f118e"
+}

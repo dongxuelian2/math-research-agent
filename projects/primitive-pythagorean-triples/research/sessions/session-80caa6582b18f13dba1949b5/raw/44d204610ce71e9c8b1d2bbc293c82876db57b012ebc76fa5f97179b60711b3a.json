@@ -1,0 +1,309 @@
+{
+  "schema_version": 3,
+  "next_task_number": 3,
+  "next_event_number": 7,
+  "obligations": {
+    "purpose-analysis": {
+      "obligation_id": "purpose-analysis",
+      "target_statement": "Derive and verify the first exact consequence required by the project purpose.",
+      "statement": "Derive and verify the first exact consequence required by the project purpose.",
+      "normalized_statement": "derive and verify the first exact consequence required by the project purpose.",
+      "branch_id": "main",
+      "parent_obligation_id": null,
+      "created_by_call_id": null,
+      "created_by_role": null,
+      "dependencies": [],
+      "dependents": [],
+      "risk_level": "normal",
+      "impact_level": "normal",
+      "current_tier": "routine",
+      "minimum_inherited_tier": "routine",
+      "fresh_independent_obligation": false,
+      "literature_status": "PENDING",
+      "proof_status": "RESULT_AVAILABLE",
+      "verification_status": "PENDING",
+      "priority": 0,
+      "context": {
+        "existing_campaign_target": true
+      },
+      "canonical_source_requirements": [],
+      "canonical_authority": [],
+      "authority_blockers": [],
+      "literature_first": false,
+      "dual_track": false,
+      "status": "VERIFICATION_READY",
+      "created_at": "2026-08-23T17:32:41+00:00",
+      "updated_at": "2026-08-23T17:32:41+00:00",
+      "failure_counters": {
+        "HANDLER_ERROR": 1
+      }
+    }
+  },
+  "tasks": {
+    "task-00000001": {
+      "task_id": "task-00000001",
+      "pipeline": "proof",
+      "obligation_id": "purpose-analysis",
+      "role": "constructive",
+      "payload": {},
+      "priority": 0,
+      "parent_task_id": null,
+      "speculative": false,
+      "citation_depth": 0,
+      "status": "COMPLETE",
+      "call_id": null,
+      "attempt_id": "attempt-e5780999df4b",
+      "created_process_id": 31,
+      "created_at": "2026-08-23T17:32:41+00:00",
+      "started_at": "2026-08-23T17:32:41+00:00",
+      "completed_at": "2026-08-23T17:32:42+00:00",
+      "result": {
+        "success": true,
+        "proof_candidate": true,
+        "high_value": true
+      }
+    },
+    "task-00000002": {
+      "task_id": "task-00000002",
+      "pipeline": "verification",
+      "obligation_id": "purpose-analysis",
+      "role": "theorem_verifier",
+      "payload": {
+        "proof_task_id": "task-00000001",
+        "high_value": true
+      },
+      "priority": 0,
+      "parent_task_id": null,
+      "speculative": false,
+      "citation_depth": 0,
+      "status": "ERROR",
+      "call_id": "pipeline-call-task-00000002-attempt-cbc8553380e8",
+      "attempt_id": "attempt-cbc8553380e8",
+      "created_process_id": 31,
+      "created_at": "2026-08-23T17:32:42+00:00",
+      "started_at": "2026-08-23T17:32:42+00:00",
+      "usage_reconciliation": {
+        "reservation_id": "reservation-130df3e956954b8b992c2d3cd9f565a3",
+        "reserved": {
+          "provider_calls": 1,
+          "input_tokens": 1024,
+          "output_tokens": 512,
+          "reasoning_tokens": 512,
+          "cached_tokens": 0,
+          "total_tokens": 1536
+        },
+        "actual": {
+          "provider_calls": 1,
+          "input_tokens": 1024,
+          "output_tokens": 512,
+          "reasoning_tokens": 512,
+          "cached_tokens": 0,
+          "total_tokens": 1536
+        },
+        "released": {
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0,
+          "total_tokens": 0
+        },
+        "additional_commit": {
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0,
+          "total_tokens": 0
+        },
+        "usage_known": false,
+        "unknown_usage_policy": "reserved_as_committed",
+        "status": "USAGE_UNKNOWN_AFTER_INTERRUPT",
+        "hard_cap_exceeded": false,
+        "exceeded": {},
+        "reconciled_at": "2026-08-23T17:32:42+00:00"
+      },
+      "completed_at": "2026-08-23T17:32:42+00:00",
+      "error": {
+        "kind": "HANDLER_ERROR",
+        "detail": "RuntimeError: mock structured response is not a complete JSON document"
+      }
+    }
+  },
+  "queues": {
+    "PROOF_QUEUE": [],
+    "LITERATURE_QUEUE": [],
+    "VERIFICATION_QUEUE": [],
+    "BLOCKED_QUEUE": []
+  },
+  "active": {
+    "proof": [],
+    "literature": [],
+    "verification": []
+  },
+  "events": [
+    {
+      "event_id": "event-00000001",
+      "type": "TASK_READY",
+      "obligation_id": "purpose-analysis",
+      "payload": {
+        "task_id": "task-00000001",
+        "pipeline": "proof"
+      },
+      "created_at": "2026-08-23T17:32:41+00:00"
+    },
+    {
+      "event_id": "event-00000002",
+      "type": "TASK_STARTED",
+      "obligation_id": "purpose-analysis",
+      "payload": {
+        "task_id": "task-00000001"
+      },
+      "created_at": "2026-08-23T17:32:41+00:00"
+    },
+    {
+      "event_id": "event-00000003",
+      "type": "TASK_COMPLETED",
+      "obligation_id": "purpose-analysis",
+      "payload": {
+        "task_id": "task-00000001"
+      },
+      "created_at": "2026-08-23T17:32:42+00:00"
+    },
+    {
+      "event_id": "event-00000004",
+      "type": "TASK_READY",
+      "obligation_id": "purpose-analysis",
+      "payload": {
+        "task_id": "task-00000002",
+        "pipeline": "verification"
+      },
+      "created_at": "2026-08-23T17:32:42+00:00"
+    },
+    {
+      "event_id": "event-00000005",
+      "type": "TASK_STARTED",
+      "obligation_id": "purpose-analysis",
+      "payload": {
+        "task_id": "task-00000002"
+      },
+      "created_at": "2026-08-23T17:32:42+00:00"
+    },
+    {
+      "event_id": "event-00000006",
+      "type": "TASK_FAILED",
+      "obligation_id": "purpose-analysis",
+      "payload": {
+        "kind": "HANDLER_ERROR",
+        "detail": "RuntimeError: mock structured response is not a complete JSON document"
+      },
+      "created_at": "2026-08-23T17:32:42+00:00"
+    }
+  ],
+  "completed_task_ids": [
+    "task-00000001"
+  ],
+  "dual_tracks": {},
+  "processed_event_ids": [],
+  "resource_budget": {
+    "limits": {
+      "provider_calls": 1000000000,
+      "input_tokens": 1000000000,
+      "output_tokens": 1000000000,
+      "reasoning_tokens": 1000000000,
+      "cached_tokens": 1000000000,
+      "total_tokens": 1000000000
+    },
+    "usage": {
+      "provider_calls": 1,
+      "input_tokens": 1024,
+      "output_tokens": 512,
+      "reasoning_tokens": 512,
+      "cached_tokens": 0,
+      "total_tokens": 1536
+    },
+    "committed": {
+      "provider_calls": 1,
+      "input_tokens": 1024,
+      "output_tokens": 512,
+      "reasoning_tokens": 512,
+      "cached_tokens": 0,
+      "total_tokens": 1536
+    },
+    "reserved": {
+      "provider_calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "reasoning_tokens": 0,
+      "cached_tokens": 0,
+      "total_tokens": 0
+    },
+    "active_reservations": {},
+    "reconciliations": [
+      {
+        "reservation_id": "reservation-130df3e956954b8b992c2d3cd9f565a3",
+        "reserved": {
+          "provider_calls": 1,
+          "input_tokens": 1024,
+          "output_tokens": 512,
+          "reasoning_tokens": 512,
+          "cached_tokens": 0,
+          "total_tokens": 1536
+        },
+        "actual": {
+          "provider_calls": 1,
+          "input_tokens": 1024,
+          "output_tokens": 512,
+          "reasoning_tokens": 512,
+          "cached_tokens": 0,
+          "total_tokens": 1536
+        },
+        "released": {
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0,
+          "total_tokens": 0
+        },
+        "additional_commit": {
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "cached_tokens": 0,
+          "total_tokens": 0
+        },
+        "usage_known": false,
+        "unknown_usage_policy": "reserved_as_committed",
+        "status": "USAGE_UNKNOWN_AFTER_INTERRUPT",
+        "hard_cap_exceeded": false,
+        "exceeded": {},
+        "reconciled_at": "2026-08-23T17:32:42+00:00"
+      }
+    ],
+    "violations": [],
+    "halted": false,
+    "unknown_usage_policy": "reserved_as_committed",
+    "reserved_total_tokens": 0,
+    "committed_total_tokens": 1536
+  },
+  "runtime_id": "46a14c7cf63c4538bd691ddae5748cc7",
+  "sources": {},
+  "source_identifiers": {},
+  "literature": {
+    "lead_calls": 0,
+    "searcher_calls": 0,
+    "reader_calls": 0,
+    "sources_found": 0,
+    "sources_deep_read": 0,
+    "external_theorems_extracted": 0,
+    "verified_external_authorities": 0,
+    "exact_matches": 0,
+    "partial_matches": 0,
+    "method_matches": 0,
+    "literature_guided_closures": 0,
+    "duplicate_searches_avoided": 0,
+    "proof_calls_avoided_due_to_literature": 0
+  }
+}
