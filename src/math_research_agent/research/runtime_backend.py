@@ -224,6 +224,20 @@ ALTER TABLE effect_slots ADD COLUMN cross_plane_binding TEXT;
 """
 
 
+def _execute_script_in_transaction(connection: sqlite3.Connection, script: str) -> None:
+    """Execute a migration without sqlite3.executescript's implicit commit."""
+
+    statement = ""
+    for line in script.splitlines(keepends=True):
+        statement += line
+        if sqlite3.complete_statement(statement):
+            if statement.strip():
+                connection.execute(statement)
+            statement = ""
+    if statement.strip():
+        connection.execute(statement)
+
+
 class SQLiteRuntimeBackend:
     """Project-isolated SQLite current-state authority with an append-only journal."""
 
@@ -280,31 +294,34 @@ class SQLiteRuntimeBackend:
             mode = str(connection.execute("PRAGMA journal_mode = WAL").fetchone()[0]).lower()
             if mode != "wal":
                 raise RuntimeError(f"SQLite refused WAL mode: {mode}")
+
+            # Lock before inspecting the schema.  Inspecting first and then
+            # calling executescript() allowed another child run to observe
+            # runtime_schema between CREATE TABLE and the singleton INSERT.
+            connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='runtime_schema'"
             ).fetchone()
             if existing is None:
-                connection.execute("BEGIN IMMEDIATE")
-                connection.executescript(_MIGRATION_1)
+                _execute_script_in_transaction(connection, _MIGRATION_1)
                 connection.execute(
                     "INSERT INTO runtime_schema(singleton, schema_version, migrated_at) "
                     "VALUES(1, ?, ?)",
                     (1, utc_now()),
                 )
-                connection.commit()
-            version = int(
-                connection.execute(
-                    "SELECT schema_version FROM runtime_schema WHERE singleton = 1"
-                ).fetchone()[0]
-            )
+            schema_row = connection.execute(
+                "SELECT schema_version FROM runtime_schema WHERE singleton = 1"
+            ).fetchone()
+            if schema_row is None:
+                raise ArtifactIntegrityError("Runtime schema is missing its singleton row")
+            version = int(schema_row[0])
             if version > RUNTIME_SCHEMA_VERSION:
                 raise RuntimeError(
                     f"Runtime database schema {version} is newer than supported "
                     f"{RUNTIME_SCHEMA_VERSION}"
                 )
             if version == 1:
-                connection.execute("BEGIN IMMEDIATE")
-                connection.execute(_MIGRATION_2)
+                _execute_script_in_transaction(connection, _MIGRATION_2)
                 connection.execute(
                     "INSERT INTO runtime_migration_history(target_version, migration_name, applied_at) "
                     "VALUES(2, 'add_runtime_migration_history', ?)",
@@ -315,11 +332,9 @@ class SQLiteRuntimeBackend:
                     "WHERE singleton = 1 AND schema_version = 1",
                     (utc_now(),),
                 )
-                connection.commit()
                 version = 2
             if version == 2:
-                connection.execute("BEGIN IMMEDIATE")
-                connection.executescript(_MIGRATION_3)
+                _execute_script_in_transaction(connection, _MIGRATION_3)
                 connection.execute(
                     "INSERT INTO runtime_migration_history(target_version, migration_name, applied_at) "
                     "VALUES(3, 'add_cross_plane_execution_bindings', ?)",
@@ -330,10 +345,10 @@ class SQLiteRuntimeBackend:
                     "WHERE singleton = 1 AND schema_version = 2",
                     (RUNTIME_SCHEMA_VERSION, utc_now()),
                 )
-                connection.commit()
                 version = RUNTIME_SCHEMA_VERSION
             if version < RUNTIME_SCHEMA_VERSION:
                 raise RuntimeError(f"No forward migration registered from schema {version}")
+            connection.commit()
         except BaseException:
             if connection.in_transaction:
                 connection.rollback()

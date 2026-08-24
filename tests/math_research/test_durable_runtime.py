@@ -117,6 +117,21 @@ def test_d1_sqlite_schema_version_wal_and_control_plane_boundary(tmp_path: Path)
     assert "BLOB" not in backend.schema_sql().upper()
 
 
+def test_concurrent_runtime_initialization_is_atomic(tmp_path: Path):
+    root = tmp_path / "project"
+    barrier = threading.Barrier(8)
+
+    def initialize(_index: int) -> dict:
+        barrier.wait()
+        return SQLiteRuntimeBackend(root).check()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        checks = list(pool.map(initialize, range(8)))
+
+    assert [check["schema_version"] for check in checks] == [3] * 8
+    assert all(check["integrity_check"] == "ok" for check in checks)
+
+
 def test_d1_forward_migration_from_previous_runtime_schema(tmp_path: Path):
     root = tmp_path / "project"
     database = root / "runtime" / "control.sqlite3"
