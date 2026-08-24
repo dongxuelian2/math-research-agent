@@ -27,7 +27,7 @@ bash scripts/start.sh
 
 安装前需要系统已有 `uv` 和 Rust/Cargo；脚本会自动创建或更新项目的 `.venv`，并构建本地终端二进制。安装和启动入口统一在 `scripts/`，不会再维护另一套 Observatory bootstrap 流程。
 
-终端内默认显示项目 purpose、子命题列表和研究日志。输入 `/help` 查看命令；新项目可用 `/new` 打开大号多行目标编辑器，填写完成后用 `Ctrl-Enter` 创建，再用 `/run` 让项目级 orchestrator 自动分析、分解并推进证明；已有项目用 `/switch` 切换。项目步骤会持久化到 `timeline.jsonl`，重新打开项目可恢复 Activity，并从未完成的计划和检查点继续。已有论文或 Markdown 可用 `/import <file>` 加入项目，下一次 `/run` 会生成 `work/imported/` 工作副本并纳入上下文。真实 Gemini 运行需要配置 `configs/.env.example` 中的环境变量；也支持 Vertex Gemini、OpenAI、任意 OpenAI Responses 兼容端点和 Codex CLI 路由。
+终端内默认显示项目 purpose、子命题列表和研究日志。输入 `/help` 查看命令；新项目可用 `/new` 打开大号多行目标编辑器，填写完成后用 `F2` 创建，再用 `/run` 让项目级 orchestrator 自动分析、分解并推进证明；已有项目用 `/switch` 切换。项目步骤会持久化到 `timeline.jsonl`，重新打开项目可恢复 Activity，并从未完成的计划和检查点继续。已有论文或 Markdown 可用 `/import <file>` 加入项目，下一次 `/run` 会生成 `work/imported/` 工作副本并纳入上下文。真实 Gemini 运行需要配置 `configs/.env.example` 中的环境变量；也支持 Vertex Gemini、OpenAI、任意 OpenAI Responses 兼容端点和 Codex CLI 路由。
 
 单独生成演示：
 
@@ -89,6 +89,10 @@ Rust 终端与 Python 研究后端分层：Rust 只负责交互、键盘、状�
 Responses API 约定
 
 所有 OpenAI 风格模型共享 `math_research_agent.providers.responses.ResponsesRequest` 请求契约。`openai` 使用官方端点，`openai_compatible` 使用自定义 `base_url`；两者都归一化为相同的文本、tool calls、usage、finish reason 和归档结果。Gemini、Codex CLI、Mock 仍保留各自原生适配器。
+
+工具调用也遵循 Responses API 的 item 形状：工具定义使用扁平的 `type: "function"`、`name`、`description`、`parameters` 字段；模型返回 `function_call`，执行结果回传为 `function_call_output`。Chat Completions 使用的嵌套 `function` 字段只作为输入兼容格式，不会发送到 `/responses`。
+
+OpenAI-compatible 端点使用普通 JSON 输出并在本地完成 Pydantic 校验，不假设上游强制执行 JSON Schema；官方 OpenAI 端点仍可使用严格 Responses JSON Schema。
 
 ## 设计边界
 

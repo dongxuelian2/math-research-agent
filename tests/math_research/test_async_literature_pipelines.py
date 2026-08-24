@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import threading
 
 from math_research_agent.research.pipelines import (
@@ -23,6 +24,25 @@ def make_scheduler(tmp_path):
             },
         },
     )
+
+
+def test_failed_proof_result_is_not_rendered_as_successful_task_completion(tmp_path):
+    timeline = tmp_path / "timeline.jsonl"
+    scheduler = AsyncDAGScheduler(
+        state_path=tmp_path / "pipeline_state.json",
+        timeline_path=timeline,
+        project_id="project",
+        run_id="run",
+    )
+    scheduler.add_obligation("O", target_statement="proof target")
+    task = scheduler.dispatch_window({"proof": 1, "literature": 0, "verification": 0})["proof"][0]
+
+    scheduler.complete_task(task["task_id"], {"success": False, "proof_candidate": False})
+
+    events = [json.loads(line) for line in timeline.read_text(encoding="utf-8").splitlines()]
+    completed = next(event for event in events if event["action"] == "TASK_COMPLETED")
+    assert completed["status"] == "FAILED"
+    assert completed["payload"]["payload"]["outcome"] == "NO_CANDIDATE"
 
 
 def test_cross_pipeline_concurrency_dependency_blocking_and_dual_track(tmp_path):

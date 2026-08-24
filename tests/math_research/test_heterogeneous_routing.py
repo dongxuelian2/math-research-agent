@@ -259,3 +259,23 @@ model = "strategic"
     )
     assert router.resolve("worker", reserve=False).provider == "codex_cli"
     assert router.resolve("dependency_auditor", reserve=False).provider == "gemini"
+
+
+def test_compatible_routes_keep_native_tools_enabled(tmp_path):
+    config = {
+        "roles": {
+            "planner": {
+                "provider": "openai_compatible",
+                "model": "stealth/ox-alpha",
+                "tools": ["read"],
+            }
+        },
+        "routing": {"planner_mode": "strategic"},
+    }
+    router = ModelRouter(config, state_path=tmp_path / "routing.json")
+    route = router.resolve("planner", reserve=False)
+    prepared = RoutedLLMClient._with_route_tools(
+        route,
+        {"tools": [{"type": "function", "name": "read"}]},
+    )
+    assert prepared["tools"] == [{"type": "function", "name": "read"}]

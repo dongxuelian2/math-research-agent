@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 
 
 ACTION_BLOCK = re.compile(r"<MRA_ACTION>\s*(.*?)\s*</MRA_ACTION>", re.DOTALL)
+LEGACY_JSON_ACTION = re.compile(r"^\s*MRA_ACTION\s*:\s*", re.MULTILINE)
 
 
 class ProtocolError(ValueError):
@@ -38,6 +40,43 @@ def parse_actions(text: str) -> list[dict]:
                 ]
         value["action"] = action
         actions.append(value)
+
+    # Some OpenAI-compatible models emit explicit actions as one-line JSON
+    # (``MRA_ACTION: {...}``) instead of the canonical TOML-like block.  Keep
+    # the normalization at the protocol boundary so the engine never silently
+    # mistakes a control response for ordinary prose.
+    legacy_assignments: list[dict] = []
+    decoder = json.JSONDecoder()
+    for match in LEGACY_JSON_ACTION.finditer(text):
+        payload = text[match.end() :].lstrip()
+        try:
+            value, _ = decoder.raw_decode(payload)
+        except json.JSONDecodeError as exc:
+            raise ProtocolError("invalid legacy MRA_ACTION JSON") from exc
+        if not isinstance(value, dict):
+            raise ProtocolError("legacy MRA_ACTION JSON must be an object")
+        action = str(value.get("action", "")).strip()
+        if not action:
+            raise ProtocolError("planner action has no action field")
+        if action == "assign_worker":
+            legacy_assignments.append(
+                {
+                    "summary": str(value.get("worker_id") or value.get("role") or "worker"),
+                    "description": str(value.get("task", value.get("description", ""))).strip(),
+                    "worker_id": value.get("worker_id"),
+                    "role": value.get("role"),
+                    "branch": value.get("branch", "main"),
+                    "obligation": value.get("obligation", ""),
+                }
+            )
+        else:
+            actions.append(value)
+
+    if legacy_assignments:
+        # All assignment lines form one fan-out batch.  Returning one spawn
+        # action is important: returning one action per line would make the
+        # engine execute them serially.
+        actions.insert(0, {"action": "spawn", "tasks": legacy_assignments})
     return actions
 
 

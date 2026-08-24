@@ -115,40 +115,62 @@ def _response_text(response: Any) -> str:
     return response_text(response)
 
 
+def _item_field(item: Any, field: str, default: Any = "") -> Any:
+    if isinstance(item, dict):
+        return item.get(field, default)
+    return getattr(item, field, default)
+
+
 def _tool_calls(response: Any) -> list[dict[str, Any]] | None:
+    """Extract OpenResponses ``function_call`` output items unchanged in shape."""
+
     calls = []
-    for item in getattr(response, "output", []) or []:
-        if getattr(item, "type", "") != "function_call":
+    output = (
+        response.get("output", [])
+        if isinstance(response, dict)
+        else getattr(response, "output", [])
+    )
+    for item in output or []:
+        if _item_field(item, "type") != "function_call":
             continue
-        calls.append(
-            {
-                "id": getattr(item, "call_id", "") or getattr(item, "id", ""),
-                "type": "function",
-                "function": {
-                    "name": getattr(item, "name", ""),
-                    "arguments": getattr(item, "arguments", "{}") or "{}",
-                },
-            }
-        )
+        call = {
+            "type": "function_call",
+            "call_id": _item_field(item, "call_id") or _item_field(item, "id"),
+            "name": _item_field(item, "name"),
+            "arguments": _item_field(item, "arguments", "{}") or "{}",
+        }
+        item_id = _item_field(item, "id")
+        if item_id:
+            call["id"] = item_id
+        calls.append(call)
     return calls or None
 
 
 def _response_output_items(response: Any) -> list[dict[str, Any]]:
     """Convert SDK response items into Responses input items for a tool turn."""
 
-    items: list[dict[str, Any]] = []
-    for item in getattr(response, "output", []) or []:
-        if getattr(item, "type", "") != "function_call":
-            continue
-        items.append(
-            {
-                "type": "function_call",
-                "call_id": getattr(item, "call_id", "") or getattr(item, "id", ""),
-                "name": getattr(item, "name", ""),
-                "arguments": getattr(item, "arguments", "{}") or "{}",
-            }
-        )
-    return items
+    return [
+        {
+            "type": call["type"],
+            "call_id": call["call_id"],
+            "name": call["name"],
+            "arguments": call["arguments"],
+        }
+        for call in (_tool_calls(response) or [])
+    ]
+
+
+def _function_tool_name(tool: Any) -> str | None:
+    """Read a function name from either legacy chat or Responses tool shape."""
+
+    if not isinstance(tool, dict) or tool.get("type") != "function":
+        return None
+    nested = tool.get("function")
+    if isinstance(nested, dict):
+        name = nested.get("name")
+    else:
+        name = tool.get("name")
+    return str(name) if name else None
 
 
 def _finish_reason(response: Any, tool_calls: list[dict] | None) -> str:
@@ -173,15 +195,19 @@ def _convert_tools(tools: list[dict] | None) -> list[dict] | None:
             converted.append(dict(tool))
             continue
         function = tool.get("function", {})
-        converted.append(
-            {
-                "type": "function",
-                "name": function.get("name", ""),
-                "description": function.get("description"),
-                "parameters": function.get("parameters", {}),
-                "strict": function.get("strict", False),
-            }
-        )
+        if not isinstance(function, dict) or not function:
+            # Already in OpenAI/OpenRouter Responses API format.
+            converted.append(dict(tool))
+            continue
+        converted_tool = {
+            "type": "function",
+            "name": function.get("name", ""),
+            "description": function.get("description"),
+            "parameters": function.get("parameters", {}),
+        }
+        if "strict" in function:
+            converted_tool["strict"] = function["strict"]
+        converted.append(converted_tool)
     return converted
 
 
@@ -240,6 +266,7 @@ class OpenAIResponsesClient:
         base_url: str | None = None,
         provider_name: str = "openai",
         api_key_env: str = "OPENAI_API_KEY",
+        strict_json_schema: bool = True,
         client: Any | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
         tool_executor: Callable[[str, dict[str, Any]], Any] | None = None,
@@ -275,6 +302,7 @@ class OpenAIResponsesClient:
         self.base_url = base_url
         self.provider_name = provider_name
         self.api_key_env = api_key_env
+        self.strict_json_schema = bool(strict_json_schema)
         self.call_count = 0
         self.request_count = 0
         self.total_retries = 0
@@ -343,18 +371,16 @@ class OpenAIResponsesClient:
         input_items.append({"role": "user", "content": prompt})
         configured_tools = list(tools or [])
         has_local_web_search = any(
-            item.get("function", {}).get("name") == "web_search"
-            for item in configured_tools
-            if isinstance(item, dict)
+            _function_tool_name(item) == "web_search" for item in configured_tools
         )
         if web_search and not has_local_web_search:
-            configured_tools.append({"type": "web_search"})
+            configured_tools.append(self._native_web_search_tool())
         return self._execute(
             input_items=input_items,
             prompt_for_archive=prompt,
             system_prompt=system_prompt,
             json_schema=json_schema,
-            tools=configured_tools or None,
+            tools=_convert_tools(configured_tools or None),
             label=label,
             stream_callback=stream_callback,
             archive_path=archive_path,
@@ -385,6 +411,14 @@ class OpenAIResponsesClient:
             max_tokens=max_tokens,
             no_thinking=False,
         )
+
+    def _native_web_search_tool(self) -> dict[str, str]:
+        """Return the server-tool name accepted by the configured Responses endpoint."""
+
+        base_url = (self.base_url or "").lower()
+        if self.provider_name == "openai_compatible" and "openrouter.ai" in base_url:
+            return {"type": "openrouter:web_search"}
+        return {"type": "web_search"}
 
     def _execute(
         self,
@@ -421,7 +455,7 @@ class OpenAIResponsesClient:
         remote_schema = None
         schema_mode = "none"
         schema_fallback_reason = ""
-        if json_schema is not None:
+        if json_schema is not None and self.strict_json_schema:
             try:
                 remote_schema = strict_json_schema_for(json_schema)
                 schema_mode = "strict_json_schema"
@@ -439,6 +473,9 @@ class OpenAIResponsesClient:
                 )
         if json_schema is None:
             response_text_format = None
+        elif not self.strict_json_schema:
+            response_text_format = {"format": {"type": "json_object"}}
+            schema_mode = "json_object"
         elif remote_schema is not None:
             response_text_format = {
                 "format": {
@@ -567,17 +604,17 @@ class OpenAIResponsesClient:
             for call in calls:
                 arguments: dict[str, Any] = {}
                 try:
-                    arguments = json.loads(call["function"].get("arguments") or "{}")
+                    arguments = json.loads(call.get("arguments") or "{}")
                     if not isinstance(arguments, dict):
                         raise ValueError("tool arguments must be a JSON object")
-                    tool_result = self.tool_executor(call["function"]["name"], arguments)
+                    tool_result = self.tool_executor(call["name"], arguments)
                 except Exception as exc:
                     tool_result = {"status": "ERROR", "error": str(exc)[:800]}
                 if not isinstance(tool_result, dict):
                     tool_result = {"output": str(tool_result)}
                 tool_trace.append(
                     {
-                        "tool_name": call["function"]["name"],
+                        "tool_name": call["name"],
                         "args": arguments,
                         "result": tool_result,
                         "round": tool_rounds + 1,
@@ -586,15 +623,18 @@ class OpenAIResponsesClient:
                 active_input.append(
                     {
                         "type": "function_call_output",
-                        "call_id": call["id"],
+                        "call_id": call["call_id"],
                         "output": json.dumps(tool_result, ensure_ascii=False),
                     }
                 )
             payload = build_payload(effort)
             with self._lock:
                 self.request_count += 1
-            response = self._client.responses.create(**payload)
-            streamed_text = ""
+            if stream_callback:
+                response, streamed_text = self._stream_response(payload, stream_callback)
+            else:
+                response = self._client.responses.create(**payload)
+                streamed_text = ""
             tool_rounds += 1
             calls = _tool_calls(response)
 
@@ -866,5 +906,6 @@ class OpenAICompatibleResponsesClient(OpenAIResponsesClient):
             archive_dir,
             base_url=base_url,
             provider_name="openai_compatible",
+            strict_json_schema=False,
             **kwargs,
         )

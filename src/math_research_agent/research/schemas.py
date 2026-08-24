@@ -50,9 +50,14 @@ class ProjectSubproblemSchema(StrictSchemaModel):
     tags: list[StrictStr] = Field(default_factory=list)
     branch: StrictStr = "main"
     proof_type: StrictStr = "NATURAL_LANGUAGE"
-    claim_type: Literal["implication", "iff", "classification", "equality", "unclassified"] = (
-        "implication"
-    )
+    claim_type: Literal[
+        "implication",
+        "iff",
+        "classification",
+        "equality",
+        "existence",
+        "unclassified",
+    ] = "implication"
 
 
 class ProjectPlanSchema(StrictSchemaModel):

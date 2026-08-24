@@ -51,6 +51,7 @@ impl App {
                 KeyCode::Esc => {
                     self.session_mut().detail_open = false;
                     self.session_mut().detail_scroll = 0;
+                    self.session_mut().detail_follow = true;
                     self.focus = Focus::Workspace;
                 }
                 KeyCode::Up => self.scroll_detail(-1),
@@ -105,7 +106,7 @@ impl App {
     }
 
     pub(super) fn handle_project_editor_key(&mut self, key: KeyEvent) {
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Enter {
+        if key.code == KeyCode::F(2) {
             self.submit_project_editor();
             return;
         }
@@ -115,16 +116,9 @@ impl App {
         }
         if key.code == KeyCode::Tab {
             if let Some(editor) = self.project_editor.as_mut() {
-                editor.field = if key.modifiers.contains(KeyModifiers::SHIFT) {
-                    match editor.field {
-                        ProjectEditorField::Id => ProjectEditorField::Goal,
-                        ProjectEditorField::Goal => ProjectEditorField::Id,
-                    }
-                } else {
-                    match editor.field {
-                        ProjectEditorField::Id => ProjectEditorField::Goal,
-                        ProjectEditorField::Goal => ProjectEditorField::Id,
-                    }
+                editor.field = match editor.field {
+                    ProjectEditorField::Id => ProjectEditorField::Goal,
+                    ProjectEditorField::Goal => ProjectEditorField::Id,
                 };
             }
             return;
@@ -227,7 +221,7 @@ impl App {
         let name = editor.id.trim().to_string();
         let purpose = editor.goal.trim().to_string();
         if name.is_empty() || purpose.is_empty() {
-            self.log("System · 项目 ID 和核心目标都不能为空；请继续填写，Ctrl-Enter 创建。");
+            self.log("System · 项目 ID 和核心目标都不能为空；请继续填写，F2 创建。");
             return;
         }
         self.project_editor = None;
@@ -367,6 +361,7 @@ impl App {
                     self.session_mut().snapshot.current_target = target;
                     self.session_mut().detail_open = true;
                     self.session_mut().detail_scroll = 0;
+                    self.session_mut().detail_follow = true;
                     self.focus = Focus::Transcript;
                 }
             }
@@ -489,6 +484,7 @@ impl App {
                             session.theorem_selected = index;
                             session.detail_open = true;
                             session.detail_scroll = 0;
+                            session.detail_follow = true;
                             self.focus = Focus::Transcript;
                         }
                     }
@@ -554,6 +550,7 @@ impl App {
                 let target_width = hscroll + mouse.column.saturating_sub(area.x + 1) as usize;
                 session.cursor =
                     line_offset + char_index_at_width(lines[target_line], target_width);
+                session.invalidate_input_layout();
             }
         }
     }
@@ -628,6 +625,7 @@ impl App {
         session.history_index = Some(index);
         session.input = session.history[index].clone();
         session.cursor = session.input.chars().count();
+        session.invalidate_input_layout();
     }
 
     pub(super) fn history_down(&mut self) {
@@ -643,6 +641,7 @@ impl App {
             session.input = session.history[index + 1].clone();
         }
         session.cursor = session.input.chars().count();
+        session.invalidate_input_layout();
     }
 
     pub(super) fn select_theorem(&mut self, delta: isize) {
@@ -724,10 +723,13 @@ impl App {
             .unwrap_or(0);
         if delta == isize::MIN {
             session.detail_scroll = 0;
+            session.detail_follow = false;
         } else if delta == isize::MAX {
             session.detail_scroll = max;
+            session.detail_follow = true;
         } else {
             session.detail_scroll = session.detail_scroll.saturating_add_signed(delta).min(max);
+            session.detail_follow = session.detail_scroll == max;
         }
     }
 
@@ -738,6 +740,7 @@ impl App {
             session.input.clear();
             session.cursor = 0;
             session.history_index = None;
+            session.invalidate_input_layout();
         }
         self.completion_hidden = false;
         if command.is_empty() {

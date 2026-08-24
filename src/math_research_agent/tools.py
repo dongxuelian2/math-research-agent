@@ -140,7 +140,12 @@ def normalize_tool_names(value: Any) -> list[str]:
 
 
 def build_tool_payload(value: Any, *, provider: str) -> list[dict[str, Any]]:
-    """Build the native function-tool shape for Gemini or OpenAI Responses."""
+    """Build the provider-native function-tool shape.
+
+    OpenAI and OpenRouter Responses APIs use a flat function definition.  The
+    nested ``function`` object belongs to Chat Completions and must not be sent
+    to ``/responses``.
+    """
 
     names = normalize_tool_names(value)
     if provider in {"gemini", "vertex_gemini"}:
@@ -156,16 +161,13 @@ def build_tool_payload(value: Any, *, provider: str) -> list[dict[str, Any]]:
                 ]
             }
         ]
-    if provider in {"openai", "openai_compatible"}:
+    if provider in {"openai", "openai_compatible", "openrouter"}:
         return [
             {
                 "type": "function",
-                "function": {
-                    "name": name,
-                    "description": _TOOL_DEFINITIONS[name]["description"],
-                    "parameters": _TOOL_DEFINITIONS[name]["parameters"],
-                    "strict": False,
-                },
+                "name": name,
+                "description": _TOOL_DEFINITIONS[name]["description"],
+                "parameters": _TOOL_DEFINITIONS[name]["parameters"],
             }
             for name in names
         ]
@@ -269,13 +271,21 @@ class AgentToolExecutor:
             start = max(1, int(start_line or 1))
             end = max(start, int(end_line or len(lines)))
             text = "\n".join(f"{i}: {lines[i - 1]}" for i in range(start, min(end, len(lines)) + 1))
-        return {"status": "OK", "path": str(target.relative_to(self.workspace_root)), "content": self._clip(text)}
+        return {
+            "status": "OK",
+            "path": str(target.relative_to(self.workspace_root)),
+            "content": self._clip(text),
+        }
 
     def _write(self, path: str, content: str) -> dict:
         target = self._path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(str(content), encoding="utf-8")
-        return {"status": "OK", "path": str(target.relative_to(self.workspace_root)), "bytes": target.stat().st_size}
+        return {
+            "status": "OK",
+            "path": str(target.relative_to(self.workspace_root)),
+            "bytes": target.stat().st_size,
+        }
 
     def _edit(self, path: str, old_text: str, new_text: str, replace_all: bool = False) -> dict:
         target = self._path(path)
@@ -287,7 +297,11 @@ class AgentToolExecutor:
             raise ValueError(f"old_text matched {count} locations; set replace_all=true")
         updated = text.replace(old_text, new_text, -1 if replace_all else 1)
         target.write_text(updated, encoding="utf-8")
-        return {"status": "OK", "path": str(target.relative_to(self.workspace_root)), "replacements": count if replace_all else 1}
+        return {
+            "status": "OK",
+            "path": str(target.relative_to(self.workspace_root)),
+            "replacements": count if replace_all else 1,
+        }
 
     def _bash(self, command: str, timeout_seconds: float | None = None) -> dict:
         timeout = min(120.0, max(1.0, float(timeout_seconds or self.default_timeout_seconds)))
@@ -329,7 +343,13 @@ class AgentToolExecutor:
                 continue
             for number, line in enumerate(lines, 1):
                 if regex.search(line):
-                    results.append({"path": str(file.relative_to(self.workspace_root)), "line": number, "text": line[:500]})
+                    results.append(
+                        {
+                            "path": str(file.relative_to(self.workspace_root)),
+                            "line": number,
+                            "text": line[:500],
+                        }
+                    )
                     if len(results) >= int(max_results):
                         return {"status": "OK", "matches": results, "truncated": True}
         return {"status": "OK", "matches": results, "truncated": False}
@@ -362,7 +382,11 @@ class AgentToolExecutor:
             with self.request_fn(request, timeout=20) as response:
                 payload = json.loads(response.read().decode("utf-8"))
             results = [
-                {"title": item.get("title"), "url": item.get("url"), "snippet": item.get("description", "")}
+                {
+                    "title": item.get("title"),
+                    "url": item.get("url"),
+                    "snippet": item.get("description", ""),
+                }
                 for item in (payload.get("web", {}).get("results", []) or [])[:limit]
             ]
             return {"status": "OK", "provider": "brave", "query": query, "results": results}

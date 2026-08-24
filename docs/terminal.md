@@ -42,8 +42,8 @@ cargo run --manifest-path apps/mathagent-tui/Cargo.toml -- --root "$PWD"
 | `/help` | 显示帮助 |
 | `/status`、`/refresh` | 重新读取项目和定理状态 |
 | `/switch [path]` | 不带路径时打开项目选择器；带路径时直接切换已有项目；`/project` 仍是兼容别名 |
-| `/new [id] [purpose]` | 打开大号多行目标编辑器；填写项目 ID 和长目标后用 `Ctrl-Enter` 创建并切换 |
-| `/run` | 由项目级 orchestrator 分析 purpose、生成子命题 DAG，并自动调度证明与审计 |
+| `/new [id] [purpose]` | 打开大号多行目标编辑器；填写项目 ID 和长目标后用 `F2` 创建并切换 |
+| `/run` | 由项目级 orchestrator 分析 purpose、生成子命题 DAG，并按依赖前沿并行调度证明与审计 |
 | `/import <file>` | 将论文、Markdown、文本、TeX 或 PDF 原件归档到当前项目 |
 | `/config <path>` | 切换模型配置 |
 | `/stop` | 停止当前项目的研究运行 |
@@ -60,7 +60,7 @@ cargo run --manifest-path apps/mathagent-tui/Cargo.toml -- --root "$PWD"
 /run
 ```
 
-如果目标较长，可以只输入 `/new`，在大号编辑器中填写项目 ID 和多行核心目标。编辑器内 `Tab` / `Shift-Tab` 切换字段，目标框中 `Enter` 或 `Ctrl-J` 换行，`Ctrl-Enter` 创建，`Esc` 取消。已有项目用 `/switch` 选择或切换。
+如果目标较长，可以只输入 `/new`，在大号编辑器中填写项目 ID 和多行核心目标。编辑器内 `Tab` / `Shift-Tab` 切换字段，目标框中 `Enter` 或 `Ctrl-J` 换行，`F2` 创建，`Esc` 取消。已有项目用 `/switch` 选择或切换。
 
 项目会保留可恢复的工作轨迹：`timeline.jsonl` 是统一的追加式步骤流，TUI 打开项目时会恢复其中的 Activity；`/steps` 也读取它。`/run` 会复用未完成的项目计划和子命题 `state.json`，已通过的子命题不会重复运行，未完成的运行会从已有白板、Worker 报告、流水线状态和审计产物继续。
 
@@ -79,4 +79,4 @@ Session 默认采用类似 Codex/OpenCode 的 Activity 摘要，只显示 `Run �
 
 项目是隔离工作区。切换项目会同时切换它自己的项目状态、输入草稿、历史、会话画布、选中定理、滚动位置和运行状态；后台输出按项目路由，即使当前正在查看其他项目也不会串台。
 
-当前 Rust TUI 已支持自由文本编辑和项目内会话隔离，但 Python 后端还没有项目内普通聊天协议。自由文本会保留在当前项目的 TUI 会话中并明确提示能力缺口，不会绕过研究编排直接调用模型或伪造证明状态。真实模型运行前，请复制并填写 `configs/.env.example` 对应的环境变量。
+当前 Rust TUI 已支持自由文本编辑和项目内会话隔离，但 Python 后端还没有项目内普通聊天协议。自由文本会保留在当前项目的 TUI 会话中并明确提示能力缺口，不会绕过研究编排直接调用模型或伪造证明状态。真实模型运行前，请将 `configs/.env.example` 复制为仓库根目录 `.env` 并填写环境变量；TUI 启动后端时会自动读取该文件，已有 shell 环境变量优先。

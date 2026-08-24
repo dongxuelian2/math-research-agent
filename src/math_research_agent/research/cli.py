@@ -185,7 +185,14 @@ def dispatch(args: argparse.Namespace) -> dict | list | str:
         config = load_model_config(args.config)
         role = dict(resolve_role_config(config, args.role))
         provider = role.get("provider")
-        if provider not in {"gemini", "vertex_gemini", "codex_cli", "openai", "mock"}:
+        if provider not in {
+            "gemini",
+            "vertex_gemini",
+            "codex_cli",
+            "openai",
+            "openai_compatible",
+            "mock",
+        }:
             raise ProjectError("provider-smoke requires a supported provider role")
         # Exactly one provider attempt, even if it fails. Unit tests exercise
         # each provider's normal bounded retry path separately.
@@ -483,7 +490,7 @@ def main() -> None:
     try:
         result = dispatch(args)
     except (GeminiProviderError, CodexCLIProviderError, OpenAIProviderError) as exc:
-        if getattr(args, "ui_events", False):
+        if getattr(args, "ui_events", False) and not getattr(exc, "_ui_event_emitted", False):
             emit_cli_error(exc, project=getattr(args, "project", None))
         else:
             details = exc.to_dict() if hasattr(exc, "to_dict") else {"message": str(exc)}
@@ -493,13 +500,13 @@ def main() -> None:
             )
         raise SystemExit(3) from exc
     except (ProjectError, ValueError, OSError) as exc:
-        if getattr(args, "ui_events", False):
+        if getattr(args, "ui_events", False) and not getattr(exc, "_ui_event_emitted", False):
             emit_cli_error(exc, project=getattr(args, "project", None))
         else:
             print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
     except Exception as exc:
-        if getattr(args, "ui_events", False):
+        if getattr(args, "ui_events", False) and not getattr(exc, "_ui_event_emitted", False):
             emit_cli_error(exc, project=getattr(args, "project", None))
         else:
             print(f"error: {type(exc).__name__}: {exc}", file=sys.stderr)

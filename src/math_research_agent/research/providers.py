@@ -619,9 +619,7 @@ def load_model_config(path: str | Path) -> dict:
     if path.suffix.lower() != ".toml":
         raise ProjectError(f"Model config must be TOML: {path}")
     try:
-        config = _normalize_toml_model_config(
-            tomllib.loads(path.read_text(encoding="utf-8")), path
-        )
+        config = _normalize_toml_model_config(tomllib.loads(path.read_text(encoding="utf-8")), path)
     except (OSError, tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise ProjectError(f"Unable to load model config {path}: {exc}") from exc
     roles = config.get("roles", {})

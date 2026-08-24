@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from math_research_agent.providers.support import is_transient_error
+from math_research_agent.tools import build_tool_payload
 from math_research_agent.research.openai_provider import (
     OpenAIProviderError,
     OpenAICompatibleResponsesClient,
@@ -201,6 +202,23 @@ def test_pydantic_response_contract_is_materialized_as_responses_json_schema(tmp
     assert response["result"] == '{"verdict":"PASS"}'
 
 
+def test_openai_compatible_response_contract_uses_json_object_mode(tmp_path):
+    fake = FakeClient([FakeResponse('{"verdict":"PASS"}')])
+    client = OpenAICompatibleResponsesClient(
+        "stealth/ox-alpha",
+        tmp_path,
+        api_key="openrouter-secret",
+        api_key_env="OPENROUTER_API_KEY",
+        base_url="https://openrouter.ai/api/v1",
+        role_name="planner",
+        client=fake,
+    )
+    response = client.call("return JSON", "system", response_schema=StructuredContract)
+    assert fake.calls[0]["text"] == {"format": {"type": "json_object"}}
+    assert response["structured_output_mode"] == "json_object"
+    assert response["result"] == '{"verdict":"PASS"}'
+
+
 def test_strict_schema_lowering_is_recursive_and_provider_portable():
     schema = strict_json_schema_for(StructuredEnvelope)
     assert schema["required"] == ["item", "items"]
@@ -248,7 +266,13 @@ def test_streaming_and_tool_call_parsing(tmp_path):
     )
     assert chunks == [("stream", "text"), ("ed", "text")]
     assert response["finish_reason"] == "tool_calls"
-    assert response["tool_calls"][0]["function"]["name"] == "lean_verify"
+    assert response["tool_calls"][0] == {
+        "type": "function_call",
+        "id": "item_1",
+        "call_id": "call_1",
+        "name": "lean_verify",
+        "arguments": '{"code":"example"}',
+    }
 
 
 def test_openai_tool_loop_executes_local_function(tmp_path):
@@ -275,22 +299,38 @@ def test_openai_tool_loop_executes_local_function(tmp_path):
     response = client.call(
         "inspect the readme",
         "Use tools when needed.",
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "read",
-                    "description": "read",
-                    "parameters": {"type": "object"},
-                },
-            }
-        ],
+        tools=build_tool_payload(["read"], provider="openai_compatible"),
     )
 
     assert seen == [("read", {"path": "README.md"})]
     assert response["result"] == "done"
     assert response["tool_rounds"] == 1
-    assert fake.calls[1]["input"][-1]["type"] == "function_call_output"
+    assert fake.calls[0]["tools"][0]["name"] == "read"
+    assert "function" not in fake.calls[0]["tools"][0]
+    assert fake.calls[1]["input"][-2]["type"] == "function_call"
+    assert "id" not in fake.calls[1]["input"][-2]
+    assert fake.calls[1]["input"][-1] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": '{"status": "OK", "content": "README"}',
+    }
+
+
+def test_openrouter_native_web_search_uses_responses_server_tool_name(tmp_path):
+    fake = FakeClient([FakeResponse("done")])
+    client = OpenAICompatibleResponsesClient(
+        "openrouter/model",
+        tmp_path,
+        api_key="openrouter-secret",
+        api_key_env="OPENROUTER_API_KEY",
+        base_url="https://openrouter.ai/api/v1",
+        role_name="researcher",
+        client=fake,
+    )
+
+    client.call("search the web", "Use server web search.", web_search=True)
+
+    assert fake.calls[0]["tools"] == [{"type": "openrouter:web_search"}]
 
 
 def test_incomplete_response_is_reported_at_provider_boundary(tmp_path):
@@ -425,6 +465,8 @@ def write_toml_config(path, config):
                 continue
             lines.append(f"{key} = {json.dumps(value)}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def test_config_parsing_role_aliases_and_validation(tmp_path):
     path = tmp_path / "models.toml"
     write_toml_config(path, config_data())

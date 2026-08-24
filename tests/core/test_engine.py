@@ -37,6 +37,17 @@ def test_action_protocol_parses_multiple_blocks():
     assert [item["action"] for item in actions] == ["write_whiteboard", "submit_proof"]
 
 
+def test_action_protocol_normalizes_legacy_json_worker_assignments():
+    actions = parse_actions(
+        'MRA_ACTION: {"action":"assign_worker","worker_id":"w1","role":"constructive","task":"prove A"}\n'
+        'MRA_ACTION: {"action":"assign_worker","worker_id":"w2","role":"boundary","task":"check B"}\n'
+    )
+
+    assert len(actions) == 1
+    assert actions[0]["action"] == "spawn"
+    assert [task["worker_id"] for task in actions[0]["tasks"]] == ["w1", "w2"]
+
+
 def test_engine_writes_candidate_without_upstream_engine(tmp_path: Path):
     planner = FakeClient(
         [
@@ -58,3 +69,58 @@ def test_engine_writes_candidate_without_upstream_engine(tmp_path: Path):
     assert candidate is not None
     assert candidate.read_text(encoding="utf-8") == "A complete proof.\n"
     assert (tmp_path / "engine" / "steps" / "step_001" / "workers").is_dir()
+
+
+def test_engine_retries_empty_planner_response(tmp_path: Path):
+    planner = FakeClient(
+        [
+            "No executable action yet.",
+            '<MRA_ACTION>\naction = "write_items"\n\n[[items]]\nslug = "candidate"\ncontent = "A proof."\n</MRA_ACTION>\n'
+            '<MRA_ACTION>\naction = "submit_proof"\nproof_slug = "candidate"\n</MRA_ACTION>',
+        ]
+    )
+    worker = FakeClient([])
+    engine = ResearchEngine(
+        work_dir=tmp_path / "engine",
+        theorem_text="Show that 1 = 1.",
+        planner=planner,
+        worker=worker,
+        budget=Budget(mode="calls", limit=5),
+        max_workers=1,
+        verifier=False,
+    )
+
+    candidate = engine.run()
+
+    assert candidate is not None
+    assert planner.call_count == 2
+
+
+def test_engine_executes_legacy_assignment_batch_with_bounded_parallelism(tmp_path: Path):
+    assignments = "\n".join(
+        f'MRA_ACTION: {{"action":"assign_worker","worker_id":"w{index}","task":"check {index}"}}'
+        for index in range(4)
+    )
+    planner = FakeClient(
+        [
+            assignments,
+            '<MRA_ACTION>\naction = "write_items"\n\n[[items]]\nslug = "candidate"\ncontent = "A proof."\n</MRA_ACTION>\n'
+            '<MRA_ACTION>\naction = "submit_proof"\nproof_slug = "candidate"\n</MRA_ACTION>',
+        ]
+    )
+    worker = FakeClient(["worker report"] * 4 + ["verifier report"] * 4)
+    engine = ResearchEngine(
+        work_dir=tmp_path / "engine",
+        theorem_text="Show that 1 = 1.",
+        planner=planner,
+        worker=worker,
+        budget=Budget(mode="calls", limit=10),
+        max_workers=3,
+        verifier=True,
+    )
+
+    candidate = engine.run()
+
+    assert candidate is not None
+    assert len(list((tmp_path / "engine").glob("steps/*/workers/worker_*_call.md"))) == 4
+    assert len(list((tmp_path / "engine").glob("steps/*/workers/verifier_*_call.md"))) == 4

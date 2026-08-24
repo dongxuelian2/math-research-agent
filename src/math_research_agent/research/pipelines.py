@@ -418,7 +418,21 @@ class AsyncDAGScheduler:
             if task_id not in self.state["completed_task_ids"]:
                 self.state["completed_task_ids"].append(task_id)
             obligation = self._obligation(task["obligation_id"])
-            self._event("TASK_COMPLETED", task["obligation_id"], {"task_id": task_id})
+            if task["pipeline"] == "proof":
+                outcome = (
+                    "SUCCESS"
+                    if result.get("proof_candidate") or result.get("success")
+                    else "NO_CANDIDATE"
+                )
+            elif "success" in result:
+                outcome = "SUCCESS" if result.get("success") else "FAILED"
+            else:
+                outcome = "SUCCESS"
+            self._event(
+                "TASK_COMPLETED",
+                task["obligation_id"],
+                {"task_id": task_id, "outcome": outcome},
+            )
             if task["pipeline"] == "proof":
                 self._complete_proof(task, result, obligation)
             elif task["pipeline"] == "literature":
@@ -1486,8 +1500,11 @@ class AsyncDAGScheduler:
         }
         self.state["events"].append(event)
         if self.timeline is not None:
+            outcome = str(event["payload"].get("outcome", ""))
             status = (
-                "STARTED"
+                "FAILED"
+                if outcome in {"FAILED", "NO_CANDIDATE"}
+                else "STARTED"
                 if event_type.endswith("STARTED") or event_type == "TASK_READY"
                 else "FAILED"
                 if "FAILED" in event_type or "ERROR" in event_type
@@ -1499,15 +1516,17 @@ class AsyncDAGScheduler:
                 kind="PIPELINE_EVENT",
                 action=event_type,
                 status=status,
-                summary=f"{event_type} · {obligation_id}",
+                summary=(
+                    f"{event_type} · {obligation_id} · {outcome}"
+                    if outcome
+                    else f"{event_type} · {obligation_id}"
+                ),
                 project_id=str(self.state.get("project_id", "")),
                 run_id=str(self.state.get("run_id", "")),
                 parent_run_id=str(self.state.get("parent_run_id", "")),
                 theorem_id=str(obligation_id),
                 role="pipeline",
-                event_id=(
-                    f"{self.state.get('run_id', 'pipeline')}:{event['event_id']}"
-                ),
+                event_id=(f"{self.state.get('run_id', 'pipeline')}:{event['event_id']}"),
                 payload=event,
             )
 

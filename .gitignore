@@ -21,6 +21,7 @@ dist/
 .ruff_cache/
 .coverage
 htmlcov/
+projects/
 
 # Secrets, credentials, local overrides
 .env

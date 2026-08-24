@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::atomic::AtomicBool;
@@ -9,6 +10,7 @@ use std::time::{Duration, Instant};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use serde_json::Value;
+use unicode_width::UnicodeWidthChar;
 
 use super::{read_snapshot, string_field};
 
@@ -193,11 +195,14 @@ impl AnimationState {
         }
     }
 
-    pub(super) fn tick(&mut self) {
+    pub(super) fn tick(&mut self) -> bool {
         let now = Instant::now();
         if now.duration_since(self.last_tick) >= Duration::from_millis(90) {
             self.frame = self.frame.wrapping_add(1);
             self.last_tick = now;
+            true
+        } else {
+            false
         }
     }
 
@@ -315,7 +320,34 @@ pub(super) struct ProjectSession {
     pub(super) follow_transcript: bool,
     pub(super) detail_open: bool,
     pub(super) detail_scroll: usize,
+    pub(super) detail_follow: bool,
     pub(super) timeline_bytes: u64,
+    pub(super) ui_events_bytes: u64,
+    pub(super) project_json_signature: Option<FileSignature>,
+    pub(super) index_json_signature: Option<FileSignature>,
+    pub(super) seen_event_updates: std::collections::HashSet<String>,
+    pub(super) input_layout: Option<InputLayout>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct InputLayout {
+    pub(super) line_count: usize,
+    pub(super) cursor_line: usize,
+    pub(super) cursor_column: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct FileSignature {
+    length: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+fn file_signature(path: &Path) -> Option<FileSignature> {
+    let metadata = fs::metadata(path).ok()?;
+    Some(FileSignature {
+        length: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
 }
 
 impl ProjectSession {
@@ -324,6 +356,7 @@ impl ProjectSession {
             snapshot: read_snapshot(project),
             follow_transcript: true,
             activity_follow: true,
+            detail_follow: true,
             ..Default::default()
         };
         let project_name = if session.snapshot.display_title.is_empty() {
@@ -346,7 +379,73 @@ impl ProjectSession {
             true,
         );
         session.load_project_history(project);
+        session.remember_snapshot_signatures(project);
         session
+    }
+
+    pub(super) fn remember_snapshot_signatures(&mut self, project: &Path) {
+        self.project_json_signature = file_signature(&project.join("project.json"));
+        self.index_json_signature = file_signature(&project.join("index.json"));
+    }
+
+    pub(super) fn invalidate_input_layout(&mut self) {
+        self.input_layout = None;
+    }
+
+    pub(super) fn input_layout(&mut self) -> InputLayout {
+        if let Some(layout) = self.input_layout {
+            return layout;
+        }
+        let line_start = super::line_start(&self.input, self.cursor);
+        let layout = InputLayout {
+            line_count: self.input.split('\n').count(),
+            cursor_line: self
+                .input
+                .chars()
+                .take(self.cursor)
+                .filter(|ch| *ch == '\n')
+                .count(),
+            cursor_column: self
+                .input
+                .chars()
+                .skip(line_start)
+                .take(self.cursor.saturating_sub(line_start))
+                .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+                .sum(),
+        };
+        self.input_layout = Some(layout);
+        layout
+    }
+
+    pub(super) fn refresh_from_disk(&mut self, project: &Path) -> bool {
+        let project_signature = file_signature(&project.join("project.json"));
+        let index_signature = file_signature(&project.join("index.json"));
+        let snapshot_changed = project_signature != self.project_json_signature
+            || index_signature != self.index_json_signature;
+        if snapshot_changed {
+            self.snapshot = read_snapshot(project);
+            self.project_json_signature = project_signature;
+            self.index_json_signature = index_signature;
+        }
+
+        let timeline = project.join("timeline.jsonl");
+        let ui_events = project.join("logs").join("ui-events.jsonl");
+        let history_changed = if timeline.is_file() {
+            let changed = file_signature(&timeline)
+                .is_some_and(|signature| signature.length != self.timeline_bytes);
+            if changed {
+                self.load_timeline(&timeline);
+            }
+            changed
+        } else {
+            let changed = file_signature(&ui_events)
+                .is_some_and(|signature| signature.length != self.ui_events_bytes);
+            if changed {
+                self.load_ui_events(&ui_events);
+            }
+            changed
+        };
+        snapshot_changed || history_changed
     }
 
     pub(super) fn load_project_history(&mut self, project: &Path) {
@@ -354,7 +453,7 @@ impl ProjectSession {
         if timeline.is_file() {
             self.load_timeline(&timeline);
         } else {
-            self.load_ui_events(project);
+            self.load_ui_events(&project.join("logs").join("ui-events.jsonl"));
         }
     }
 
@@ -363,46 +462,54 @@ impl ProjectSession {
             return;
         };
         let length = metadata.len();
-        if length == self.timeline_bytes {
+        if length == self.timeline_bytes && self.timeline_bytes != 0 {
             return;
         }
-        let Ok(body) = fs::read_to_string(path) else {
+        let start = if length < self.timeline_bytes {
+            self.timeline_bytes = 0;
+            self.activities.clear();
+            self.activity_selected = None;
+            self.seen_event_updates.clear();
+            0
+        } else {
+            self.timeline_bytes
+        };
+        let Ok(body) = read_jsonl_tail(path, start) else {
             return;
         };
-        for line in body
-            .lines()
-            .rev()
-            .take(500)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-        {
+        for line in body.lines() {
             if let Ok(value) = serde_json::from_str::<Value>(line) {
                 self.apply_timeline_event(&value);
             }
         }
-        self.timeline_bytes = length;
-        self.activity_follow = true;
+        self.timeline_bytes = start + body.len() as u64;
+        if self.timeline_bytes > start {
+            self.activity_follow = true;
+        }
     }
 
-    pub(super) fn load_ui_events(&mut self, project: &Path) {
-        let path = project.join("logs").join("ui-events.jsonl");
-        let Ok(body) = fs::read_to_string(path) else {
+    pub(super) fn load_ui_events(&mut self, path: &Path) {
+        let Ok(metadata) = fs::metadata(path) else {
             return;
         };
-        for line in body
-            .lines()
-            .rev()
-            .take(240)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-        {
+        if metadata.len() < self.ui_events_bytes {
+            self.ui_events_bytes = 0;
+            self.activities.clear();
+            self.activity_selected = None;
+            self.seen_event_updates.clear();
+        }
+        let Ok(body) = read_jsonl_tail(path, self.ui_events_bytes) else {
+            return;
+        };
+        for line in body.lines() {
             if let Ok(value) = serde_json::from_str::<Value>(line) {
                 self.apply_ui_event(&value);
             }
         }
-        self.activity_follow = true;
+        self.ui_events_bytes += body.len() as u64;
+        if !body.is_empty() {
+            self.activity_follow = true;
+        }
     }
 
     pub(super) fn apply_timeline_event(&mut self, value: &Value) {
@@ -495,6 +602,14 @@ impl ProjectSession {
     pub(super) fn entry(&mut self, kind: TranscriptKind, text: impl Into<String>, compact: bool) {
         self.transcript
             .push(TranscriptEntry::new(kind, text, compact));
+        // Keep the in-memory viewport bounded. The complete diagnostic stream
+        // remains on disk; the TUI only needs a recent window for fast follow
+        // mode and manual scrolling.
+        const MAX_TRANSCRIPT_ENTRIES: usize = 2400;
+        if self.transcript.len() > MAX_TRANSCRIPT_ENTRIES {
+            let drop_count = self.transcript.len() - 2000;
+            self.transcript.drain(..drop_count);
+        }
     }
 
     pub(super) fn apply_ui_event(&mut self, value: &Value) {
@@ -509,6 +624,44 @@ impl ProjectSession {
         let was_following = self.activity_follow;
         let status = string_field(value, "status");
         let summary = string_field(value, "summary");
+        let update_key = format!("{event_id}\u{1f}{status}\u{1f}{summary}");
+        if !self.seen_event_updates.insert(update_key) {
+            return;
+        }
+        let title = string_field(value, "title");
+        let role = string_field(value, "role");
+        let action = string_field(value, "action");
+        let stage = string_field(value, "stage");
+        let detail_kind = if status == "FAILED" {
+            TranscriptKind::Error
+        } else {
+            TranscriptKind::Output
+        };
+        self.entry(
+            detail_kind,
+            format!(
+                "完整事件 · [{}] {} / {} · {} · {}",
+                stage, role, action, status, title
+            ),
+            false,
+        );
+        if !summary.is_empty() {
+            self.entry(detail_kind, format!("事件摘要 · {summary}"), false);
+        }
+        if let Some(error) = value.get("error").filter(|error| error.is_object()) {
+            if let Some(message) = error.get("message").and_then(Value::as_str) {
+                self.entry(detail_kind, format!("错误说明 · {message}"), false);
+            }
+            if let Some(detail) = error.get("detail").and_then(Value::as_str) {
+                self.entry(detail_kind, format!("错误详情 · {detail}"), false);
+            }
+            if let Some(action) = error.get("action").and_then(Value::as_str) {
+                self.entry(detail_kind, format!("建议动作 · {action}"), false);
+            }
+            if let Some(diagnostic) = error.get("diagnostic").and_then(Value::as_str) {
+                self.entry(detail_kind, format!("诊断文件 · {diagnostic}"), false);
+            }
+        }
         let index = self
             .activities
             .iter()
@@ -603,6 +756,22 @@ impl ProjectSession {
             self.activity_follow = true;
         }
     }
+}
+
+/// Read only complete, newly appended JSONL records.  Keeping the incomplete
+/// tail unconsumed makes a concurrently-written event safe to pick up on the
+/// next refresh without reparsing the whole history file.
+fn read_jsonl_tail(path: &Path, offset: u64) -> Result<String, String> {
+    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|error| error.to_string())?;
+    let mut body = String::new();
+    file.read_to_string(&mut body)
+        .map_err(|error| error.to_string())?;
+    let Some(end) = body.rfind('\n').map(|index| index + 1) else {
+        return Ok(String::new());
+    };
+    Ok(body[..end].to_string())
 }
 
 pub(super) struct RunningTask {
