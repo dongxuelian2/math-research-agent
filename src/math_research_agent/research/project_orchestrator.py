@@ -9,6 +9,7 @@ prose outside the project control plane.
 from __future__ import annotations
 
 import json
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -155,6 +156,10 @@ class ProjectOrchestrator:
                 run_id=run_name,
                 diagnostic_path=run_dir / "diagnostics.log",
             )
+            # The stage already emitted a terminal UI error.  Let the CLI
+            # avoid emitting a second generic "研究运行失败" event for the
+            # same exception.
+            setattr(exc, "_ui_event_emitted", True)
             failed = self.project.load_project()
             failed.setdefault("orchestrator", {}).update(
                 {
@@ -285,9 +290,7 @@ class ProjectOrchestrator:
     ) -> dict[str, Any]:
         """Continue an unfinished project plan and its child checkpoints."""
 
-        plan = ProjectPlanSchema.model_validate(
-            json.loads(plan_path.read_text(encoding="utf-8"))
-        )
+        plan = ProjectPlanSchema.model_validate(json.loads(plan_path.read_text(encoding="utf-8")))
         ordered = self._ordered(plan.subproblems)
         run_name = str(metadata.get("orchestrator", {}).get("plan_run") or plan_path.parent.name)
         self._prepare_imports(run_name)
@@ -434,6 +437,7 @@ class ProjectOrchestrator:
         router = ModelRouter(
             config,
             state_path=run_dir / "routing_state.json",
+            runtime_scope=run_dir.name,
             tool_event_sink=self.events.tool_event,
         )
         client = RoutedLLMClient(
@@ -449,7 +453,9 @@ class ProjectOrchestrator:
                 "You are the project supervisor. Decompose the project purpose into a small "
                 "acyclic set of exact child propositions. Return one complete JSON document "
                 "matching ProjectPlanSchema. Include a short project_title (no more than 32 "
-                "characters) and do not claim any child is proved."
+                "characters) and do not claim any child is proved. For each subproblem, "
+                "claim_type must be exactly one of: implication, iff, classification, "
+                "equality, existence, or unclassified."
             ),
             label="project_plan",
             response_schema=ProjectPlanSchema,
@@ -551,101 +557,196 @@ class ProjectOrchestrator:
             self.project.set_current_target(items[0].id)
         return created
 
+    def _run_child(
+        self,
+        item: ProjectSubproblemSchema,
+        run_name: str,
+        previous: tuple[Path, dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """Run one child inside a context-local parent-event binding."""
+
+        from .orchestrator import ResearchOrchestrator
+
+        with self.events.parent_context(run_name):
+            state = ResearchOrchestrator(
+                self.project,
+                item.id,
+                config_path=self.config_path,
+                worker_count=self.worker_count,
+                resume=(previous[0] if previous else None),
+                continue_partial=bool(previous),
+                event_sink=self.events,
+            ).run()
+        return {
+            "id": item.id,
+            "status": state.get("status", "UNKNOWN"),
+            "run_id": state.get("run_id", previous[0].name if previous else ""),
+            "resumed": bool(previous),
+        }
+
     def _run_children(
         self,
         items: list[ProjectSubproblemSchema],
         run_name: str,
         purpose: str,
     ) -> dict[str, Any]:
-        from .orchestrator import ResearchOrchestrator
+        """Run the ready frontier concurrently while respecting dependencies."""
 
-        results: list[dict[str, Any]] = []
+        results_by_id: dict[str, dict[str, Any]] = {}
+        pending: dict[str, tuple[ProjectSubproblemSchema, tuple[Path, dict[str, Any]] | None]] = {}
+        succeeded: set[str] = set()
+        blocked: set[str] = set()
+        failed: set[str] = set()
+
         for item in items:
             theorem = self.project.load_theorem(item.id)
             previous = self._latest_child_checkpoint(item.id)
             previous_state = previous[1] if previous else {}
             if theorem.get("status") == "PROVED" or previous_state.get("status") == "PROVED":
-                results.append(
-                    {
-                        "id": item.id,
-                        "status": "PROVED",
-                        "run_id": previous[0].name if previous else "",
-                        "resumed": False,
-                        "skipped": True,
-                    }
-                )
-                continue
-            activity = self.events.start(
-                action="prove_subproblem",
-                title=f"正在研究：{item.title}",
-                summary=(
-                    "正在恢复上次检查点中的证明 Worker 和审计流程。"
-                    if previous
-                    else "已调度证明 Worker 和审计流程。"
-                ),
-                role="worker",
-                stage="PROOF",
-                theorem_id=item.id,
-                run_id=run_name,
-            )
-            try:
-                prior_parent = self.events.parent_run_id
-                self.events.parent_run_id = run_name
-                try:
-                    state = ResearchOrchestrator(
-                        self.project,
-                        item.id,
-                        config_path=self.config_path,
-                        worker_count=self.worker_count,
-                        resume=(previous[0] if previous else None),
-                        continue_partial=bool(previous),
-                        event_sink=self.events,
-                    ).run()
-                finally:
-                    self.events.parent_run_id = prior_parent
-                results.append(
-                    {
-                        "id": item.id,
-                        "status": state.get("status", "UNKNOWN"),
-                        "run_id": state.get("run_id", previous[0].name if previous else ""),
-                        "resumed": bool(previous),
-                    }
-                )
-                self.events.finish(
-                    activity,
-                    success=state.get("status") == "PROVED",
-                    summary=(
-                        "子命题已通过证明与审计。"
-                        if state.get("status") == "PROVED"
-                        else f"子命题结束于 {state.get('status', 'UNKNOWN')}。"
-                    ),
-                    theorem_id=item.id,
-                    run_id=run_name,
-                )
-            except Exception as exc:  # child failures stay durable and visible
-                results.append({"id": item.id, "status": "ERROR", "error": str(exc)})
-                self.events.finish(
-                    activity,
-                    success=False,
-                    summary="子命题运行失败。",
-                    error={"message": str(exc)[:500]},
-                    theorem_id=item.id,
-                    run_id=run_name,
-                )
-                self.events.error(
-                    exc,
-                    action="prove_subproblem",
-                    title=f"子命题失败：{item.title}",
-                    stage="PROOF",
-                    theorem_id=item.id,
-                    run_id=run_name,
-                    diagnostic_path=self.project.root
-                    / "runs"
-                    / "orchestrator"
-                    / run_name
-                    / f"{item.id}.diagnostics.log",
-                )
-        status = "COMPLETE" if all(item["status"] == "PROVED" for item in results) else "PARTIAL"
+                results_by_id[item.id] = {
+                    "id": item.id,
+                    "status": "PROVED",
+                    "run_id": previous[0].name if previous else "",
+                    "resumed": False,
+                    "skipped": True,
+                }
+                succeeded.add(item.id)
+            else:
+                pending[item.id] = (item, previous)
+
+        max_parallel = min(self.worker_count, len(pending)) or 1
+        futures = {}
+        planned_ids = {candidate.id for candidate in items}
+        with ThreadPoolExecutor(
+            max_workers=max_parallel,
+            thread_name_prefix="math-subproblem",
+        ) as executor:
+            while pending or futures:
+                # A failed child blocks only its transitive dependents. An
+                # independent branch remains eligible for this same run.
+                for item_id, (item, previous) in list(pending.items()):
+                    dependencies = [
+                        dependency for dependency in item.dependencies if dependency in planned_ids
+                    ]
+                    failed_dependencies = [
+                        dependency
+                        for dependency in dependencies
+                        if dependency in failed or dependency in blocked
+                    ]
+                    if failed_dependencies:
+                        results_by_id[item_id] = {
+                            "id": item_id,
+                            "status": "BLOCKED_DEPENDENCY",
+                            "resumed": bool(previous),
+                            "blocked_by": failed_dependencies,
+                        }
+                        blocked.add(item_id)
+                        pending.pop(item_id)
+
+                available = max_parallel - len(futures)
+                if available > 0:
+                    for item in items:
+                        if available <= 0 or item.id not in pending:
+                            continue
+                        dependencies = [
+                            dependency
+                            for dependency in item.dependencies
+                            if dependency in planned_ids
+                        ]
+                        if not all(dependency in succeeded for dependency in dependencies):
+                            continue
+                        previous = pending[item.id][1]
+                        activity = self.events.start(
+                            action="prove_subproblem",
+                            title=f"正在研究：{item.title}",
+                            summary=(
+                                "正在恢复上次检查点中的证明 Worker 和审计流程。"
+                                if previous
+                                else "已调度证明 Worker 和审计流程。"
+                            ),
+                            role="worker",
+                            stage="PROOF",
+                            theorem_id=item.id,
+                            run_id=run_name,
+                        )
+                        future = executor.submit(self._run_child, item, run_name, previous)
+                        futures[future] = (item, activity, previous)
+                        pending.pop(item.id)
+                        available -= 1
+
+                if not futures:
+                    # _ordered() rejects cycles; this is a defensive fallback
+                    # for a plan that references a dependency outside its
+                    # materialized item set.
+                    for item_id, (item, previous) in list(pending.items()):
+                        results_by_id[item_id] = {
+                            "id": item_id,
+                            "status": "BLOCKED_DEPENDENCY",
+                            "resumed": bool(previous),
+                            "blocked_by": list(item.dependencies),
+                        }
+                        blocked.add(item_id)
+                        pending.pop(item_id)
+                    continue
+
+                completed, _ = wait(futures, return_when=FIRST_COMPLETED)
+                for future in completed:
+                    item, activity, previous = futures.pop(future)
+                    try:
+                        result = future.result()
+                        results_by_id[item.id] = result
+                        if result["status"] == "PROVED":
+                            succeeded.add(item.id)
+                        else:
+                            failed.add(item.id)
+                        self.events.finish(
+                            activity,
+                            success=result["status"] == "PROVED",
+                            summary=(
+                                "子命题已通过证明与审计。"
+                                if result["status"] == "PROVED"
+                                else f"子命题结束于 {result['status']}。"
+                            ),
+                            theorem_id=item.id,
+                            run_id=run_name,
+                        )
+                    except Exception as exc:  # child failures stay durable and visible
+                        result = {
+                            "id": item.id,
+                            "status": "ERROR",
+                            "error": str(exc),
+                            "resumed": bool(previous),
+                        }
+                        results_by_id[item.id] = result
+                        failed.add(item.id)
+                        self.events.finish(
+                            activity,
+                            success=False,
+                            summary="子命题运行失败。",
+                            error={"message": str(exc)[:500]},
+                            theorem_id=item.id,
+                            run_id=run_name,
+                        )
+                        self.events.error(
+                            exc,
+                            action="prove_subproblem",
+                            title=f"子命题失败：{item.title}",
+                            stage="PROOF",
+                            theorem_id=item.id,
+                            run_id=run_name,
+                            diagnostic_path=self.project.root
+                            / "runs"
+                            / "orchestrator"
+                            / run_name
+                            / f"{item.id}.diagnostics.log",
+                        )
+
+        results = [results_by_id[item.id] for item in items if item.id in results_by_id]
+        status = (
+            "COMPLETE"
+            if results and all(item["status"] == "PROVED" for item in results)
+            else "PARTIAL"
+        )
         metadata = self.project.load_project()
         metadata["orchestrator"].update(
             {

@@ -145,7 +145,7 @@ Planner 只能返回结构化 `ProjectPlanSchema`；只有 schema 校验、ID/�
 | --- | --- |
 | `/switch [path]` | 选择或直接切换已有项目；`/project` 为兼容别名 |
 | `/new [id] [purpose]` | 打开大号编辑器，声明核心目标、创建标准项目目录并自动切换 |
-| `/run` | 启动项目级 orchestrator：分析 purpose、生成子命题 DAG、依次调度证明和审计 |
+| `/run` | 启动项目级 orchestrator：分析 purpose、生成子命题 DAG，并按依赖前沿并行调度证明和审计 |
 | `/import <file>` | 归档论文、Markdown、文本、TeX 或 PDF，下一次 `/run` 自动转为项目工作文件 |
 | `/stop` | 终止当前项目的运行进程 |
 | `/steps` | 把当前项目最近的 `timeline.jsonl` 步骤载入画布 |
@@ -157,7 +157,7 @@ Planner 只能返回结构化 `ProjectPlanSchema`；只有 schema 校验、ID/�
 | `/help` | 显示完整帮助 |
 | `/quit` | 退出 |
 
-当前 `/new` 把 purpose 持久化为项目身份；`/run` 进入项目级 orchestrator，由 planner 产生结构化子命题 DAG，再由既有 ResearchOrchestrator 逐项调度 worker、审计和修复。再次打开项目时，TUI 从 `timeline.jsonl` 恢复 Activity；未完成的计划和子命题检查点会被复用，已完成的 `PROVED` 子命题不会重复运行。TUI 不接受手动 theorem 登记，也不从模型 prose 猜测状态。
+当前 `/new` 把 purpose 持久化为项目身份；`/run` 进入项目级 orchestrator，由 planner 产生结构化子命题 DAG，再由既有 ResearchOrchestrator 按依赖前沿并行调度 worker、审计和修复；失败子命题只阻塞其依赖者，独立分支继续运行。再次打开项目时，TUI 从 `timeline.jsonl` 恢复 Activity；未完成的计划和子命题检查点会被复用，已完成的 `PROVED` 子命题不会重复运行。TUI 不接受手动 theorem 登记，也不从模型 prose 猜测状态。
 
 ## 7. Activity 摘要与完整 Transcript
 
@@ -176,7 +176,7 @@ Planner 只能返回结构化 `ProjectPlanSchema`；只有 schema 校验、ID/�
 - 原始 `uv run ...` 命令与 stdout 默认隐藏；stderr 作为醒目的 Error 保留在摘要中；
 - 错误摘要仍在主界面显示，不能因折叠详情而掩盖失败。
 
-按 `Ctrl-T` 打开全屏 Transcript overlay，或输入 OpenCode 风格的 `/details`。完整页显示当前项目的全部 typed entries，包括原始命令、stdout、stderr、步骤和系统事件；再次按 `Ctrl-T` 或 `Esc` 返回 Activity。这里采用 Codex 当前源码中的 `open_transcript` 全局动作和 overlay 分层，而不是给每条字符串临时加一个展开布尔值。
+按 `Ctrl-T` 打开全屏 Transcript overlay，或输入 OpenCode 风格的 `/details`。完整页显示当前项目的全部 typed entries，包括原始命令、stdout、stderr、步骤和系统事件；再次按 `Ctrl-T` 或 `Esc` 返回 Activity。这里采用 Codex 当前源码中的 `open_transcript` 全局动作和 overlay 分层，而不是给每条字符串临时加一个展开布尔值。子命题详情页另有模型现场区域，只接收 provider 可见的 `thinking/reply` 增量；结构化响应仍留在研究控制面，不在详情页重复渲染。
 
 Transcript 每条记录都带 `kind`，渲染器在折行前确定样式。续行继承原记录的 `kind` 和颜色，只隐藏重复前缀，因此红色 Error、灰色 System 不会在第二行变成白色。
 

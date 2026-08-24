@@ -13,6 +13,8 @@ import threading
 import time
 import traceback
 import uuid
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, TextIO
@@ -48,6 +50,11 @@ class ResearchUiEvent(BaseModel):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+_PARENT_RUN_CONTEXT: ContextVar[str | None] = ContextVar(
+    "math_research_parent_run_id", default=None
+)
 
 
 def classify_exception(exc: BaseException) -> dict[str, Any]:
@@ -160,6 +167,23 @@ class UiEventEmitter:
         self._tool_events: dict[str, str] = {}
         self.parent_run_id = ""
 
+    @contextmanager
+    def parent_context(self, parent_run_id: str):
+        """Bind a parent run to events emitted by the current execution context.
+
+        Project-level child runs may execute concurrently.  A mutable emitter
+        field is not sufficient for that case because one child can overwrite
+        another child's parent ID between its STARTED and COMPLETED events.
+        Context-local binding keeps the shared event stream correctly
+        attributed without changing the public event payload.
+        """
+
+        token = _PARENT_RUN_CONTEXT.set(str(parent_run_id or ""))
+        try:
+            yield
+        finally:
+            _PARENT_RUN_CONTEXT.reset(token)
+
     def emit(self, event: ResearchUiEvent) -> None:
         payload = event.model_dump(mode="json")
         encoded = json.dumps(payload, ensure_ascii=False) + "\n"
@@ -225,7 +249,11 @@ class UiEventEmitter:
             "stage": stage,
             "theorem_id": theorem_id,
             "run_id": run_id,
-            "parent_run_id": self.parent_run_id,
+            "parent_run_id": (
+                _PARENT_RUN_CONTEXT.get()
+                if _PARENT_RUN_CONTEXT.get() is not None
+                else self.parent_run_id
+            ),
         }
         with self._lock:
             self._active[event_id] = base

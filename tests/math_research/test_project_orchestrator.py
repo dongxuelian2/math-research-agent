@@ -1,11 +1,13 @@
 from pathlib import Path
 import io
 import json
+import threading
 
 import pytest
 
 from math_research_agent.research.project import ProjectStore
 from math_research_agent.research.project_orchestrator import ProjectOrchestrator
+from math_research_agent.research.schemas import ProjectSubproblemSchema
 from math_research_agent.research.ui_events import UiEventEmitter
 
 
@@ -27,6 +29,16 @@ def test_project_orchestrator_plans_children_from_purpose(tmp_path):
     assert project.load_theorem("purpose-analysis")["status"] == "OPEN"
     assert project.load_project()["orchestrator"]["status"] == "PLANNED"
     assert project.load_project()["display_title"] == "Core project"
+
+
+def test_project_subproblem_accepts_existence_claim_type():
+    item = ProjectSubproblemSchema(
+        id="existence",
+        title="Existence obligation",
+        statement="There exists a witness satisfying the stated property.",
+        claim_type="existence",
+    )
+    assert item.claim_type == "existence"
 
 
 def test_project_orchestrator_emits_compact_ui_events(tmp_path):
@@ -139,3 +151,71 @@ def test_planner_failure_is_persisted_as_infrastructure_block(tmp_path, monkeypa
     assert status["status"] == "BLOCKED_INFRASTRUCTURE"
     assert status["phase"] == "PLANNING"
     assert status["error"] == "planner response incomplete"
+
+
+def test_independent_child_failure_does_not_stop_later_subproblems(tmp_path, monkeypatch):
+    project = ProjectStore.initialize(
+        tmp_path / "project",
+        "Core project",
+        purpose="Understand a core mathematical identity",
+    )
+    for theorem_id in ("first", "second"):
+        project.add_theorem(
+            theorem_id,
+            theorem_id.title(),
+            f"Prove {theorem_id}",
+            status="OPEN",
+        )
+    metadata = project.load_project()
+    metadata["orchestrator"] = {"status": "RUNNING"}
+    project.save_project(metadata)
+
+    calls = []
+    barrier = threading.Barrier(2)
+
+    class PartialChild:
+        def __init__(self, _project, target_id, **_kwargs):
+            calls.append(target_id)
+
+        def run(self):
+            barrier.wait(timeout=2)
+            return {"status": "PARTIAL", "run_id": "child-run"}
+
+    monkeypatch.setattr(
+        "math_research_agent.research.orchestrator.ResearchOrchestrator",
+        PartialChild,
+    )
+    orchestrator = ProjectOrchestrator(
+        project,
+        config_path=Path(__file__).parents[2] / "tests" / "fixtures" / "models.mock.toml",
+    )
+    result = orchestrator._run_children(
+        [
+            ProjectSubproblemSchema(
+                id="first",
+                title="First",
+                statement="Prove first",
+                dependencies=[],
+                tags=[],
+                branch="main",
+                proof_type="NATURAL_LANGUAGE",
+                claim_type="implication",
+            ),
+            ProjectSubproblemSchema(
+                id="second",
+                title="Second",
+                statement="Prove second",
+                dependencies=[],
+                tags=[],
+                branch="main",
+                proof_type="NATURAL_LANGUAGE",
+                claim_type="implication",
+            ),
+        ],
+        "orchestrator-run",
+        "Understand a core mathematical identity",
+    )
+
+    assert set(calls) == {"first", "second"}
+    assert [child["id"] for child in result["children"]] == ["first", "second"]
+    assert result["status"] == "PARTIAL"

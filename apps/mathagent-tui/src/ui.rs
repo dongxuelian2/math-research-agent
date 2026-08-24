@@ -36,10 +36,18 @@ pub(super) fn format_elapsed(duration: Duration) -> String {
 }
 
 pub(super) fn activity_elapsed(activity: &UiActivity) -> String {
-    activity
-        .elapsed_ms
-        .map(|elapsed| format_elapsed(Duration::from_millis(elapsed)))
-        .unwrap_or_else(|| format_elapsed(activity.started_at.elapsed()))
+    if let Some(elapsed) = activity.elapsed_ms {
+        return format_elapsed(Duration::from_millis(elapsed));
+    }
+    if matches!(
+        activity.status.as_str(),
+        "COMPLETED" | "FAILED" | "CANCELLED"
+    ) {
+        // CLI-level terminal events may not carry a provider duration. They
+        // are already finished, so do not make them look like live timers.
+        return format_elapsed(Duration::ZERO);
+    }
+    format_elapsed(activity.started_at.elapsed())
 }
 
 pub(super) fn localized_status(status: &str) -> String {
@@ -323,7 +331,10 @@ pub(super) fn draw_workspace(frame: &mut Frame, area: Rect, app: &mut App) {
 }
 
 pub(super) fn draw_main(frame: &mut Frame, area: Rect, app: &mut App) {
-    let input_lines = app.session().input.split('\n').count().clamp(1, 6) as u16;
+    // Keep the editor bounded.  Pi renders only the visible editor window;
+    // letting a pasted prompt grow the whole layout makes every redraw walk
+    // and allocate the complete input buffer.
+    let input_lines = app.session_mut().input_layout().line_count.clamp(1, 6) as u16;
     let chunks =
         Layout::vertical([Constraint::Min(4), Constraint::Length(input_lines + 2)]).split(area);
     if app.session().detail_open {
@@ -509,13 +520,13 @@ pub(super) fn draw_theorem_detail(frame: &mut Frame, area: Rect, app: &mut App) 
             }),
         ]),
         Line::from(""),
-        Line::from(Span::styled(
-            "该子命题的实际运行步骤",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )),
     ];
+    lines.push(Line::from(Span::styled(
+        "该子命题的实际运行步骤",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
     let activities = app
         .session()
         .activities
@@ -626,7 +637,16 @@ pub(super) fn draw_theorem_detail(frame: &mut Frame, area: Rect, app: &mut App) 
         })
         .collect::<Vec<_>>();
     let viewport = area.height.saturating_sub(2) as usize;
-    app.session_mut().activity_viewport = viewport;
+    let max_scroll = wrapped.len().saturating_sub(viewport);
+    {
+        let session = app.session_mut();
+        session.activity_viewport = viewport;
+        if session.detail_follow {
+            session.detail_scroll = max_scroll;
+        } else {
+            session.detail_scroll = session.detail_scroll.min(max_scroll);
+        }
+    }
     frame.render_widget(
         Paragraph::new(wrapped)
             .block(focused_block("子命题详情 · ↑↓ 滚动 · Esc 返回", true))
@@ -638,14 +658,35 @@ pub(super) fn draw_theorem_detail(frame: &mut Frame, area: Rect, app: &mut App) 
 pub(super) fn draw_transcript(frame: &mut Frame, area: Rect, app: &mut App, full: bool) {
     app.regions.transcript = area;
     let width = area.width.saturating_sub(2).max(1) as usize;
-    let lines = transcript_lines(&app.session().transcript, width, full);
+    let cache_valid = app.transcript_cache.as_ref().is_some_and(|cache| {
+        cache.project == app.project && cache.width == width && cache.full == full
+    });
+    if !cache_valid {
+        let lines = transcript_lines(&app.session().transcript, width, full);
+        app.transcript_cache = Some(super::TranscriptCache {
+            project: app.project.clone(),
+            width,
+            full,
+            lines,
+        });
+    }
+    let cached_line_count = app
+        .transcript_cache
+        .as_ref()
+        .expect("transcript cache initialized")
+        .lines
+        .len();
     let viewport = area.height.saturating_sub(2) as usize;
     {
         let session = app.session_mut();
-        session.transcript_visual_lines = lines.len();
+        session.transcript_visual_lines = cached_line_count;
         session.transcript_viewport = viewport;
     }
-    let max = lines.len().saturating_sub(viewport);
+    let cache = app
+        .transcript_cache
+        .as_ref()
+        .expect("transcript cache initialized");
+    let max = cache.lines.len().saturating_sub(viewport);
     let offset = if app.session().follow_transcript {
         max
     } else {
@@ -662,9 +703,15 @@ pub(super) fn draw_transcript(frame: &mut Frame, area: Rect, app: &mut App, full
     } else {
         "诊断摘要 · 已暂停滚动 · End 恢复"
     };
-    let styled = lines
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line.text, transcript_style(line.kind))))
+    let styled = cache
+        .lines
+        .iter()
+        .map(|line| {
+            Line::from(Span::styled(
+                line.text.as_str(),
+                transcript_style(line.kind),
+            ))
+        })
         .collect::<Vec<_>>();
     frame.render_widget(
         Paragraph::new(styled)
@@ -676,21 +723,10 @@ pub(super) fn draw_transcript(frame: &mut Frame, area: Rect, app: &mut App, full
 
 pub(super) fn draw_composer(frame: &mut Frame, area: Rect, app: &mut App) {
     app.regions.composer = area;
+    let layout = app.session_mut().input_layout();
     let session = app.session();
-    let cursor_line = session
-        .input
-        .chars()
-        .take(session.cursor)
-        .filter(|ch| *ch == '\n')
-        .count();
-    let line_start_index = line_start(&session.input, session.cursor);
-    let cursor_column: usize = session
-        .input
-        .chars()
-        .skip(line_start_index)
-        .take(session.cursor - line_start_index)
-        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
-        .sum();
+    let cursor_line = layout.cursor_line;
+    let cursor_column = layout.cursor_column;
     let inner_height = area.height.saturating_sub(2).max(1) as usize;
     let vscroll = cursor_line.saturating_sub(inner_height - 1);
     let inner_width = area.width.saturating_sub(4).max(1) as usize;
@@ -706,15 +742,22 @@ pub(super) fn draw_composer(frame: &mut Frame, area: Rect, app: &mut App) {
     } else {
         Color::White
     };
-    let prompt = Paragraph::new(Text::styled(
-        session.input.clone(),
-        Style::default().fg(color),
-    ))
-    .block(focused_block(
+    let prompt_lines = session
+        .input
+        .split('\n')
+        .skip(vscroll)
+        .take(inner_height)
+        .map(|line| {
+            Line::from(Span::styled(
+                visible_text(line, hscroll, inner_width),
+                Style::default().fg(color),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let prompt = Paragraph::new(prompt_lines).block(focused_block(
         "输入 · Enter 发送 · Shift-Enter 换行",
         app.focus == Focus::Composer,
-    ))
-    .scroll((vscroll as u16, hscroll as u16));
+    ));
     frame.render_widget(prompt, area);
     if app.focus == Focus::Composer
         && !app.show_help
@@ -727,6 +770,32 @@ pub(super) fn draw_composer(frame: &mut Frame, area: Rect, app: &mut App) {
         ));
     }
     draw_completion(frame, app);
+}
+
+/// Return only the horizontal window visible in a single-line editor row.
+/// This prevents a large pasted prompt from being cloned and handed to
+/// Paragraph on every frame while the model is streaming.
+fn visible_text(value: &str, start_width: usize, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    let mut used = 0;
+    let mut visible = 0;
+    let mut output = String::new();
+    for ch in value.chars() {
+        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + width <= start_width {
+            used += width;
+            continue;
+        }
+        if visible + width > max_width {
+            break;
+        }
+        output.push(ch);
+        visible += width;
+        used += width;
+    }
+    output
 }
 
 pub(super) fn draw_project_editor(frame: &mut Frame, app: &mut App) {
@@ -792,10 +861,7 @@ pub(super) fn draw_project_editor(frame: &mut Frame, app: &mut App) {
             editor.goal.clone(),
             Style::default().fg(Color::White),
         ))
-        .block(focused_block(
-            "核心目标 · 多行 · Ctrl-Enter 创建",
-            goal_focused,
-        ))
+        .block(focused_block("核心目标 · 多行 · F2 创建", goal_focused))
         .wrap(Wrap { trim: false })
         .scroll((editor.goal_scroll as u16, goal_hscroll as u16)),
         body[1],
@@ -994,7 +1060,7 @@ pub(super) fn draw_help(frame: &mut Frame, app: &App) {
         Line::from("  /                      打开上拉命令菜单"),
         Line::from("  ↑↓ + Tab/Enter         选择并补全命令"),
         Line::from("  Shift-Enter / Ctrl-J   输入换行"),
-        Line::from("  新建编辑器中 Ctrl-Enter 创建项目；Tab 切换 ID 与目标"),
+        Line::from("  新建编辑器中 F2 创建项目；Tab 切换 ID 与目标"),
         Line::from("  Ctrl-A/E/U/W           行首、行尾、删至行首、删前词"),
         Line::from(""),
     ];
@@ -1034,8 +1100,15 @@ pub(super) fn transcript_lines(
     width: usize,
     full: bool,
 ) -> Vec<TranscriptLine> {
+    const MAX_RENDERED_ENTRIES: usize = 1200;
     let mut lines = Vec::new();
-    for entry in entries.iter().filter(|entry| full || entry.compact) {
+    let filtered = entries
+        .iter()
+        .filter(|entry| full || entry.compact)
+        .rev()
+        .take(MAX_RENDERED_ENTRIES)
+        .collect::<Vec<_>>();
+    for entry in filtered.into_iter().rev() {
         let prefix = transcript_prefix(entry.kind);
         let prefix_width = prefix
             .chars()

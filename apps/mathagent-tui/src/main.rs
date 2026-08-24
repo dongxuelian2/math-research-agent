@@ -62,6 +62,16 @@ struct App {
     regions: UiRegions,
     should_quit: bool,
     animation: AnimationState,
+    render_dirty: bool,
+    transcript_cache: Option<TranscriptCache>,
+    next_disk_refresh: Instant,
+}
+
+struct TranscriptCache {
+    project: PathBuf,
+    width: usize,
+    full: bool,
+    lines: Vec<TranscriptLine>,
 }
 
 impl Drop for App {
@@ -99,7 +109,29 @@ impl App {
             regions: UiRegions::default(),
             should_quit: false,
             animation: AnimationState::detected(),
+            render_dirty: true,
+            transcript_cache: None,
+            next_disk_refresh: Instant::now(),
         }
+    }
+
+    fn invalidate(&mut self) {
+        self.render_dirty = true;
+        self.transcript_cache = None;
+    }
+
+    fn request_render(&mut self) {
+        self.render_dirty = true;
+    }
+
+    fn animation_needed(&self) -> bool {
+        self.running.contains_key(&self.project)
+            || self.session().activities.iter().any(|activity| {
+                matches!(activity.status.as_str(), "STARTED" | "PROGRESS")
+                    || activity
+                        .flash_until
+                        .is_some_and(|until| until > Instant::now())
+            })
     }
 
     fn session(&self) -> &ProjectSession {
@@ -124,6 +156,25 @@ impl App {
         let session = self.session_mut();
         session.snapshot = snapshot;
         session.load_project_history(&project);
+        session.remember_snapshot_signatures(&project);
+        self.invalidate();
+    }
+
+    fn refresh_snapshot_if_changed(&mut self) {
+        let now = Instant::now();
+        if now < self.next_disk_refresh {
+            return;
+        }
+        self.next_disk_refresh = now
+            + if self.running.contains_key(&self.project) {
+                Duration::from_millis(120)
+            } else {
+                Duration::from_millis(600)
+            };
+        let project = self.project.clone();
+        if self.session_mut().refresh_from_disk(&project) {
+            self.invalidate();
+        }
     }
 
     fn switch_project(&mut self, path: PathBuf) {
@@ -181,12 +232,14 @@ impl App {
         let session = self.session_mut();
         session.input = value;
         session.cursor = cursor;
+        session.invalidate_input_layout();
         self.completion_hidden = true;
     }
 
     fn edit_input(&mut self, edit: impl FnOnce(&mut String, &mut usize)) {
         let session = self.session_mut();
         edit(&mut session.input, &mut session.cursor);
+        session.invalidate_input_layout();
         session.history_index = None;
         self.completion_hidden = false;
         self.completion_index = 0;
@@ -601,22 +654,34 @@ fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<
 
 fn run(mut terminal: Terminal<CrosstermBackend<Stdout>>, mut app: App) -> Result<()> {
     loop {
-        app.animation.tick();
+        if app.animation_needed() && app.animation.tick() {
+            app.request_render();
+        }
         app.drain_backend_events();
-        // Background/resumed runs also update project.json. Refreshing the
-        // projection each frame prevents a stale local RUNNING banner.
-        app.refresh_snapshot();
-        terminal.draw(|frame| draw_ui(frame, &mut app))?;
+        // Pi-style invalidation: disk projections and the terminal are not
+        // rebuilt when nothing changed. This is especially important while a
+        // long prompt is sitting in the editor.
+        app.refresh_snapshot_if_changed();
+        if app.render_dirty {
+            terminal.draw(|frame| draw_ui(frame, &mut app))?;
+            app.render_dirty = false;
+        }
         if app.should_quit {
             break;
         }
-        if event::poll(Duration::from_millis(100))? {
+        let timeout = if app.animation_needed() {
+            Duration::from_millis(50)
+        } else {
+            Duration::from_millis(500)
+        };
+        if event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key) => app.handle_key(key),
                 Event::Mouse(mouse) => app.handle_mouse(mouse),
                 Event::Paste(value) => app.handle_paste(value),
                 _ => {}
             }
+            app.invalidate();
         }
     }
     restore_terminal(terminal)
@@ -657,9 +722,10 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        command_candidates, insert_text, localized_status, move_vertical, project_slug,
-        read_snapshot, resolve_path, status_icon, transcript_lines, truncate_for_width, wrap_line,
-        AnimationState, App, Focus, ProjectSession, TranscriptEntry, TranscriptKind,
+        activity_elapsed, command_candidates, insert_text, localized_status, move_vertical,
+        project_slug, read_snapshot, resolve_path, status_icon, transcript_lines,
+        truncate_for_width, wrap_line, AnimationState, App, Focus, ProjectSession, TranscriptEntry,
+        TranscriptKind, UiActivity,
     };
     use crossterm::event::{
         KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -667,6 +733,7 @@ mod tests {
     use ratatui::layout::Rect;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn slash_commands_are_filtered_for_popup() {
@@ -747,6 +814,58 @@ mod tests {
         assert!(lines.iter().all(|line| line.kind == TranscriptKind::Error));
         assert!(lines[0].text.starts_with("✕ 错误 · "));
         assert!(!lines[1].text.contains("错误"));
+    }
+    #[test]
+    fn full_ui_event_details_are_kept_out_of_compact_transcript() {
+        let mut session = ProjectSession::default();
+        session.apply_ui_event(&serde_json::json!({
+            "event_type": "research_ui_event",
+            "event_id": "failure-1",
+            "role": "planner",
+            "action": "plan_project",
+            "stage": "PLANNING",
+            "title": "正在分析研究目标",
+            "summary": "研究目标规划失败。",
+            "status": "FAILED",
+            "error": {
+                "message": "项目或模型配置不可用。",
+                "detail": "OPENROUTER_API_KEY is required by the configured role planner",
+                "action": "检查 .env 和模型配置",
+                "diagnostic": "runs/orchestrator/diagnostics.log"
+            }
+        }));
+        assert!(session
+            .transcript
+            .iter()
+            .any(|entry| entry.text.contains("OPENROUTER_API_KEY")));
+        assert!(session.transcript.iter().all(|entry| !entry.compact));
+        assert_eq!(session.activities[0].status, "FAILED");
+    }
+    #[test]
+    fn terminal_activity_without_duration_does_not_keep_counting() {
+        let now = Instant::now();
+        let activity = UiActivity {
+            event_id: "failure-1".into(),
+            theorem_id: String::new(),
+            run_id: String::new(),
+            role: "system".into(),
+            action: "runtime".into(),
+            stage: "CLI".into(),
+            title: "研究运行失败".into(),
+            summary: "失败".into(),
+            status: "FAILED".into(),
+            elapsed_ms: None,
+            started_at: now - Duration::from_secs(90),
+            updated_at: now,
+            flash_until: None,
+            error: None,
+            diagnostic: None,
+            error_action: None,
+            retryable: None,
+            artifacts: Vec::new(),
+            history: Vec::new(),
+        };
+        assert_eq!(activity_elapsed(&activity), "0.0s");
     }
     #[test]
     fn compact_transcript_hides_commands_and_raw_output() {
@@ -879,6 +998,59 @@ mod tests {
         assert_eq!(session.activities[0].action, "TASK_READY");
         assert_eq!(session.activities[0].theorem_id, "lemma-a");
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn timeline_append_is_incremental_and_deduplicated() {
+        let root = std::env::temp_dir().join(format!(
+            "mathagent-tui-incremental-timeline-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("timeline directory");
+        let timeline = root.join("timeline.jsonl");
+        let first = r#"{"kind":"PIPELINE_EVENT","event_id":"e1","action":"TASK_READY","status":"PROGRESS","run_id":"run-1","theorem_id":"lemma-a","role":"pipeline","payload":{"type":"TASK_READY"}}
+"#;
+        fs::write(&timeline, first).expect("first timeline event");
+        let mut session = ProjectSession::default();
+        session.load_timeline(&timeline);
+        let transcript_len = session.transcript.len();
+        let offset = session.timeline_bytes;
+        assert_eq!(session.activities.len(), 1);
+
+        session.load_timeline(&timeline);
+        assert_eq!(session.timeline_bytes, offset);
+        assert_eq!(session.transcript.len(), transcript_len);
+
+        let second = r#"{"kind":"PIPELINE_EVENT","event_id":"e2","action":"TASK_DONE","status":"COMPLETED","run_id":"run-1","theorem_id":"lemma-a","role":"pipeline","payload":{"type":"TASK_DONE"}}
+"#;
+        use std::io::Write;
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&timeline)
+            .expect("append timeline")
+            .write_all(second.as_bytes())
+            .expect("second timeline event");
+        session.load_timeline(&timeline);
+        assert_eq!(session.activities.len(), 2);
+        let after_append = session.transcript.len();
+        session.load_timeline(&timeline);
+        assert_eq!(session.transcript.len(), after_append);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn transcript_memory_is_bounded_for_streaming_output() {
+        let mut session = ProjectSession::default();
+        for index in 0..2500 {
+            session.entry(
+                TranscriptKind::Output,
+                format!("stream chunk {index}"),
+                false,
+            );
+        }
+        assert!(session.transcript.len() <= 2400);
+        assert!(session.transcript[0].text.contains("stream chunk 401"));
     }
 
     #[test]

@@ -13,7 +13,10 @@ impl App {
         ) {
             args.push("--ui-events".into());
         }
-        let activity = format!("{verb} · {}", short_activity(subject));
+        // Keep the full subject in the transcript.  The activity panel has
+        // its own width-aware truncation; the diagnostic view must retain the
+        // complete project goal and error context.
+        let activity = format!("{verb} · {subject}");
         let root = self.root.clone();
         append_diagnostic(
             &project,
@@ -33,11 +36,8 @@ impl App {
                 cancelled: cancelled.clone(),
             },
         );
-        self.session_mut().entry(
-            TranscriptKind::Activity,
-            format!("已启动：{}", short_activity(subject)),
-            true,
-        );
+        self.session_mut()
+            .entry(TranscriptKind::Activity, format!("已启动：{subject}"), true);
         let tx = self.tx.clone();
         thread::spawn(move || {
             let mut backend_command = Command::new("uv");
@@ -51,6 +51,9 @@ impl App {
                 .stderr(Stdio::piped());
             if env::var_os("UV_CACHE_DIR").is_none() {
                 backend_command.env("UV_CACHE_DIR", "/tmp/math-agent-uv-cache");
+            }
+            for (key, value) in load_local_env(&root) {
+                backend_command.env(key, value);
             }
             configure_process_group(&mut backend_command);
             let spawn = backend_command.spawn();
@@ -149,6 +152,7 @@ impl App {
 
     pub(super) fn drain_backend_events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
+            self.invalidate();
             match event {
                 BackendEvent::Line {
                     project,
@@ -209,11 +213,12 @@ impl App {
                                 } else {
                                     "运行失败"
                                 },
-                                short_activity(&activity)
+                                activity
                             ),
                             true,
                         );
-                        session.snapshot = read_snapshot(&project);
+                        session.refresh_from_disk(&project);
+                        session.remember_snapshot_signatures(&project);
                         // A killed CLI may not get a chance to finalize
                         // project.json. Keep the visible session truthful even
                         // when the durable project projection is from an older
@@ -228,6 +233,44 @@ impl App {
             }
         }
     }
+}
+
+/// Load local, ignored environment overrides for TUI-launched processes.
+/// Existing process variables always win over the local file.
+fn load_local_env(root: &Path) -> Vec<(String, String)> {
+    let path = root.join(".env");
+    let Ok(body) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    body.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let line = line.strip_prefix("export ").unwrap_or(line);
+            let (key, raw_value) = line.split_once('=')?;
+            let key = key.trim();
+            if key.is_empty()
+                || !key
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                || env::var_os(key).is_some()
+            {
+                return None;
+            }
+            let value = raw_value.trim();
+            let value = if value.len() >= 2
+                && ((value.starts_with('"') && value.ends_with('"'))
+                    || (value.starts_with('\'') && value.ends_with('\'')))
+            {
+                value[1..value.len() - 1].to_string()
+            } else {
+                value.to_string()
+            };
+            Some((key.to_string(), value))
+        })
+        .collect()
 }
 
 #[cfg(unix)]

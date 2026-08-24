@@ -933,9 +933,7 @@ class RoutedLLMClient:
                 raise ProjectError(
                     f"Provider {route.provider} does not support configured native tools"
                 )
-            prepared["tools"] = build_tool_payload(
-                route.config["tools"], provider=route.provider
-            )
+            prepared["tools"] = build_tool_payload(route.config["tools"], provider=route.provider)
         return prepared
 
     def _execute_route(
