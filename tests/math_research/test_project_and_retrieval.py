@@ -42,3 +42,19 @@ def test_import_never_infers_proved_from_filename(tmp_path):
     theorem = store.load_theorem(candidates[0]["id"])
     assert theorem["status"] == "UNCLASSIFIED"
     assert theorem["audit_status"] == "NOT_AUDITED"
+
+
+def test_imported_work_file_is_available_to_child_context(tmp_path):
+    store = ProjectStore.initialize(tmp_path / "project", "Context import")
+    store.add_theorem("target", "Target", "Prove C.")
+    imported = store.root / "inbox" / "earlier.md"
+    imported.write_text("# Earlier route\n\nUse the parity observation.\n", encoding="utf-8")
+
+    from math_research_agent.research.file_ingestion import ProjectFileIngestor
+
+    ProjectFileIngestor(store).add(imported)
+    package = ContextBuilder(store).build("target")
+
+    assert package.data["imported_sources"][0]["original_name"] == "earlier.md"
+    assert "parity observation" in package.markdown
+    assert "unverified" in package.markdown

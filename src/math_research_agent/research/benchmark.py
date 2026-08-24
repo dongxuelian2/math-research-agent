@@ -156,7 +156,7 @@ def run_benchmark(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="math-research benchmark")
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("--config", required=True)
+    parser.add_argument("--config", default="configs/models.toml")
     parser.add_argument("--output", required=True)
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--budget-seconds", type=int)

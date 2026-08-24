@@ -64,6 +64,7 @@ def run_formalization(
     formal_dir = run_path / "formalization"
     formal_dir.mkdir(parents=True, exist_ok=True)
     config = load_model_config(config_path)
+    config["workspace_root"] = str(project.root.resolve())
     binding = CrossPlaneExecutionBinding.capture(
         root_claim_snapshot_hash=claim_snapshot.claim_snapshot_hash
     )

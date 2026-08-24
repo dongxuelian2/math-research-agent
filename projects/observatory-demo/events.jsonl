@@ -1,0 +1,13 @@
+{"at": "2026-08-23T15:54:38+00:00", "type": "RUN_STARTED", "run_id": "run-01-hidden-defect", "status": "RUNNING"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AGENT_STARTED", "run_id": "run-01-hidden-defect", "role": "planner", "tier": "strategic", "model": "gemini-3.1-pro-preview"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AGENT_STARTED", "run_id": "run-01-hidden-defect", "role": "constructive", "tier": "research", "model": "gemini-3.1-pro-preview"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AGENT_STARTED", "run_id": "run-01-hidden-defect", "role": "counterexample_hunter", "tier": "research", "model": "gemini-3.1-pro-preview"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AUDIT_FAIL", "run_id": "run-01-hidden-defect", "role": "counterexample_hunter", "finding": "n=41 gives 41^2", "category": "COUNTEREXAMPLE"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AUDIT_FAIL", "run_id": "run-01-hidden-defect", "role": "dependency_auditor", "finding": "unproved universal lemma", "category": "DEPENDENCY_GAP"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "FAILED_ROUTE", "run_id": "run-01-hidden-defect", "route_id": "route-unbounded-primality", "status": "FAILED_ROUTE"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "REPAIR_STARTED", "run_id": "run-02-repair", "parent_run_id": "run-01-hidden-defect", "role": "planner", "model": "gemini-3.1-pro-preview"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "REPAIR_APPLIED", "run_id": "run-02-repair", "change": "restore 0 <= n <= 39 and attach finite certificate"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AUDIT_PASS", "run_id": "run-02-repair", "role": "counterexample_hunter"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AUDIT_PASS", "run_id": "run-02-repair", "role": "dependency_auditor"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "AUDIT_PASS", "run_id": "run-02-repair", "role": "final_proof_auditor"}
+{"at": "2026-08-23T15:54:38+00:00", "type": "PROVED", "run_id": "run-02-repair", "status": "PROVED"}

@@ -1,0 +1,34 @@
+{
+  "assumption_snapshot_hash": "sha256:c8565ec1d87aa9fced55f90db4832f111de9ffd3c71de82da8f0d4ca594d6d94",
+  "authority_context_hash": "sha256:8a71ba87ed558a182d537b494d11c2f40a5c60856f8a3fa85e108ed607fe6b40",
+  "created_at": "2026-08-23T17:32:42+00:00",
+  "created_by": "FailureMapTypedAdapter",
+  "dependency_snapshot_hash": "sha256:c3b99ea4f9639c31f42fbe6fd57d719836eb7e0be6af4726402475c5c68d8de1",
+  "evidence_refs": [
+    "closure-67da7492c0dfad187a600b33"
+  ],
+  "exact_failure_condition": "Mock auditors cannot promote a non-demo project to PROVED; Repair the exact recorded obligation; do not reopen the whole theorem.",
+  "failure_domain": "MATHEMATICAL",
+  "legacy_source_ref": "",
+  "method_family": "gate",
+  "object_type": "ROUTE_FAILURE_RECORD",
+  "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+  "obligation_id": "ro-purpose-analysis-root",
+  "provenance": "NATIVE",
+  "reopen_conditions": [
+    "DEPENDENCY_SNAPSHOT_CHANGED",
+    "ASSUMPTION_SNAPSHOT_CHANGED",
+    "AUTHORITY_CONTEXT_CHANGED",
+    "NEW_VERIFIED_LEMMA",
+    "FAILURE_CONDITION_REMOVED"
+  ],
+  "research_map_hash": "sha256:1a825c8a281ab015f2647888a9a69ba96a93161c14b35108f0b1a83dc19cc6b7",
+  "research_map_id": "map-purpose-analysis-20260824-013241",
+  "research_map_version": 2,
+  "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+  "route_description": "main: Mock auditors cannot promote a non-demo project to PROVED",
+  "route_failure_hash": "sha256:dd59279ecb97c6a956e09ac19c516df255f64cf8d5af9e54c11a0700f6c14177",
+  "route_failure_id": "route-failure-dbaf37440c67b512a138fcde",
+  "schema_version": 1,
+  "verified_lemma_refs": []
+}

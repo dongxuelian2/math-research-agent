@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-08-23T18:30:10+00:00",
+  "created_in_map_version": 1,
+  "dependencies": [],
+  "object_type": "RESEARCH_OBLIGATION",
+  "obligation_hash": "sha256:14ff2acbfa4d60581fdfc3a7246dae934605e43223fc2f381dd79714086e882f",
+  "obligation_id": "ro-euclid-forward-derivation-root",
+  "obligation_kind": "OTHER",
+  "previous_revision_hash": null,
+  "revised_at": "2026-08-23T18:30:10+00:00",
+  "root_claim_snapshot_hash": "sha256:859b81e0d9bddf814df3b4a9558ff8968cddfd9e6932db0a91e2b3f833adade8",
+  "schema_version": 1,
+  "scope": [
+    "root theorem euclid-forward-derivation"
+  ],
+  "semantic_revision": 1,
+  "statement": "For all positive integers a, b, c with a^2 + b^2 = c^2 and gcd(a,b,c) = 1, after swapping a and b if necessary there exist positive integers m > n such that gcd(m,n) = 1, m and n have opposite parity, a = m^2 - n^2, b = 2mn, and c = m^2 + n^2.",
+  "title": "Resolve root research target euclid-forward-derivation"
+}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import threading
 from typing import Any, Callable, Mapping
 
@@ -20,6 +21,9 @@ from .runtime_model import (
 from .runtime_bindings import CrossPlaneExecutionBinding
 
 
+logger = logging.getLogger("math_research_agent.runtime_dispatch")
+
+
 class DurableProviderDispatcher:
     """Execute at-least-once providers behind durable attempts and result fencing."""
 
@@ -34,6 +38,60 @@ class DurableProviderDispatcher:
         self.artifacts = RuntimeArtifactStore(backend.project_root)
         self.owner = owner or f"dispatcher-{threading.get_native_id()}"
         self.lease_ttl_seconds = float(lease_ttl_seconds)
+
+    def _start_heartbeat(
+        self,
+        *,
+        attempt_id: str,
+        lease_token: str,
+        generation: int,
+    ) -> tuple[threading.Event, threading.Thread]:
+        """Renew a provider lease while an external call is in flight.
+
+        A provider request is allowed to outlive the lease TTL. Without this
+        loop, the reconciler can mark a perfectly live request orphaned and a
+        late response is then fenced even though the worker is still healthy.
+        """
+
+        stop = threading.Event()
+        interval = max(0.05, min(self.lease_ttl_seconds / 3.0, 30.0))
+
+        def renew() -> None:
+            while not stop.wait(interval):
+                try:
+                    self.backend.heartbeat(
+                        attempt_id,
+                        lease_token=lease_token,
+                        generation=generation,
+                        ttl_seconds=self.lease_ttl_seconds,
+                    )
+                except RuntimeConflict as exc:
+                    # A reconciler or cancellation path has taken the lease.
+                    # Do not keep hammering the database; the eventual result
+                    # will be fenced by the normal result-commit path.
+                    logger.warning(
+                        "provider lease heartbeat stopped for %s: %s",
+                        attempt_id,
+                        exc,
+                    )
+                    return
+                except Exception:
+                    # A transient SQLite failure must not kill the provider
+                    # request. The next interval gets another chance.
+                    logger.exception("provider lease heartbeat failed for %s", attempt_id)
+
+        thread = threading.Thread(
+            target=renew,
+            name=f"runtime-heartbeat-{attempt_id[:12]}",
+            daemon=True,
+        )
+        thread.start()
+        return stop, thread
+
+    @staticmethod
+    def _stop_heartbeat(stop: threading.Event, thread: threading.Thread) -> None:
+        stop.set()
+        thread.join(timeout=1.0)
 
     def execute(
         self,
@@ -92,37 +150,47 @@ class DurableProviderDispatcher:
         )
         if on_started is not None:
             on_started({**attempt, **lease})
-        if fault_injector is not None:
-            fault_injector.hit(FaultPoint.BEFORE_DISPATCH)
+
+        heartbeat_stop, heartbeat_thread = self._start_heartbeat(
+            attempt_id=attempt["attempt_id"],
+            lease_token=lease["lease_token"],
+            generation=lease["generation"],
+        )
         try:
+            if fault_injector is not None:
+                fault_injector.hit(FaultPoint.BEFORE_DISPATCH)
             response = invoke()
         except BaseException as exc:
-            current = self.backend.get_attempt(attempt["attempt_id"])
-            if current and current["state"] == AttemptState.CANCEL_REQUESTED:
-                self.backend.finalize_cancel(attempt["attempt_id"], actor=self.owner)
-                outbox_target = OutboxState.DEAD_LETTER
-            else:
-                self.backend.transition_attempt(
-                    attempt["attempt_id"],
-                    AttemptState.FAILED_RETRYABLE,
+            self._stop_heartbeat(heartbeat_stop, heartbeat_thread)
+            try:
+                current = self.backend.get_attempt(attempt["attempt_id"])
+                if current and current["state"] == AttemptState.CANCEL_REQUESTED:
+                    self.backend.finalize_cancel(attempt["attempt_id"], actor=self.owner)
+                    outbox_target = OutboxState.DEAD_LETTER
+                else:
+                    self.backend.transition_attempt(
+                        attempt["attempt_id"],
+                        AttemptState.FAILED_RETRYABLE,
+                        actor=self.owner,
+                        expected_states={AttemptState.RUNNING},
+                        lease_token=lease["lease_token"],
+                        generation=lease["generation"],
+                        metadata={"error_type": type(exc).__name__},
+                    )
+                    outbox_target = OutboxState.FAILED_RETRYABLE
+                self.backend.transition_outbox(
+                    outbox["outbox_id"],
+                    outbox_target,
+                    claim_token=outbox_claim["claim_token"],
+                    claim_generation=outbox_claim["claim_generation"],
                     actor=self.owner,
-                    expected_states={AttemptState.RUNNING},
-                    lease_token=lease["lease_token"],
-                    generation=lease["generation"],
-                    metadata={"error_type": type(exc).__name__},
+                    last_error=f"{type(exc).__name__}: {exc}",
                 )
-                outbox_target = OutboxState.FAILED_RETRYABLE
-            self.backend.transition_outbox(
-                outbox["outbox_id"],
-                outbox_target,
-                claim_token=outbox_claim["claim_token"],
-                claim_generation=outbox_claim["claim_generation"],
-                actor=self.owner,
-                last_error=f"{type(exc).__name__}: {exc}",
-            )
-            if on_finished is not None:
-                on_finished(attempt["attempt_id"])
+            finally:
+                if on_finished is not None:
+                    on_finished(attempt["attempt_id"])
             raise
+        self._stop_heartbeat(heartbeat_stop, heartbeat_thread)
         if fault_injector is not None:
             fault_injector.hit(FaultPoint.AFTER_PROVIDER_RESULT)
         result_key = f"{attempt['attempt_id']}:provider-result"

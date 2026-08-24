@@ -1,0 +1,20 @@
+{
+  "schema_version": 3,
+  "project": "/home/xia/code/math-research-agent/projects/observatory-demo",
+  "target_id": "bounded-euler-polynomial",
+  "status": "PROVED",
+  "headline": "Hidden defect → autonomous repair",
+  "runs": [
+    {
+      "id": "run-01-hidden-defect",
+      "status": "REJECTED",
+      "parent_run_id": null
+    },
+    {
+      "id": "run-02-repair",
+      "status": "PROVED",
+      "parent_run_id": "run-01-hidden-defect"
+    }
+  ],
+  "created_at": "2026-08-23T15:54:38+00:00"
+}

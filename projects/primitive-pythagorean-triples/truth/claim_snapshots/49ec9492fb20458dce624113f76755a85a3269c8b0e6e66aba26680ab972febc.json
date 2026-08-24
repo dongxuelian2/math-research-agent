@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "coprime-square-lemma",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "coprime-square-lemma",
+    "canonical_statement": "For all positive integers x, y, z, if x*y = z^2 and gcd(x,y) = 1, then there exist positive integers r and s such that x = r^2 and y = s^2.",
+    "claim_type": "implication",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d"
+  },
+  "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+    "dependencies": [],
+    "dependency_snapshot_hash": "sha256:f72c23bddb030a56555e8fa850926cd0bf2767fa056bcfaaaf2784575e8dd531"
+  },
+  "dependency_snapshot_hash": "sha256:f72c23bddb030a56555e8fa850926cd0bf2767fa056bcfaaaf2784575e8dd531",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "coprime-square-lemma",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:0e00071382e0cc01c887bc60a51a6d29ea6cd625e5aeedbb364d21d88a87a204"
+  },
+  "assumption_snapshot_hash": "sha256:0e00071382e0cc01c887bc60a51a6d29ea6cd625e5aeedbb364d21d88a87a204",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:0eec789786950e600954a847867f0a115dfd7eb6e24323aadd2bf674e45a3754"
+    }
+  ],
+  "authority_binding_hash": "sha256:f8894abb6625937a689865ca256b6ba2f8359ca4db88cbc92175fd2f54f23966",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:005e973224920d84dc598e12edad456553a943cf102c6734f9fed45c955776c1",
+  "captured_status": "PARTIAL",
+  "captured_at": "2026-08-23T18:30:10+00:00",
+  "project_record_hash": "sha256:116ef8b2c342d88f176eb9366e7d7f54dfa131cbe827352f16ce85db8205f8fb",
+  "claim_snapshot_hash": "sha256:49ec9492fb20458dce624113f76755a85a3269c8b0e6e66aba26680ab972febc"
+}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from concurrent.futures import ThreadPoolExecutor
 
 from math_research_agent.research.providers import (
@@ -209,28 +208,46 @@ def test_provider_capabilities_and_mixed_provider_role_routing(tmp_path):
     assert provider_capabilities("openai").supports_usage is True
     assert provider_capabilities("mock").supports_reasoning_tiers is False
 
-    config = {
-        "tiers": {
-            "routine": {"provider": "gemini", "model": "gemini-routine"},
-            "research": {
-                "provider": "codex_cli",
-                "model": None,
-                "reasoning_effort": "high",
-            },
-            "strategic": {
-                "provider": "openai",
-                "model": "gpt-strategic",
-                "reasoning_effort": "high",
-            },
-        },
-        "roles": {
-            "planner": "strategic",
-            "worker": "research",
-            "dependency_auditor": "routine",
-        },
-    }
-    path = tmp_path / "mixed-providers.json"
-    path.write_text(json.dumps(config), encoding="utf-8")
+    path = tmp_path / "mixed-providers.toml"
+    path.write_text(
+        """version = 1
+
+[models.routine]
+provider = "gemini"
+model = "gemini-routine"
+
+[models.research]
+provider = "codex_cli"
+
+[models.strategic]
+provider = "openai"
+model = "gpt-strategic"
+reasoning_effort = "high"
+
+[roles.planner]
+model = "strategic"
+
+[roles.worker]
+model = "research"
+reasoning_effort = "high"
+
+[roles.dependency_auditor]
+model = "routine"
+
+[roles.counterexample_hunter]
+model = "research"
+
+[roles.exhaustiveness_auditor]
+model = "research"
+
+[roles.boundary_auditor]
+model = "routine"
+
+[roles.final_proof_auditor]
+model = "strategic"
+""",
+        encoding="utf-8",
+    )
     loaded = load_model_config(path)
     router = ModelRouter(loaded)
     assert (

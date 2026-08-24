@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "observatory-demo",
+  "name": "Research Observatory Showcase",
+  "description": "",
+  "current_target": "bounded-euler-polynomial",
+  "demo": true,
+  "created_at": "2026-08-23T15:54:38+00:00",
+  "last_updated": "2026-08-23T15:54:38+00:00",
+  "frozen_branches": [],
+  "prohibited_routes": [],
+  "allowed_scope": [],
+  "branches": {}
+}

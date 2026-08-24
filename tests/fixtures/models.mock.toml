@@ -1,0 +1,60 @@
+version = 1
+description = "Deterministic test-only model configuration."
+
+[role_defaults]
+timeout_seconds = 120
+max_retries = 0
+retry_base_seconds = 0
+max_output_tokens = 4096
+answer_reserve = 1024
+context_length = 200000
+
+[runtime]
+budget_seconds = 120
+isolation = true
+history_budget = 0
+
+[models.mock]
+provider = "mock"
+model = "mock"
+
+[roles.planner]
+model = "mock"
+[roles.worker]
+model = "mock"
+[roles.constructive]
+model = "mock"
+[roles.theorem_verifier]
+model = "mock"
+[roles.reconstruction]
+model = "mock"
+[roles.worker_verifier]
+model = "mock"
+[roles.counterexample_hunter]
+model = "mock"
+[roles.dependency_auditor]
+model = "mock"
+[roles.exhaustiveness_auditor]
+model = "mock"
+[roles.boundary_auditor]
+model = "mock"
+[roles.final_proof_auditor]
+model = "mock"
+[roles.formalization_agent]
+model = "mock"
+[roles.literature_lead]
+model = "mock"
+[roles.literature_searcher]
+model = "mock"
+[roles.literature_reader]
+model = "mock"
+[roles.literature_deep_reader]
+model = "mock"
+[roles.literature_synthesizer]
+model = "mock"
+[roles.literature_authority_auditor]
+model = "mock"
+[roles.architecture_audit]
+model = "mock"
+[roles.secondary_verifier]
+model = "mock"

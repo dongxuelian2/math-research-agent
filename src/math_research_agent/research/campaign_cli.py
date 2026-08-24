@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("campaign-run", help="create and run an opt-in campaign")
     run.add_argument("--project", required=True)
     run.add_argument("--target", required=True)
-    run.add_argument("--config", required=True)
+    run.add_argument("--config", default="configs/models.toml")
     run.add_argument("--profile", choices=["normal", "overnight"], default="normal")
     run.add_argument("--campaign-id")
     run.add_argument("--workers", type=int)
@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume = sub.add_parser("campaign-resume", help="resume a checkpointed campaign")
     resume.add_argument("--project", required=True)
     resume.add_argument("--campaign", required=True)
-    resume.add_argument("--config", required=True)
+    resume.add_argument("--config", default="configs/models.toml")
     resume.add_argument("--workers", type=int)
     resume.add_argument("--stop-after-checkpoint", action="store_true")
     return parser

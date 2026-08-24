@@ -223,7 +223,7 @@ def test_t8_production_resume_accepts_unchanged_claim(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "target",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         replay_policy=ReplayPolicy.from_manifest(manifest),
         hard_submit_gate=True,
     )
@@ -244,7 +244,7 @@ def test_t8_production_resume_accepts_unchanged_claim(tmp_path):
     resumed = ResearchOrchestrator(
         project,
         "target",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         resume=orchestrator.run_dir,
     )
     try:
@@ -263,7 +263,7 @@ def test_t9_production_resume_blocks_when_root_assertion_changed(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "target",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
     )
     try:
         assert orchestrator.run(stop_after="context")["phase"] == "CONTEXT_READY"
@@ -278,7 +278,7 @@ def test_t9_production_resume_blocks_when_root_assertion_changed(tmp_path):
     resumed = ResearchOrchestrator(
         project,
         "target",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         resume=run_dir,
     )
     try:
@@ -303,7 +303,7 @@ def test_production_missing_authority_checkpoints_without_candidate(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "target",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         replay_policy=ReplayPolicy.from_manifest(manifest),
         hard_submit_gate=True,
     )

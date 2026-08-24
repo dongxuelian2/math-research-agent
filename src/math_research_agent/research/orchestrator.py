@@ -62,6 +62,7 @@ from .scheduler import StopController, StrategyFingerprintStore
 from .state_machine import AuditGate
 from .truth_store import TruthMutationBlocked, TruthStoreFacade
 from .structural_effect import StructuralEffect
+from .ui_events import UiEventEmitter
 
 
 PHASES = ("CREATED", "CONTEXT_READY", "CANDIDATE_READY", "AUDITS_READY", "COMPLETE")
@@ -216,6 +217,7 @@ class ResearchOrchestrator:
         worker_count: int = 3,
         dry_run: bool = False,
         resume: str | Path | None = None,
+        continue_partial: bool = False,
         expand_context: bool = False,
         run_id: str | None = None,
         campaign_id: str | None = None,
@@ -233,18 +235,25 @@ class ResearchOrchestrator:
         pipeline_state: dict | None = None,
         pipeline_handlers: dict | None = None,
         research_map_id: str | None = None,
+        event_sink: UiEventEmitter | None = None,
     ):
         if worker_count < 1:
             raise ProjectError("worker_count must be positive")
         self.project = project
         self.truth_store = TruthStoreFacade(project)
+        self.events = event_sink or UiEventEmitter(
+            project_id=str(project.load_project().get("id") or project.root.name),
+            project_root=project.root,
+        )
         self.requested_research_map_id = research_map_id
         self.target_id = target_id
         self.target = project.load_theorem(target_id)
         self.config_path = Path(config_path).resolve()
         self.config = load_model_config(self.config_path)
+        self.config["workspace_root"] = str(project.root.resolve())
         self.worker_count = worker_count
         self.dry_run = dry_run
+        self.continue_partial = bool(continue_partial)
         self.expand_context = expand_context
         self.campaign_id = campaign_id
         self.parent_run_id = parent_run_id
@@ -281,7 +290,7 @@ class ResearchOrchestrator:
             self.state = {}
             self.started = time.perf_counter()
             self.metrics = {}
-            self.model_router = ModelRouter(self.config)
+            self.model_router = ModelRouter(self.config, tool_event_sink=self.events.tool_event)
             self.pipeline_scheduler = AsyncDAGScheduler(config=self.config)
             return
         self.run_dir = self._resolve_run_dir(resume, run_id=run_id)
@@ -310,7 +319,9 @@ class ResearchOrchestrator:
         self.started = time.perf_counter()
         self.metrics: dict[str, dict] = self.state.get("metrics", {})
         project_override = self.project.load_project().get("model_routing", {})
-        immutable_complete = self.state.get("phase") == "COMPLETE"
+        immutable_complete = self.state.get("phase") == "COMPLETE" and not (
+            self.continue_partial and self.state.get("status") != "PROVED"
+        )
         self.model_router = ModelRouter(
             self.config,
             state_path=(None if immutable_complete else self.run_dir / "routing_state.json"),
@@ -319,10 +330,15 @@ class ResearchOrchestrator:
             runtime_backend=self.runtime_backend,
             runtime_scope=self.run_dir.name,
             require_execution_binding=True,
+            tool_event_sink=self.events.tool_event,
         )
         self.pipeline_scheduler = AsyncDAGScheduler(
             state=(pipeline_state if pipeline_state is not None else None),
             state_path=(None if immutable_complete else self.run_dir / "pipeline_state.json"),
+            timeline_path=(None if immutable_complete else self.project.root / "timeline.jsonl"),
+            project_id=str(self.project.load_project().get("id") or self.project.root.name),
+            run_id=self.run_dir.name,
+            parent_run_id=str(self.parent_run_id or self.state.get("parent_run_id") or ""),
             config=self.config,
         )
         if pipeline_state is not None and not immutable_complete:
@@ -706,6 +722,21 @@ class ResearchOrchestrator:
                 self.directive = self.research_store.load_directive(str(directive_id))
             if session_id:
                 self.tactical_session = self.research_store.load_tactical_session(str(session_id))
+            if self.continue_partial and self.tactical_session is not None:
+                closure_path = (
+                    self.research_store.sessions_root
+                    / self.tactical_session.tactical_session_id
+                    / "closure.json"
+                )
+                if closure_path.is_file():
+                    # A closed, failed attempt is immutable. Continue from its
+                    # ResearchMap with a fresh directive/session so runtime
+                    # idempotency bindings do not collide with the old
+                    # terminal attempt.
+                    self.directive = None
+                    self.tactical_session = None
+                    self.state.pop("active_directive_id", None)
+                    self.state.pop("tactical_session_id", None)
             classification = self.governance_controller.classify_legacy_checkpoint(self.state)
             self.state["governance_checkpoint_classification"] = classification
             if classification == "GOVERNANCE_REVIEW_REQUIRED":
@@ -776,32 +807,35 @@ class ResearchOrchestrator:
         root_ref = self.research_map.obligation_refs[0]
         project_meta = self.project.load_project()
         scope = project_meta.get("allowed_scope") or [f"root theorem {self.target_id}"]
-        self.directive = self.research_store.create_directive(
-            self.research_map.research_map_id,
-            root_ref.obligation_id,
-            tactical_goal=f"Advance the exact research obligation: {self.target['statement']}",
-            allowed_scope=tuple(str(item) for item in scope),
-            prohibited_routes=tuple(project_meta.get("prohibited_routes", [])),
-            failed_route_refs=self.research_map.route_failure_refs,
-            requested_worker_roles=("constructive", "counterexample_hunter", "boundary_auditor"),
-            budget_profile=BudgetProfile.capture(
-                wall_clock_seconds=int(
-                    self.budget_limit_seconds or self.config.get("budget", {}).get("limit", 900)
+        if self.directive is None:
+            self.directive = self.research_store.create_directive(
+                self.research_map.research_map_id,
+                root_ref.obligation_id,
+                tactical_goal=f"Advance the exact research obligation: {self.target['statement']}",
+                allowed_scope=tuple(str(item) for item in scope),
+                prohibited_routes=tuple(project_meta.get("prohibited_routes", [])),
+                failed_route_refs=self.research_map.route_failure_refs,
+                requested_worker_roles=("constructive", "counterexample_hunter", "boundary_auditor"),
+                budget_profile=BudgetProfile.capture(
+                    wall_clock_seconds=int(
+                        self.budget_limit_seconds
+                        or self.config.get("budget", {}).get("limit", 900)
+                    ),
+                    max_workers=self.worker_count,
+                    max_provider_calls=int(
+                        self.config.get("routing", {}).get("max_provider_calls", 1000)
+                    ),
+                    reasoning_tier="adaptive",
                 ),
-                max_workers=self.worker_count,
-                max_provider_calls=int(
-                    self.config.get("routing", {}).get("max_provider_calls", 1000)
-                ),
-                reasoning_tier="adaptive",
-            ),
-            created_by="ResearchOrchestrator",
-        )
-        self.tactical_session = self.research_store.bind_tactical_session(
-            self.directive.directive_id,
-            execution_run_id=self.run_dir.name,
-            parent_execution_run_id=self.parent_run_id,
-            execution_status="RUNNING",
-        )
+                created_by="ResearchOrchestrator",
+            )
+        if self.tactical_session is None:
+            self.tactical_session = self.research_store.bind_tactical_session(
+                self.directive.directive_id,
+                execution_run_id=self.run_dir.name,
+                parent_execution_run_id=self.parent_run_id,
+                execution_status="RUNNING",
+            )
         self.state.update(
             research_checkpoint_projection(
                 self.research_store,
@@ -1406,8 +1440,20 @@ class ResearchOrchestrator:
                 expand_context=self.expand_context,
             )
         if self.state.get("phase") == "COMPLETE":
-            self._verify_phase7_completion()
-            return self.state
+            if self.continue_partial and self.state.get("status") != "PROVED":
+                # A COMPLETE/PARTIAL checkpoint is a durable end of one
+                # attempt, not proof that the research frontier is closed.
+                # Reopen it at the context boundary so the existing
+                # whiteboard, worker reports, pipeline tasks, and audits are
+                # available to the next attempt.
+                self.state["phase"] = self.state.get("resume_phase") or "CONTEXT_READY"
+                self.state["status"] = "RUNNING"
+                self.state["resumptions"] = int(self.state.get("resumptions") or 0) + 1
+                self.state["last_updated"] = utc_now()
+                _write_json(self.state_path, self.state)
+            else:
+                self._verify_phase7_completion()
+                return self.state
         if self.state.get("phase7_state") == "TRUTH_PROMOTED":
             self._resume_phase7_after_truth_promotion()
             return self.state
@@ -1416,7 +1462,7 @@ class ResearchOrchestrator:
         if self.state.get("phase") == CHECKPOINT_PHASE:
             self.state["phase"] = self.state.get("resume_phase", "CREATED")
             self.state["status"] = "RUNNING"
-            self.state["resumptions"] = int(self.state.get("resumptions", 0)) + 1
+            self.state["resumptions"] = int(self.state.get("resumptions") or 0) + 1
             self.state["last_updated"] = utc_now()
             _write_json(self.state_path, self.state)
         if self.stop_controller is not None and self.stop_controller.requested():
@@ -1765,13 +1811,112 @@ changed failure condition is explicitly recorded.
         (self.run_dir / "context" / "REPAIR_CONTEXT.md").write_text(repair_text, encoding="utf-8")
 
     def _run_audits_with_retry(self) -> tuple[dict[str, dict], AuditGate]:
-        return self.audit_coordinator.run_with_retry()
+        run_id = self.run_dir.name if self.run_dir is not None else ""
+        verification_event = self.events.start(
+            action="verify_candidate",
+            title=f"正在验证：{self.target.get('title', self.target_id)}",
+            summary="Verifier 正在检查候选证明的结构和局部一致性。",
+            role="verifier",
+            stage="AUDIT",
+            theorem_id=self.target_id,
+            run_id=run_id,
+        )
+        audit_event = self.events.start(
+            action="audit_candidate",
+            title=f"正在审计：{self.target.get('title', self.target_id)}",
+            summary="Auditor 正在汇总独立审计结果和缺口。",
+            role="auditor",
+            stage="AUDIT",
+            theorem_id=self.target_id,
+            run_id=run_id,
+        )
+        try:
+            audits, gate = self.audit_coordinator.run_with_retry()
+        except Exception as exc:
+            for event_id in (verification_event, audit_event):
+                self.events.finish(
+                    event_id,
+                    success=False,
+                    summary="审计阶段异常终止。",
+                    theorem_id=self.target_id,
+                    run_id=run_id,
+                    error={"message": str(exc)[:500]},
+                )
+            self.events.error(
+                exc,
+                action="audit_candidate",
+                title="审计阶段失败",
+                stage="AUDIT",
+                theorem_id=self.target_id,
+                run_id=run_id,
+                diagnostic_path=(self.run_dir / "diagnostics.log") if self.run_dir else None,
+            )
+            raise
+        gap_count = sum(
+            1
+            for data in audits.values()
+            if str(data.get("domain_verdict", "INCONCLUSIVE")) != "PASS"
+        )
+        summary = "独立验证通过。" if gate.passed else f"审计发现 {gap_count} 个需要处理的缺口。"
+        self.events.finish(
+            verification_event,
+            success=True,
+            summary=summary,
+            theorem_id=self.target_id,
+            run_id=run_id,
+        )
+        self.events.finish(
+            audit_event,
+            success=True,
+            summary=summary,
+            theorem_id=self.target_id,
+            run_id=run_id,
+        )
+        return audits, gate
 
     def _run_secondary_verification(self) -> dict:
         return self.audit_coordinator.run_secondary_verification()
 
     def _run_math_research_agent_candidate(self) -> None:
-        self.candidate_engine.run()
+        run_id = self.run_dir.name if self.run_dir is not None else ""
+        event_id = self.events.start(
+            action="generate_candidate",
+            title=f"正在生成证明：{self.target.get('title', self.target_id)}",
+            summary="Worker 正在根据上下文尝试构造候选证明。",
+            role="worker",
+            stage="PROOF",
+            theorem_id=self.target_id,
+            run_id=run_id,
+        )
+        try:
+            self.candidate_engine.run()
+        except Exception as exc:
+            self.events.finish(
+                event_id,
+                success=False,
+                summary="候选证明生成失败。",
+                theorem_id=self.target_id,
+                run_id=run_id,
+                error={"message": str(exc)[:500]},
+            )
+            self.events.error(
+                exc,
+                action="generate_candidate",
+                title="候选证明失败",
+                stage="PROOF",
+                theorem_id=self.target_id,
+                run_id=run_id,
+                diagnostic_path=(self.run_dir / "diagnostics.log") if self.run_dir else None,
+            )
+            raise
+        candidate_exists = bool(self.run_dir and (self.run_dir / "CANDIDATE_PROOF.md").exists())
+        self.events.finish(
+            event_id,
+            success=True,
+            summary=("候选证明已生成。" if candidate_exists else "本轮没有生成候选证明。"),
+            theorem_id=self.target_id,
+            run_id=run_id,
+        )
 
     def _run_audits(self) -> tuple[dict[str, dict], AuditGate]:
         return self.audit_coordinator.run_audits()
@@ -2329,7 +2474,8 @@ changed failure condition is explicitly recorded.
                 route_source = self._register_runtime_effect_result(
                     idempotency_key=(
                         f"route-failure:{self.run_dir.name}:{len(route_records)}:"
-                        f"{item.auditor}:{item.exact_rejected_claim}"
+                        f"{self.tactical_session.tactical_session_id}:{item.auditor}:"
+                        f"{item.exact_rejected_claim}"
                     ),
                     semantic_target=obligation_id,
                     payload={

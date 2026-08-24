@@ -1,0 +1,10 @@
+{
+  "accepted_evidence_ids": [],
+  "decision_hash": "sha256:acaa5ce299b1a3a4331fba85a095df1d6051c804e58d7ed80c7f244c1728aa6c",
+  "object_type": "OBLIGATION_RESOLUTION_DECISION",
+  "obligation_id": "ro-purpose-analysis-root",
+  "reason": "an audit projection failed",
+  "schema_version": 1,
+  "session_closure_id": "closure-67da7492c0dfad187a600b33",
+  "status": "AUDIT_FAILED"
+}

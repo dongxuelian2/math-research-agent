@@ -32,7 +32,7 @@ def test_phase7_normal_path_persists_and_resumes(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
     )
     state = orchestrator.run()
@@ -71,7 +71,7 @@ def test_phase7_normal_path_persists_and_resumes(tmp_path):
     resumed = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
         resume=orchestrator.run_dir,
     ).run()
@@ -84,7 +84,7 @@ def test_phase7_recovery_closes_after_durable_truth_promotion(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
     )
     state = orchestrator.run()
@@ -104,7 +104,7 @@ def test_phase7_recovery_closes_after_durable_truth_promotion(tmp_path):
     recovered = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
         resume=orchestrator.run_dir,
     ).run()
@@ -118,7 +118,7 @@ def test_phase7_rejects_stale_root_open_frontier_and_failed_gate(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
     )
     state = orchestrator.run()
@@ -193,7 +193,7 @@ def test_phase7_resume_rejects_tampered_final_proof(tmp_path):
     orchestrator = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
     )
     state = orchestrator.run()
@@ -204,7 +204,7 @@ def test_phase7_resume_rejects_tampered_final_proof(tmp_path):
         ResearchOrchestrator(
             project,
             "demo-odd-sum",
-            config_path=repository_root / "configs" / "models.mock.json",
+            config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
             worker_count=3,
             resume=orchestrator.run_dir,
         ).run()

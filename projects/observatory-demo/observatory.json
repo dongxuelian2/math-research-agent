@@ -1,0 +1,66 @@
+{
+  "schema_version": 3,
+  "title": "Hidden defect → autonomous repair",
+  "headline": "A persuasive proof is rejected, repaired, and re-audited.",
+  "target_id": "bounded-euler-polynomial",
+  "dag": {
+    "nodes": [
+      {
+        "id": "theorem",
+        "label": "Bounded Euler polynomial",
+        "kind": "theorem",
+        "status": "PROVED"
+      },
+      {
+        "id": "candidate-1",
+        "label": "Persuasive universal candidate",
+        "kind": "candidate",
+        "status": "REJECTED"
+      },
+      {
+        "id": "counterexample",
+        "label": "n = 41 → 41²",
+        "kind": "counterexample",
+        "status": "FOUND"
+      },
+      {
+        "id": "failure-map",
+        "label": "FAILED_ROUTE",
+        "kind": "failure",
+        "status": "STORED"
+      },
+      {
+        "id": "candidate-2",
+        "label": "Bounded finite-certificate repair",
+        "kind": "candidate",
+        "status": "PROVED"
+      }
+    ],
+    "edges": [
+      [
+        "candidate-1",
+        "counterexample"
+      ],
+      [
+        "counterexample",
+        "failure-map"
+      ],
+      [
+        "failure-map",
+        "candidate-2"
+      ],
+      [
+        "candidate-2",
+        "theorem"
+      ]
+    ]
+  },
+  "provenance": {
+    "sha256": "see provenance.json",
+    "registry": "showcase-foundation-registry-v1"
+  },
+  "formal": {
+    "status": "PENDING_FORMALIZATION",
+    "tool": "lean_verify"
+  }
+}

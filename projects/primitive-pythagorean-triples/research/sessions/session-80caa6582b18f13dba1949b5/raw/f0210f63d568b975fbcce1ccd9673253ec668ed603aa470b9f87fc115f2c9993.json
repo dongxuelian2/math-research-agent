@@ -1,0 +1,10 @@
+{
+  "event": "PROGRESS",
+  "verdict": "CORRECT",
+  "failure_kind": "",
+  "details": [],
+  "progress_signals": [
+    "BRANCH_CLOSURE"
+  ],
+  "high_value": false
+}

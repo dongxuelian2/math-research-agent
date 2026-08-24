@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-08-23T18:36:42+00:00",
+  "directive_hash": "sha256:66bcd282597370f96a4aad5329ed72afe22c9a5540556b82f23e226becb4bab9",
+  "directive_id": "directive-51877613191769ff9e684fb5",
+  "execution_run_id": "primitive-triple-classification-theorem-20260824-023642",
+  "execution_status": "RUNNING",
+  "object_type": "TACTICAL_SESSION",
+  "obligation_hash": "sha256:5946365b569eac57ae1143f152da51723ef8efeb37e366c88d9732d24bec18e6",
+  "obligation_id": "ro-primitive-triple-classification-theorem-root",
+  "parent_execution_run_id": null,
+  "research_map_hash": "sha256:a70fc6d9e765dfee0cbba2101126f409419bf280a962a8a8aa69fbce550f08b6",
+  "research_map_id": "map-primitive-triple-classification-theorem-20260824-023642",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:a0d8415a32c84269cbed2d5621f4257dddd95fb4f7729235965b3df645df0b6d",
+  "schema_version": 1,
+  "session_hash": "sha256:053f063f1d116325bf6c898a5561d40b13fcbb588d4542f0e674048083b6809b",
+  "tactical_session_id": "session-a384c50ecc4d87a4c4b9afc2"
+}

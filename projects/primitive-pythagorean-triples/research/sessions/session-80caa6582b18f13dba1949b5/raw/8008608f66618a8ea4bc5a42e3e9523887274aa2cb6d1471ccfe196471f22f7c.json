@@ -1,0 +1,10 @@
+{
+  "event": "PROGRESS",
+  "verdict": "CORRECT",
+  "failure_kind": "",
+  "details": [],
+  "progress_signals": [
+    "VERIFIED_LEMMA"
+  ],
+  "high_value": true
+}

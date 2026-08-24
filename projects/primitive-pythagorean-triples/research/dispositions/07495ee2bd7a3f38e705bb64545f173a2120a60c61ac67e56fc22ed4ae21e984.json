@@ -1,0 +1,18 @@
+{
+  "blocker_refs": [],
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:07495ee2bd7a3f38e705bb64545f173a2120a60c61ac67e56fc22ed4ae21e984",
+  "disposition_id": "od-83cb4f02d9e9c7a25dedee5b",
+  "evidence_refs": [],
+  "object_type": "OBLIGATION_DISPOSITION",
+  "obligation_hash": "sha256:9fed95858d557eefacf7424ca3e4c72b97f7fdc30be3530b3db27807d991aad7",
+  "obligation_id": "ro-parity-gcd-lemma-root",
+  "previous_disposition_hash": null,
+  "reason": "initial research frontier",
+  "recorded_at": "2026-08-23T18:25:33+00:00",
+  "recorded_by": "ResearchOrchestrator",
+  "resolution_basis": "",
+  "route_failure_refs": [],
+  "schema_version": 1,
+  "superseded_by": []
+}

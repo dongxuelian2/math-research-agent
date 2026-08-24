@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "id": "euclid-forward-derivation",
+  "title": "Every primitive triple has a Euclid parameterization",
+  "status": "PARTIAL",
+  "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+  "statement": "For all positive integers a, b, c with a^2 + b^2 = c^2 and gcd(a,b,c) = 1, after swapping a and b if necessary there exist positive integers m > n such that gcd(m,n) = 1, m and n have opposite parity, a = m^2 - n^2, b = 2mn, and c = m^2 + n^2.",
+  "dependencies": [
+    "parity-gcd-lemma",
+    "coprime-square-lemma"
+  ],
+  "downstream_dependents": [
+    "primitive-triple-classification-theorem"
+  ],
+  "tags": [
+    "euclid-formula",
+    "forward-direction",
+    "pythagorean-triples"
+  ],
+  "branch": "main",
+  "proof_type": "NATURAL_LANGUAGE",
+  "claim_type": "implication",
+  "notation_scope": "",
+  "audit_status": "NOT_AUDITED",
+  "created_at": "2026-08-23T18:25:33+00:00",
+  "last_updated": "2026-08-23T18:34:31+00:00",
+  "status_history": [
+    {
+      "from": null,
+      "to": "OPEN",
+      "actor": "Human",
+      "reason": "Theorem record created",
+      "at": "2026-08-23T18:25:33+00:00"
+    },
+    {
+      "from": "OPEN",
+      "to": "IN_RESEARCH",
+      "actor": "MasterPlanner",
+      "reason": "Research run euclid-forward-derivation-20260824-023010 started",
+      "at": "2026-08-23T18:30:10+00:00"
+    },
+    {
+      "from": "IN_RESEARCH",
+      "to": "PARTIAL",
+      "actor": "MasterPlanner",
+      "reason": "Math Research Agent ended without a candidate proof",
+      "at": "2026-08-23T18:34:31+00:00"
+    }
+  ]
+}

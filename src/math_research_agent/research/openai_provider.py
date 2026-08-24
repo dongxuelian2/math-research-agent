@@ -15,12 +15,22 @@ from openai import OpenAI
 from math_research_agent.providers.support import Interrupted, archive
 from math_research_agent.providers.responses import ResponsesRequest, response_text
 
-from .schemas import json_schema_for
+from .schemas import SchemaError, json_schema_for, strict_json_schema_for
 
 
 logger = logging.getLogger("math_research_agent.providers.openai")
 
 OPENAI_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh", "max"})
+
+_REASONING_FALLBACKS: dict[str | None, tuple[str, ...]] = {
+    None: ("none",),
+    "low": ("none",),
+    "medium": ("low", "none"),
+    "high": ("medium", "none"),
+    "xhigh": ("high", "medium"),
+    "max": ("xhigh", "high"),
+    "none": (),
+}
 
 
 def _redact(text: str, secrets: tuple[str, ...]) -> str:
@@ -46,6 +56,7 @@ class OpenAIProviderError(RuntimeError):
         retry_exhausted: bool,
         human_explanation: str,
         provider: str = "openai",
+        upstream_message: str = "",
     ):
         self.retry_exhausted = retry_exhausted
         self.details = {
@@ -59,6 +70,8 @@ class OpenAIProviderError(RuntimeError):
             "retry_exhausted": retry_exhausted,
             "human_explanation": human_explanation,
         }
+        if upstream_message:
+            self.details["upstream_message"] = upstream_message
         super().__init__(json.dumps(self.details, ensure_ascii=False, sort_keys=True))
 
     def to_dict(self) -> dict[str, Any]:
@@ -118,6 +131,24 @@ def _tool_calls(response: Any) -> list[dict[str, Any]] | None:
             }
         )
     return calls or None
+
+
+def _response_output_items(response: Any) -> list[dict[str, Any]]:
+    """Convert SDK response items into Responses input items for a tool turn."""
+
+    items: list[dict[str, Any]] = []
+    for item in getattr(response, "output", []) or []:
+        if getattr(item, "type", "") != "function_call":
+            continue
+        items.append(
+            {
+                "type": "function_call",
+                "call_id": getattr(item, "call_id", "") or getattr(item, "id", ""),
+                "name": getattr(item, "name", ""),
+                "arguments": getattr(item, "arguments", "{}") or "{}",
+            }
+        )
+    return items
 
 
 def _finish_reason(response: Any, tool_calls: list[dict] | None) -> str:
@@ -211,6 +242,8 @@ class OpenAIResponsesClient:
         api_key_env: str = "OPENAI_API_KEY",
         client: Any | None = None,
         sleep_fn: Callable[[float], None] = time.sleep,
+        tool_executor: Callable[[str, dict[str, Any]], Any] | None = None,
+        max_tool_rounds: int = 8,
     ):
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required")
@@ -225,6 +258,8 @@ class OpenAIResponsesClient:
             raise ValueError("retry_base_seconds cannot be negative")
         if max_output_tokens < 1:
             raise ValueError("max_output_tokens must be positive")
+        if not 0 <= max_tool_rounds <= 32:
+            raise ValueError("max_tool_rounds must be between 0 and 32")
 
         self.model = model
         self.archive_dir = Path(archive_dir)
@@ -255,6 +290,8 @@ class OpenAIResponsesClient:
         }
         self._secrets = (api_key,)
         self._sleep = sleep_fn
+        self.tool_executor = tool_executor
+        self.max_tool_rounds = int(max_tool_rounds)
         self._lock = threading.Lock()
         self._interrupted = threading.Event()
         self._client = client or OpenAI(
@@ -293,6 +330,7 @@ class OpenAIResponsesClient:
         archive_path: Path | None = None,
         max_tokens: int | None = None,
         no_thinking: bool = False,
+        tools: list[dict] | None = None,
         **_kwargs,
     ) -> dict:
         if response_schema is not None:
@@ -303,13 +341,20 @@ class OpenAIResponsesClient:
         if system_prompt:
             input_items.append({"role": "system", "content": system_prompt})
         input_items.append({"role": "user", "content": prompt})
-        tools = [{"type": "web_search"}] if web_search else None
+        configured_tools = list(tools or [])
+        has_local_web_search = any(
+            item.get("function", {}).get("name") == "web_search"
+            for item in configured_tools
+            if isinstance(item, dict)
+        )
+        if web_search and not has_local_web_search:
+            configured_tools.append({"type": "web_search"})
         return self._execute(
             input_items=input_items,
             prompt_for_archive=prompt,
             system_prompt=system_prompt,
             json_schema=json_schema,
-            tools=tools,
+            tools=configured_tools or None,
             label=label,
             stream_callback=stream_callback,
             archive_path=archive_path,
@@ -373,29 +418,59 @@ class OpenAIResponsesClient:
             raise Interrupted()
 
         effort = "none" if no_thinking else self.reasoning_effort
-        payload = ResponsesRequest(
-            model=self.model,
-            input=input_items,
-            max_output_tokens=int(max_tokens or self.max_output_tokens),
-            reasoning_effort=effort,
-            tools=tools,
-            text=(
-                {
-                    "format": {
-                        "type": "json_schema",
-                        "name": "math_research_agent_response",
-                        "schema": json_schema,
-                        "strict": True,
-                    }
+        remote_schema = None
+        schema_mode = "none"
+        schema_fallback_reason = ""
+        if json_schema is not None:
+            try:
+                remote_schema = strict_json_schema_for(json_schema)
+                schema_mode = "strict_json_schema"
+            except SchemaError as exc:
+                # A free-form mapping cannot be expressed by strict JSON
+                # Schema without changing its meaning. JSON-object mode keeps
+                # the model expressive; Pydantic remains the final validator.
+                remote_schema = None
+                schema_mode = "json_object_fallback"
+                schema_fallback_reason = str(exc)
+                logger.warning(
+                    "[%s] structured schema is not portable; using JSON-object mode: %s",
+                    label,
+                    schema_fallback_reason,
+                )
+        if json_schema is None:
+            response_text_format = None
+        elif remote_schema is not None:
+            response_text_format = {
+                "format": {
+                    "type": "json_schema",
+                    "name": "math_research_agent_response",
+                    "schema": remote_schema,
+                    "strict": True,
                 }
-                if json_schema
-                else None
-            ),
-            store=self.store,
-        ).to_payload()
+            }
+        else:
+            response_text_format = {"format": {"type": "json_object"}}
+        output_budget = int(max_tokens or self.max_output_tokens)
+
+        active_input = list(input_items)
+
+        def build_payload(active_effort: str | None) -> dict[str, Any]:
+            return ResponsesRequest(
+                model=self.model,
+                input=active_input,
+                max_output_tokens=output_budget,
+                reasoning_effort=active_effort,
+                tools=tools,
+                text=response_text_format,
+                store=self.store,
+            ).to_payload()
+
+        payload = build_payload(effort)
 
         started = time.perf_counter()
         retry_count = 0
+        adaptive_reasoning_retries = 0
+        reasoning_fallbacks = _REASONING_FALLBACKS.get(effort, ())
         while True:
             try:
                 with self._lock:
@@ -408,6 +483,36 @@ class OpenAIResponsesClient:
                 else:
                     response = self._client.responses.create(**payload)
                     streamed_text = ""
+                response_status = getattr(response, "status", "")
+                if response_status == "incomplete":
+                    details = getattr(response, "incomplete_details", None)
+                    reason = getattr(details, "reason", None) or "unknown"
+                    # Thinking-heavy models can spend the whole output budget
+                    # on reasoning and never emit the typed answer. When the
+                    # caller did not disable retries, lower reasoning
+                    # progressively and retry the exact same request.
+                    if (
+                        reason == "max_output_tokens"
+                        and retry_count < self.max_retries
+                        and adaptive_reasoning_retries < len(reasoning_fallbacks)
+                    ):
+                        next_effort = reasoning_fallbacks[adaptive_reasoning_retries]
+                        adaptive_reasoning_retries += 1
+                        retry_count += 1
+                        with self._lock:
+                            self.total_retries += 1
+                        logger.warning(
+                            "[%s] incomplete output exhausted the %s reasoning budget; "
+                            "retrying with reasoning effort %s (%d/%d)",
+                            label,
+                            effort or "default",
+                            next_effort,
+                            adaptive_reasoning_retries,
+                            len(reasoning_fallbacks),
+                        )
+                        effort = next_effort
+                        payload = build_payload(effort)
+                        continue
                 break
             except Interrupted:
                 raise
@@ -439,13 +544,59 @@ class OpenAIResponsesClient:
                     label,
                     prompt_for_archive,
                     system_prompt,
-                    json_schema,
+                    remote_schema or json_schema,
                     None,
                     provider_error,
                     elapsed_ms,
                     archive_path,
                 )
                 raise provider_error from exc
+
+        tool_rounds = 0
+        tool_trace: list[dict[str, Any]] = []
+        calls = _tool_calls(response)
+        while calls and self.tool_executor is not None:
+            if tool_rounds >= self.max_tool_rounds:
+                raise self._provider_error(
+                    RuntimeError("Responses API tool loop exceeded max_tool_rounds"),
+                    retry_count=retry_count,
+                    retry_exhausted=False,
+                    error_type="tool_loop_exhausted",
+                )
+            active_input.extend(_response_output_items(response))
+            for call in calls:
+                arguments: dict[str, Any] = {}
+                try:
+                    arguments = json.loads(call["function"].get("arguments") or "{}")
+                    if not isinstance(arguments, dict):
+                        raise ValueError("tool arguments must be a JSON object")
+                    tool_result = self.tool_executor(call["function"]["name"], arguments)
+                except Exception as exc:
+                    tool_result = {"status": "ERROR", "error": str(exc)[:800]}
+                if not isinstance(tool_result, dict):
+                    tool_result = {"output": str(tool_result)}
+                tool_trace.append(
+                    {
+                        "tool_name": call["function"]["name"],
+                        "args": arguments,
+                        "result": tool_result,
+                        "round": tool_rounds + 1,
+                    }
+                )
+                active_input.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": call["id"],
+                        "output": json.dumps(tool_result, ensure_ascii=False),
+                    }
+                )
+            payload = build_payload(effort)
+            with self._lock:
+                self.request_count += 1
+            response = self._client.responses.create(**payload)
+            streamed_text = ""
+            tool_rounds += 1
+            calls = _tool_calls(response)
 
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if self._interrupted.is_set():
@@ -464,7 +615,31 @@ class OpenAIResponsesClient:
                 label,
                 prompt_for_archive,
                 system_prompt,
-                json_schema,
+                remote_schema or json_schema,
+                _raw_response(response),
+                provider_error,
+                elapsed_ms,
+                archive_path,
+            )
+            raise provider_error
+
+        response_status = getattr(response, "status", "")
+        if response_status == "incomplete":
+            details = getattr(response, "incomplete_details", None)
+            reason = getattr(details, "reason", None) or "unknown"
+            exc = RuntimeError(f"Responses API returned incomplete output: {reason}")
+            provider_error = self._provider_error(
+                exc,
+                retry_count=retry_count,
+                retry_exhausted=False,
+                error_type="response_incomplete",
+            )
+            self._archive(
+                call_num,
+                label,
+                prompt_for_archive,
+                system_prompt,
+                remote_schema or json_schema,
                 _raw_response(response),
                 provider_error,
                 elapsed_ms,
@@ -486,15 +661,34 @@ class OpenAIResponsesClient:
             self.total_usage["api_reported"] = bool(
                 self.total_usage["api_reported"] or usage["api_reported"]
             )
-        calls = _tool_calls(response)
         result_text = _response_text(response) or streamed_text
+        if json_schema is not None and not result_text.strip() and not calls:
+            exc = RuntimeError("Responses API returned no structured output text")
+            provider_error = self._provider_error(
+                exc,
+                retry_count=retry_count,
+                retry_exhausted=False,
+                error_type="response_empty_structured_output",
+            )
+            self._archive(
+                call_num,
+                label,
+                prompt_for_archive,
+                system_prompt,
+                remote_schema or json_schema,
+                _raw_response(response),
+                provider_error,
+                elapsed_ms,
+                archive_path,
+            )
+            raise provider_error
         raw = _raw_response(response)
         self._archive(
             call_num,
             label,
             prompt_for_archive,
             system_prompt,
-            json_schema,
+            remote_schema or json_schema,
             raw,
             None,
             elapsed_ms,
@@ -511,9 +705,15 @@ class OpenAIResponsesClient:
             "finish_reason": _finish_reason(response, calls),
             "usage": usage,
             "retry_count": retry_count,
+            "structured_output_mode": schema_mode,
         }
+        if schema_fallback_reason:
+            result["structured_output_fallback_reason"] = schema_fallback_reason
         if calls:
             result["tool_calls"] = calls
+        if tool_trace:
+            result["tool_rounds"] = tool_rounds
+            result["tool_trace"] = tool_trace
         return result
 
     def _stream_response(self, payload: dict, callback) -> tuple[Any, str]:
@@ -591,7 +791,11 @@ class OpenAIResponsesClient:
     ) -> OpenAIProviderError:
         info = self._classify_error(exc)
         kind = error_type or type(exc).__name__
-        if info["quota"]:
+        if error_type == "response_incomplete":
+            explanation = "The Responses API stopped before producing a complete response."
+        elif error_type == "response_empty_structured_output":
+            explanation = "The Responses API completed without returning structured output text."
+        elif info["quota"]:
             kind = "quota_exceeded"
             explanation = (
                 "OpenAI API quota or billing limit rejected the request; no retry was attempted."
@@ -616,6 +820,7 @@ class OpenAIResponsesClient:
             retry_exhausted=retry_exhausted,
             human_explanation=explanation,
             provider=self.provider_name,
+            upstream_message=_redact(str(exc), self._secrets)[:2000],
         )
 
     def _archive(

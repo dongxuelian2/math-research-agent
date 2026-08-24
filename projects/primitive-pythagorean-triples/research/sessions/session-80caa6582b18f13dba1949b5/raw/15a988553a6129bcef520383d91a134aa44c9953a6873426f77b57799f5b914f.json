@@ -1,0 +1,37 @@
+{
+  "schema_version": 3,
+  "role": "dependency_auditor",
+  "domain_verdict": "FAIL",
+  "execution_status": "OK",
+  "findings": [
+    "No defect found in the finite induction argument."
+  ],
+  "failure_reasons": [
+    "(n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json"
+  ],
+  "cross_audit_notes": [],
+  "computational_evidence": [],
+  "summary": "Structured mock specialist audit passed.",
+  "criteria": {
+    "forward_implication": false,
+    "converse_if_applicable": false,
+    "exhaustive_cases": false,
+    "parameter_ranges": false,
+    "boundary_cases": false,
+    "dependencies_valid": false,
+    "no_counterexample": false,
+    "auditors_pass": false,
+    "computational_evidence_separated": false
+  },
+  "authority_uses": [
+    {
+      "claim": "(n+1)^2=n^2+2n+1",
+      "claim_class": "PROJECT_THEOREM",
+      "authority_id": "demo-next-square",
+      "authority_type": "project_theorem",
+      "proof_location": ""
+    }
+  ],
+  "execution_error": "",
+  "audited_claim_snapshot_hash": "sha256:e899061450a999a70bcf27a588ebfd9be1be3c6cdd25d87271280a91946cd551"
+}

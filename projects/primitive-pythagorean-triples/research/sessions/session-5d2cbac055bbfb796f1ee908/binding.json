@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-08-23T18:26:45+00:00",
+  "directive_hash": "sha256:66746ee965607375c2c7ca496cd4e72dff96af351197b2dd405971a8f02883a6",
+  "directive_id": "directive-82b48ab2ca6f26d0bc02f77c",
+  "execution_run_id": "coprime-square-lemma-20260824-022645",
+  "execution_status": "RUNNING",
+  "object_type": "TACTICAL_SESSION",
+  "obligation_hash": "sha256:1025358f0bc6c45ff2bb20e70458de21f258320060e7024f4a8947bcc91bbd3d",
+  "obligation_id": "ro-coprime-square-lemma-root",
+  "parent_execution_run_id": null,
+  "research_map_hash": "sha256:c75c1e9f8b408e28185dc9d32e12b33dee673bef9568f7b955459f8b8daca686",
+  "research_map_id": "map-coprime-square-lemma-20260824-022645",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:c108c6f318fd9e9afd05a08080243e1e4bfacd5a041c8f3dec48881fe250a971",
+  "schema_version": 1,
+  "session_hash": "sha256:e08703f6160224cc707114e3959a32c47893372e26da25a628ceef40e652bb83",
+  "tactical_session_id": "session-5d2cbac055bbfb796f1ee908"
+}

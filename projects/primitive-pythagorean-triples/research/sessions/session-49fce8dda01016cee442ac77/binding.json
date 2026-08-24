@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-08-23T18:30:10+00:00",
+  "directive_hash": "sha256:4c1b2e09060ddfa8f9363e6cfd812ca7e843fd8b53fb3f28e0fce5b0f44788f4",
+  "directive_id": "directive-46509c0f1244b5d1171dfa20",
+  "execution_run_id": "euclid-forward-derivation-20260824-023010",
+  "execution_status": "RUNNING",
+  "object_type": "TACTICAL_SESSION",
+  "obligation_hash": "sha256:14ff2acbfa4d60581fdfc3a7246dae934605e43223fc2f381dd79714086e882f",
+  "obligation_id": "ro-euclid-forward-derivation-root",
+  "parent_execution_run_id": null,
+  "research_map_hash": "sha256:5d098c63b5b9abd4d060d5243f128b5a92ad2b23efe6229b0a9b4e534f6bfd0b",
+  "research_map_id": "map-euclid-forward-derivation-20260824-023010",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:859b81e0d9bddf814df3b4a9558ff8968cddfd9e6932db0a91e2b3f833adade8",
+  "schema_version": 1,
+  "session_hash": "sha256:88ad7e7942c952a633f91cd390ad169465a3340925ba54588d16fbea7ffab57c",
+  "tactical_session_id": "session-49fce8dda01016cee442ac77"
+}

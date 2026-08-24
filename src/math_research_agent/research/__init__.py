@@ -117,6 +117,7 @@ from .scheduler import (
 )
 from .state_machine import AuditGate, InvalidTransition
 from .trust_kernel import FoundationRegistry, SemanticRegistry, TrustKernel
+from .ui_events import ResearchUiEvent, UiEventEmitter, classify_exception
 from .truth_identity import (
     AssertionIdentity,
     AssertionKind,
@@ -257,6 +258,9 @@ __all__ = [
     "TruthMutationIntent",
     "TruthMutationReceipt",
     "WorkerEventSchema",
+    "ResearchUiEvent",
+    "UiEventEmitter",
+    "classify_exception",
     "run_formalization",
     "build_snapshot",
     "checkpoint_policy_fingerprint",

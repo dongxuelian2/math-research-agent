@@ -475,7 +475,7 @@ def test_production_semantic_effects_use_effect_slots_and_exact_bindings(tmp_pat
     state = ResearchOrchestrator(
         ProjectStore(project_root),
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
     ).run()
 

@@ -25,7 +25,7 @@ def test_r19_production_research_plane_and_separate_truth_mutation_e2e(tmp_path)
     state = ResearchOrchestrator(
         project,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
     ).run()
 

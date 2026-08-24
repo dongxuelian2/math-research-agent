@@ -61,7 +61,13 @@ class ProjectStore:
 
     @classmethod
     def initialize(
-        cls, root: str | Path, name: str, *, project_id: str | None = None, demo: bool = False
+        cls,
+        root: str | Path,
+        name: str,
+        *,
+        project_id: str | None = None,
+        purpose: str | None = None,
+        demo: bool = False,
     ) -> "ProjectStore":
         root = Path(root).resolve()
         root.mkdir(parents=True, exist_ok=True)
@@ -77,6 +83,7 @@ class ProjectStore:
             "runs",
             "sources",
             "inbox",
+            "work",
             "evidence",
             "certificates",
             "steering",
@@ -92,7 +99,9 @@ class ProjectStore:
                 "schema_version": SCHEMA_VERSION,
                 "id": project_id,
                 "name": name,
-                "description": "",
+                "display_title": name,
+                "description": purpose or "",
+                "purpose": purpose or name,
                 "current_target": None,
                 "demo": bool(demo),
                 "created_at": now,
@@ -136,6 +145,13 @@ class ProjectStore:
                 "stop_workers": [],
                 "reaudit_requested": False,
                 "last_updated": now,
+            },
+        )
+        _write_json(
+            root / "inbox" / "manifest.json",
+            {
+                "schema_version": 1,
+                "files": [],
             },
         )
         return cls(root)

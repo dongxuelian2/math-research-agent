@@ -1,0 +1,18 @@
+{
+  "blocker_refs": [],
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:5397ce4c3bec3892703cad13c7c09c2716060c7694fda4bd30a6afb715262cc2",
+  "disposition_id": "od-2c66dbde6179a9c4154893fd",
+  "evidence_refs": [],
+  "object_type": "OBLIGATION_DISPOSITION",
+  "obligation_hash": "sha256:5946365b569eac57ae1143f152da51723ef8efeb37e366c88d9732d24bec18e6",
+  "obligation_id": "ro-primitive-triple-classification-theorem-root",
+  "previous_disposition_hash": null,
+  "reason": "initial research frontier",
+  "recorded_at": "2026-08-23T18:36:42+00:00",
+  "recorded_by": "ResearchOrchestrator",
+  "resolution_basis": "",
+  "route_failure_refs": [],
+  "schema_version": 1,
+  "superseded_by": []
+}

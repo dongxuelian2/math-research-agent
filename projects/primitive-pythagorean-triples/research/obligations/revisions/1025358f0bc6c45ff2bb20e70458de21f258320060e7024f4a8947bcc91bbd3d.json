@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-08-23T18:26:45+00:00",
+  "created_in_map_version": 1,
+  "dependencies": [],
+  "object_type": "RESEARCH_OBLIGATION",
+  "obligation_hash": "sha256:1025358f0bc6c45ff2bb20e70458de21f258320060e7024f4a8947bcc91bbd3d",
+  "obligation_id": "ro-coprime-square-lemma-root",
+  "obligation_kind": "OTHER",
+  "previous_revision_hash": null,
+  "revised_at": "2026-08-23T18:26:45+00:00",
+  "root_claim_snapshot_hash": "sha256:c108c6f318fd9e9afd05a08080243e1e4bfacd5a041c8f3dec48881fe250a971",
+  "schema_version": 1,
+  "scope": [
+    "root theorem coprime-square-lemma"
+  ],
+  "semantic_revision": 1,
+  "statement": "For all positive integers x, y, z, if x*y = z^2 and gcd(x,y) = 1, then there exist positive integers r and s such that x = r^2 and y = s^2.",
+  "title": "Resolve root research target coprime-square-lemma"
+}

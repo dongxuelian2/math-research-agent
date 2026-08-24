@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "euclid-forward-derivation",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "euclid-forward-derivation",
+    "canonical_statement": "For all positive integers a, b, c with a^2 + b^2 = c^2 and gcd(a,b,c) = 1, after swapping a and b if necessary there exist positive integers m > n such that gcd(m,n) = 1, m and n have opposite parity, a = m^2 - n^2, b = 2mn, and c = m^2 + n^2.",
+    "claim_type": "implication",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:9707787da98d2c9e39ad8cf97966033854008a6118076820deb6b13ec5a775fa"
+  },
+  "assertion_identity_hash": "sha256:9707787da98d2c9e39ad8cf97966033854008a6118076820deb6b13ec5a775fa",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:9707787da98d2c9e39ad8cf97966033854008a6118076820deb6b13ec5a775fa",
+    "dependencies": [
+      {
+        "dependency_id": "coprime-square-lemma",
+        "kind": "THEOREM",
+        "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+        "authority_binding_hash": "sha256:06dc538b80fc4feb6b6e84ac6d38b569c2f3e172f165af751e812c8dee657db3",
+        "captured_status": "PARTIAL"
+      },
+      {
+        "dependency_id": "parity-gcd-lemma",
+        "kind": "THEOREM",
+        "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+        "authority_binding_hash": "sha256:13b41a6c460d166647f288da49ea2d78e455e7ab5a732e800a603c6bcc65901d",
+        "captured_status": "PARTIAL"
+      }
+    ],
+    "dependency_snapshot_hash": "sha256:420f585be1a45d5f79308fb16275966b9dbe79651e5207148b4f730c433af9fc"
+  },
+  "dependency_snapshot_hash": "sha256:420f585be1a45d5f79308fb16275966b9dbe79651e5207148b4f730c433af9fc",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "euclid-forward-derivation",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:61ed4515484df38ecc22c41f0de5eca61e3f97ec14663098c6835f43cbe25353"
+  },
+  "assumption_snapshot_hash": "sha256:61ed4515484df38ecc22c41f0de5eca61e3f97ec14663098c6835f43cbe25353",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "PROJECT_THEOREM",
+      "authority_id": "coprime-square-lemma",
+      "assertion_identity_hash": "sha256:bd38b866e4b99d67079eb7fe417ba84601a4e45a3053f229a928a3a1314a6c3d",
+      "authority_content_hash": "sha256:92711a4865ddb355a2944786f9164c36b9b2ba81f6fb6e55fb4c3e8a1d56b995",
+      "authority_status": "PARTIAL",
+      "provenance": {
+        "proof_file": null,
+        "theorem_id": "coprime-square-lemma"
+      },
+      "binding_hash": "sha256:06dc538b80fc4feb6b6e84ac6d38b569c2f3e172f165af751e812c8dee657db3"
+    },
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "PROJECT_THEOREM",
+      "authority_id": "parity-gcd-lemma",
+      "assertion_identity_hash": "sha256:7fa372316db491a724be25425872d53815086736c3596a12e417c230f356eb81",
+      "authority_content_hash": "sha256:1dcd0a9499d2890112988f7b357ef1a068d386727f2d67a1cf6251cd857bc021",
+      "authority_status": "PARTIAL",
+      "provenance": {
+        "proof_file": null,
+        "theorem_id": "parity-gcd-lemma"
+      },
+      "binding_hash": "sha256:13b41a6c460d166647f288da49ea2d78e455e7ab5a732e800a603c6bcc65901d"
+    },
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:9707787da98d2c9e39ad8cf97966033854008a6118076820deb6b13ec5a775fa",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:b5cff0aa5424ecae9234be3211e207c366c77719c9c21605a05000e78f0a0431"
+    }
+  ],
+  "authority_binding_hash": "sha256:74167000bab3f7912a14b855a618abe167a5b76f6ec40a52a095f9f87fa754de",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:71c2b5b039ba19e09dce769a1b96524f0ad4b2068ac01ce06a99d1c1846b8893",
+  "captured_status": "OPEN",
+  "captured_at": "2026-08-23T18:30:10+00:00",
+  "project_record_hash": "sha256:7753e61c60273c93779f9b3a76eba5a8556366d193849009d1ca1def1b237175",
+  "claim_snapshot_hash": "sha256:c57814db259ec9bbaf1a3da2dbe56a61f3c59be87e9348404331a50b9b35c752"
+}

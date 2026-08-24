@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "object_type": "GOVERNANCE_SESSION_OBSERVATION",
+  "tactical_session_id": "session-80caa6582b18f13dba1949b5",
+  "research_map_id": "map-purpose-analysis-20260824-013241",
+  "successor_execution": false,
+  "root_obstruction_unchanged": true,
+  "blocked_obligation_ids": [],
+  "resulting_clock_hash": "sha256:856f10e76297a193e5f999b7cb37d27164c3c3a735370c70e5766e6b3623f67e"
+}

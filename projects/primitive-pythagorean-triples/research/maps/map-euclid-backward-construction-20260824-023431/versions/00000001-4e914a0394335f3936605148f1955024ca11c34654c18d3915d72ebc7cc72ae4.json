@@ -1,0 +1,38 @@
+{
+  "added_scope": [
+    "ro-euclid-backward-construction-root"
+  ],
+  "created_at": "2026-08-23T18:34:31+00:00",
+  "created_by": "ResearchOrchestrator",
+  "evidence_refs": [],
+  "known_invariants": [],
+  "object_type": "RESEARCH_MAP",
+  "obligation_changes": [
+    "ro-euclid-backward-construction-root:CREATED_OPEN"
+  ],
+  "obligation_refs": [
+    {
+      "disposition": "OPEN",
+      "disposition_hash": "sha256:2834bcd5f5b010b543eccd17898af59a7e9216b2682f101cf73124d25b75b03a",
+      "obligation_hash": "sha256:117029d8037596251c80b37efd184fa125fe599663230e4bc40e348a0800f29d",
+      "obligation_id": "ro-euclid-backward-construction-root"
+    }
+  ],
+  "open_obstructions": [],
+  "parent_version_ref": null,
+  "relations": [],
+  "removed_or_reframed_scope": [],
+  "research_map_hash": "sha256:4e914a0394335f3936605148f1955024ca11c34654c18d3915d72ebc7cc72ae4",
+  "research_map_id": "map-euclid-backward-construction-20260824-023431",
+  "revision_reason": "INITIAL",
+  "root_claim_snapshot_hash": "sha256:dbd988f6c0f29a3dbf4bbc8c5ec6a08e2706586dd0f8bec35340fbc5d43f8c4f",
+  "root_theorem_id": "euclid-backward-construction",
+  "route_failure_refs": [],
+  "route_memory_changes": [],
+  "schema_version": 1,
+  "strategic_thesis": "Maintain the root target as an explicit durable frontier.",
+  "structural_nodes": [],
+  "termination_mechanisms": [],
+  "unbounded_parameters": [],
+  "version": 1
+}

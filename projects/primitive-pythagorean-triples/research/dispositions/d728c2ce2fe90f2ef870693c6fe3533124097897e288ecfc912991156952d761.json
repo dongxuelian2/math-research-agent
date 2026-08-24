@@ -1,0 +1,21 @@
+{
+  "blocker_refs": [],
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:d728c2ce2fe90f2ef870693c6fe3533124097897e288ecfc912991156952d761",
+  "disposition_id": "od-66a46e3653808e790fd80be4",
+  "evidence_refs": [],
+  "object_type": "OBLIGATION_DISPOSITION",
+  "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+  "obligation_id": "ro-purpose-analysis-root",
+  "previous_disposition_hash": "sha256:355d8df4af4208f3670a125501f2e2192fb5cddd3f4a657d69d7902b0a3fc3a6",
+  "reason": "initial research frontier",
+  "recorded_at": "2026-08-23T17:32:42+00:00",
+  "recorded_by": "FailureMapTypedAdapter",
+  "resolution_basis": "",
+  "route_failure_refs": [
+    "route-failure-d9bb726eeafd91d0dcba3f27",
+    "route-failure-dbaf37440c67b512a138fcde"
+  ],
+  "schema_version": 1,
+  "superseded_by": []
+}

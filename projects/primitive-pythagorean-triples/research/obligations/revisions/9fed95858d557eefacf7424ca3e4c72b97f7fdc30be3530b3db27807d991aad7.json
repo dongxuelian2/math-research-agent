@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-08-23T18:25:33+00:00",
+  "created_in_map_version": 1,
+  "dependencies": [],
+  "object_type": "RESEARCH_OBLIGATION",
+  "obligation_hash": "sha256:9fed95858d557eefacf7424ca3e4c72b97f7fdc30be3530b3db27807d991aad7",
+  "obligation_id": "ro-parity-gcd-lemma-root",
+  "obligation_kind": "OTHER",
+  "previous_revision_hash": null,
+  "revised_at": "2026-08-23T18:25:33+00:00",
+  "root_claim_snapshot_hash": "sha256:7485466a34ba00fc81ee7dfb96e19eef57abf5b2addec064b038781888f7aefc",
+  "schema_version": 1,
+  "scope": [
+    "root theorem parity-gcd-lemma"
+  ],
+  "semantic_revision": 1,
+  "statement": "For all positive integers a, b, c, if a^2 + b^2 = c^2 and gcd(a,b,c) = 1, then exactly one of a and b is even, c is odd, and gcd(a,b) = gcd(a,c) = gcd(b,c) = 1.",
+  "title": "Resolve root research target parity-gcd-lemma"
+}

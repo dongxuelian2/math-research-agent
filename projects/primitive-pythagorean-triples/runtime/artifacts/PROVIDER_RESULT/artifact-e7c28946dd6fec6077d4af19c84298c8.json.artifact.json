@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "artifact_id": "artifact-e7c28946dd6fec6077d4af19c84298c8",
+  "artifact_kind": "PROVIDER_RESULT",
+  "relative_path": "runtime/artifacts/PROVIDER_RESULT/artifact-e7c28946dd6fec6077d4af19c84298c8.json",
+  "sha256": "sha256:b4efcd2614076eeacf5bd752a3d36b599c1b229b6627b0aa9693ad63ca973da6",
+  "size": 67,
+  "producer_attempt_id": "attempt-37ff829f7fbde6163b4614881e34cd0a",
+  "created_at": "2026-08-23T17:32:42+00:00",
+  "result_metadata": {
+    "completion_status": "SUCCESS",
+    "idempotency_key": "attempt-37ff829f7fbde6163b4614881e34cd0a:provider-result",
+    "provider_metadata": {
+      "provider": "internal",
+      "model": "semantic-effect",
+      "reasoning_tier": "routine"
+    }
+  }
+}

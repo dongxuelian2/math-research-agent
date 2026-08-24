@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_REVERSE_REFERENCE_PROJECTION",
+  "references": {
+    "sha256:29e44c387f6598eb8cb554d950ce6e4a14f21503c3f13c5a8cb56eaa6e8a5161": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "sha256:15309128cd597c474cc883f7225110a90f74aea46261fc9e99ab39d6dd9b0603": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "evidence-c39cb487a248e81606019ae6": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": [
+        "route-failure-d9bb726eeafd91d0dcba3f27",
+        "route-failure-dbaf37440c67b512a138fcde"
+      ]
+    },
+    "sha256:9a7b0e8b241bf47ebf190dffd932cd76af6dc4ba371a8d5a08845e2f70873b35": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "sha256:02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "evidence-252c94cf5c7814e96aed4f00": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "sha256:f88813c7c963ef15787515864b6a0c006a346a4628c95f5f9ed6967c81c5c47e": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "sha256:c4881a8d9185e7700e8eee6e4c8225c9b9bf2f211d400b9cd7ec11f600046eb4": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "evidence-f2df98b2b128412be07610e0": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": []
+    },
+    "sha256:8a71ba87ed558a182d537b494d11c2f40a5c60856f8a3fa85e108ed607fe6b40": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": [
+        "route-failure-d9bb726eeafd91d0dcba3f27",
+        "route-failure-dbaf37440c67b512a138fcde"
+      ]
+    },
+    "closure-67da7492c0dfad187a600b33": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": [
+        "route-failure-d9bb726eeafd91d0dcba3f27",
+        "route-failure-dbaf37440c67b512a138fcde"
+      ]
+    },
+    "sha256:c3b99ea4f9639c31f42fbe6fd57d719836eb7e0be6af4726402475c5c68d8de1": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": [
+        "route-failure-d9bb726eeafd91d0dcba3f27",
+        "route-failure-dbaf37440c67b512a138fcde"
+      ]
+    },
+    "sha256:c8565ec1d87aa9fced55f90db4832f111de9ffd3c71de82da8f0d4ca594d6d94": {
+      "obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "research_map_ids": [
+        "map-purpose-analysis-20260824-013241"
+      ],
+      "route_failure_ids": [
+        "route-failure-d9bb726eeafd91d0dcba3f27",
+        "route-failure-dbaf37440c67b512a138fcde"
+      ]
+    }
+  }
+}

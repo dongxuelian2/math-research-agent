@@ -1,0 +1,18 @@
+{
+  "blocker_refs": [],
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:2834bcd5f5b010b543eccd17898af59a7e9216b2682f101cf73124d25b75b03a",
+  "disposition_id": "od-ed3e7cd83dcb5719508be76e",
+  "evidence_refs": [],
+  "object_type": "OBLIGATION_DISPOSITION",
+  "obligation_hash": "sha256:117029d8037596251c80b37efd184fa125fe599663230e4bc40e348a0800f29d",
+  "obligation_id": "ro-euclid-backward-construction-root",
+  "previous_disposition_hash": null,
+  "reason": "initial research frontier",
+  "recorded_at": "2026-08-23T18:34:31+00:00",
+  "recorded_by": "ResearchOrchestrator",
+  "resolution_basis": "",
+  "route_failure_refs": [],
+  "schema_version": 1,
+  "superseded_by": []
+}

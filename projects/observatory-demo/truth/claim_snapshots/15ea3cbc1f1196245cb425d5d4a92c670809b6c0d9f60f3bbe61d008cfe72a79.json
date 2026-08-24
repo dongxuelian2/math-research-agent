@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "object_type": "CLAIM_SNAPSHOT",
+  "theorem_id": "bounded-euler-polynomial",
+  "assertion_identity": {
+    "schema_version": 1,
+    "object_type": "ASSERTION_IDENTITY",
+    "assertion_kind": "PROJECT_THEOREM",
+    "stable_id": "bounded-euler-polynomial",
+    "canonical_statement": "For every integer n with 0 <= n <= 39, n^2 + n + 41 is prime.",
+    "claim_type": "implication",
+    "notation_scope": "",
+    "assertion_identity_hash": "sha256:b6d4c1ad24e15d50326ad368eb483dba77c05cfe97a918e2bad7179148f96ebc"
+  },
+  "assertion_identity_hash": "sha256:b6d4c1ad24e15d50326ad368eb483dba77c05cfe97a918e2bad7179148f96ebc",
+  "dependency_snapshot": {
+    "schema_version": 1,
+    "object_type": "DEPENDENCY_SNAPSHOT",
+    "target_assertion_hash": "sha256:b6d4c1ad24e15d50326ad368eb483dba77c05cfe97a918e2bad7179148f96ebc",
+    "dependencies": [],
+    "dependency_snapshot_hash": "sha256:04af5b0e8291113001e533aca141f60cd41d981b4099555917674a74ea5c55b4"
+  },
+  "dependency_snapshot_hash": "sha256:04af5b0e8291113001e533aca141f60cd41d981b4099555917674a74ea5c55b4",
+  "assumption_snapshot": {
+    "schema_version": 1,
+    "object_type": "ASSUMPTION_SNAPSHOT",
+    "target_id": "bounded-euler-polynomial",
+    "assumptions": [],
+    "semantic_scope": {
+      "notation_scope": "",
+      "semantic_registry": null
+    },
+    "assumption_snapshot_hash": "sha256:bf8695f8d46191dadd53448e69fbb3381d143c2cd111f3d0fafccce2cbc1fd8d"
+  },
+  "assumption_snapshot_hash": "sha256:bf8695f8d46191dadd53448e69fbb3381d143c2cd111f3d0fafccce2cbc1fd8d",
+  "authority_bindings": [
+    {
+      "schema_version": 1,
+      "object_type": "AUTHORITY_BINDING",
+      "authority_kind": "FOUNDATION_REGISTRY",
+      "authority_id": "math-research-agent-foundations-number-theory",
+      "assertion_identity_hash": "sha256:b6d4c1ad24e15d50326ad368eb483dba77c05cfe97a918e2bad7179148f96ebc",
+      "authority_content_hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+      "authority_status": "VALID",
+      "provenance": {
+        "hash": "sha256:28cbef43224421713e05c97ba100864bc72c438fc1b33fbf70f145666ce4cd1c",
+        "id": "math-research-agent-foundations-number-theory",
+        "version": "1.0.0"
+      },
+      "binding_hash": "sha256:1f5f063c6275bdb7cab2124bd3cb42dc1b291c6103a7e0b9768b3f792922da25"
+    }
+  ],
+  "authority_binding_hash": "sha256:25dbd7a6b7d31f43dc5db8800239a17a633fa7185dd5fab6cc5f8e72f8ee2c41",
+  "trust_policy_fingerprint": "sha256:f09ef543ae37b559a6aba3208a51cbbae9ce0a614069dd015be87e1494f1cbc3",
+  "semantic_input_hash": "sha256:fe5439853b24fe8cf3851639c2d1d8fb80346dc4164e37a890e7fcf6ffc49dbd",
+  "captured_status": "PROVED",
+  "captured_at": "2026-08-23T16:16:33+00:00",
+  "project_record_hash": "sha256:f02d58136e3b4e6c7e0809a8dd2853fba4858b7193a84183811c20a1c44bc4ba",
+  "claim_snapshot_hash": "sha256:15ea3cbc1f1196245cb425d5d4a92c670809b6c0d9f60f3bbe61d008cfe72a79"
+}

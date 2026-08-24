@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "coprime-square-lemma",
+  "title": "A square with coprime factors has square factors",
+  "status": "PARTIAL",
+  "source_file": "runs/orchestrator/20260823-182407-565694/project_plan.json",
+  "statement": "For all positive integers x, y, z, if x*y = z^2 and gcd(x,y) = 1, then there exist positive integers r and s such that x = r^2 and y = s^2.",
+  "dependencies": [],
+  "downstream_dependents": [
+    "euclid-forward-derivation"
+  ],
+  "tags": [
+    "number-theory",
+    "square-factors",
+    "unique-factorization"
+  ],
+  "branch": "main",
+  "proof_type": "NATURAL_LANGUAGE",
+  "claim_type": "implication",
+  "notation_scope": "",
+  "audit_status": "NOT_AUDITED",
+  "created_at": "2026-08-23T18:25:33+00:00",
+  "last_updated": "2026-08-23T18:30:10+00:00",
+  "status_history": [
+    {
+      "from": null,
+      "to": "OPEN",
+      "actor": "Human",
+      "reason": "Theorem record created",
+      "at": "2026-08-23T18:25:33+00:00"
+    },
+    {
+      "from": "OPEN",
+      "to": "IN_RESEARCH",
+      "actor": "MasterPlanner",
+      "reason": "Research run coprime-square-lemma-20260824-022645 started",
+      "at": "2026-08-23T18:26:45+00:00"
+    },
+    {
+      "from": "IN_RESEARCH",
+      "to": "PARTIAL",
+      "actor": "MasterPlanner",
+      "reason": "Math Research Agent ended without a candidate proof",
+      "at": "2026-08-23T18:30:10+00:00"
+    }
+  ]
+}

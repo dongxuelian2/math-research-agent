@@ -1,0 +1,283 @@
+{
+  "closed_at": "2026-08-23T17:32:42+00:00",
+  "closed_by": "ResearchOrchestrator",
+  "closure_hash": "sha256:33fa77cd3e598db25611b16ab3df7a82e934b2d783213b515a9ca9f4cc443b6f",
+  "directive_id": "directive-2c52f776fbede138590d9164",
+  "execution_status": "FAILED",
+  "object_type": "SESSION_CLOSURE",
+  "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+  "obligation_id": "ro-purpose-analysis-root",
+  "provider_provenance": [
+    {
+      "call_refs": [
+        "call-00000001",
+        "call-00000002",
+        "call-00000003",
+        "call-00000004",
+        "call-00000005",
+        "call-00000006",
+        "call-00000007",
+        "call-00000008",
+        "call-00000009",
+        "call-00000010",
+        "call-00000011",
+        "call-00000012",
+        "call-00000013",
+        "call-00000014"
+      ],
+      "model": "mock",
+      "provider": "mock"
+    }
+  ],
+  "raw_artifacts": [
+    {
+      "artifact_kind": "CANDIDATE",
+      "artifact_sha256": "sha256:29e44c387f6598eb8cb554d950ce6e4a14f21503c3f13c5a8cb56eaa6e8a5161",
+      "original_path": "runs/purpose-analysis-20260824-013241/CANDIDATE_PROOF.md",
+      "producer": "Planner",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/29e44c387f6598eb8cb554d950ce6e4a14f21503c3f13c5a8cb56eaa6e8a5161.md"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:8008608f66618a8ea4bc5a42e3e9523887274aa2cb6d1471ccfe196471f22f7c",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/event_0.json",
+      "producer": "Worker",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/8008608f66618a8ea4bc5a42e3e9523887274aa2cb6d1471ccfe196471f22f7c.json"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:f0210f63d568b975fbcce1ccd9673253ec668ed603aa470b9f87fc115f2c9993",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/event_1.json",
+      "producer": "Worker",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/f0210f63d568b975fbcce1ccd9673253ec668ed603aa470b9f87fc115f2c9993.json"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/event_2.json",
+      "producer": "Worker",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05.json"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:cc20a02b91b9ecfce2c26f5cd62ce2be11ac1002612f91d6069331301f53309c",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/verifier_0_call.md",
+      "producer": "WorkerVerifier",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/cc20a02b91b9ecfce2c26f5cd62ce2be11ac1002612f91d6069331301f53309c.md"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:045950cd02e44933e256ecbc0439d804ed79099731a4d2fb1a0afa2f72860986",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/verifier_1_call.md",
+      "producer": "WorkerVerifier",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/045950cd02e44933e256ecbc0439d804ed79099731a4d2fb1a0afa2f72860986.md"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:bca69a94760e468553f54fb1678fe9aed4e0151cb088441c664fcef2d98c6693",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/verifier_2_call.md",
+      "producer": "WorkerVerifier",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/bca69a94760e468553f54fb1678fe9aed4e0151cb088441c664fcef2d98c6693.md"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/verifier_event_0.json",
+      "producer": "WorkerVerifier",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05.json"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/verifier_event_1.json",
+      "producer": "WorkerVerifier",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05.json"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/verifier_event_2.json",
+      "producer": "WorkerVerifier",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05.json"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:0071f9d074ee1ba4b04f9f9aed442b31bf0b82d49196363ec1b67a6bfc3dd82c",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/worker_0_call.md",
+      "producer": "Worker",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/0071f9d074ee1ba4b04f9f9aed442b31bf0b82d49196363ec1b67a6bfc3dd82c.md"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:45563dfbfe7dc12f591e32d6484c3c1b0e680243f4f6fd143e2e6696ee50d9c4",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/worker_1_call.md",
+      "producer": "Worker",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/45563dfbfe7dc12f591e32d6484c3c1b0e680243f4f6fd143e2e6696ee50d9c4.md"
+    },
+    {
+      "artifact_kind": "WORKER_OR_VERIFIER_OUTPUT",
+      "artifact_sha256": "sha256:d27e2a48687dbe5914b9f5e696226221aa4c3fc60ca3bcd76a7b8b5ca8faa196",
+      "original_path": "runs/purpose-analysis-20260824-013241/engine/steps/step_001/workers/worker_2_call.md",
+      "producer": "Worker",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/d27e2a48687dbe5914b9f5e696226221aa4c3fc60ca3bcd76a7b8b5ca8faa196.md"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:91968a7a6f896d655c5a614c8fe18c82fdec43eee4e4e18ee8df6cddfa08b101",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/boundary_auditor.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/91968a7a6f896d655c5a614c8fe18c82fdec43eee4e4e18ee8df6cddfa08b101.json"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:e3f85a36c284216c18d95470a8b2f9012ad237cdba3e3e082652ee6f2c47f892",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/counterexample_hunter.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/e3f85a36c284216c18d95470a8b2f9012ad237cdba3e3e082652ee6f2c47f892.json"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:15a988553a6129bcef520383d91a134aa44c9953a6873426f77b57799f5b914f",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/dependency_auditor.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/15a988553a6129bcef520383d91a134aa44c9953a6873426f77b57799f5b914f.json"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:bbd364335d38bd2a561ea2247a1f0fb4882e6191ca45608a0a7d4965227adb52",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/dependency_report.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/bbd364335d38bd2a561ea2247a1f0fb4882e6191ca45608a0a7d4965227adb52.json"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:2af47b19b52e621619939aea8ee7a12b192fae10ccde717d71d30ea0e3b86434",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/exhaustiveness_auditor.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/2af47b19b52e621619939aea8ee7a12b192fae10ccde717d71d30ea0e3b86434.json"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:b44d7ab500ba4022ced625d680625b129af3cbae5d48b14db3cf1964c2746473",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/final_proof_auditor.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/b44d7ab500ba4022ced625d680625b129af3cbae5d48b14db3cf1964c2746473.json"
+    },
+    {
+      "artifact_kind": "AUDIT",
+      "artifact_sha256": "sha256:c4881a8d9185e7700e8eee6e4c8225c9b9bf2f211d400b9cd7ec11f600046eb4",
+      "original_path": "runs/purpose-analysis-20260824-013241/audits/gate.json",
+      "producer": "AuditCoordinator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/c4881a8d9185e7700e8eee6e4c8225c9b9bf2f211d400b9cd7ec11f600046eb4.json"
+    },
+    {
+      "artifact_kind": "EVENT_OR_PROVENANCE",
+      "artifact_sha256": "sha256:44d204610ce71e9c8b1d2bbc293c82876db57b012ebc76fa5f97179b60711b3a",
+      "original_path": "runs/purpose-analysis-20260824-013241/pipeline_state.json",
+      "producer": "ResearchOrchestrator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/44d204610ce71e9c8b1d2bbc293c82876db57b012ebc76fa5f97179b60711b3a.json"
+    },
+    {
+      "artifact_kind": "EVENT_OR_PROVENANCE",
+      "artifact_sha256": "sha256:0c356b57909778b5805d824f3a4843ddf1573d01d08dbdc03488be9792cad882",
+      "original_path": "runs/purpose-analysis-20260824-013241/routing_state.json",
+      "producer": "ResearchOrchestrator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/0c356b57909778b5805d824f3a4843ddf1573d01d08dbdc03488be9792cad882.json"
+    },
+    {
+      "artifact_kind": "EVENT_OR_PROVENANCE",
+      "artifact_sha256": "sha256:3ae5a3ff6d776f34759a3e0d99a1acef352461134035dc472bba4f278fe26e94",
+      "original_path": "runs/purpose-analysis-20260824-013241/usage.json",
+      "producer": "ResearchOrchestrator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/3ae5a3ff6d776f34759a3e0d99a1acef352461134035dc472bba4f278fe26e94.json"
+    },
+    {
+      "artifact_kind": "EVENT_OR_PROVENANCE",
+      "artifact_sha256": "sha256:c0166b94d840562189d944add16219315e20a64f2e24c2ab605b6f036f1bb1d3",
+      "original_path": "runs/purpose-analysis-20260824-013241/FAILURE_MAP.json",
+      "producer": "ResearchOrchestrator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/c0166b94d840562189d944add16219315e20a64f2e24c2ab605b6f036f1bb1d3.json"
+    },
+    {
+      "artifact_kind": "EVENT_OR_PROVENANCE",
+      "artifact_sha256": "sha256:5a1fc602b106d66802d0338d68a66fd9ea59320953a5eafedc6edb500c78556f",
+      "original_path": "runs/purpose-analysis-20260824-013241/FAILURE_MAP.md",
+      "producer": "ResearchOrchestrator",
+      "retained_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/5a1fc602b106d66802d0338d68a66fd9ea59320953a5eafedc6edb500c78556f.md"
+    }
+  ],
+  "research_map_hash": "sha256:d4623a5325d2ed3969b68b1ab2a0a43e63a3ef5e287f625dee14e8786c0eceea",
+  "research_map_id": "map-purpose-analysis-20260824-013241",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+  "schema_version": 1,
+  "session_closure_id": "closure-67da7492c0dfad187a600b33",
+  "session_hash": "sha256:dc628ef8a783e554dd28a278293fa3aeaf438866a238cd1eaa65f2f5fca9676d",
+  "tactical_session_id": "session-80caa6582b18f13dba1949b5",
+  "unresolved_findings": [
+    "(n+1)^2=n^2+2n+1: Missing required file: /home/xia/code/math-research-agent/projects/primitive-pythagorean-triples/theorems/demo-next-square.json",
+    "Mock auditors cannot promote a non-demo project to PROVED"
+  ],
+  "validated_evidence": [
+    {
+      "artifact_sha256": "sha256:29e44c387f6598eb8cb554d950ce6e4a14f21503c3f13c5a8cb56eaa6e8a5161",
+      "audit_status": "NOT_APPLICABLE",
+      "authority_refs": [],
+      "authority_status": "NOT_APPLICABLE",
+      "evidence_hash": "sha256:15309128cd597c474cc883f7225110a90f74aea46261fc9e99ab39d6dd9b0603",
+      "evidence_id": "evidence-c39cb487a248e81606019ae6",
+      "evidence_kind": "CANDIDATE",
+      "object_type": "EVIDENCE_PROJECTION",
+      "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+      "obligation_id": "ro-purpose-analysis-root",
+      "retained_artifact_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/29e44c387f6598eb8cb554d950ce6e4a14f21503c3f13c5a8cb56eaa6e8a5161.md",
+      "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+      "schema_version": 1,
+      "scope_obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "summary": "",
+      "verifier_status": "NOT_APPLICABLE"
+    },
+    {
+      "artifact_sha256": "sha256:02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05",
+      "audit_status": "NOT_APPLICABLE",
+      "authority_refs": [],
+      "authority_status": "NOT_APPLICABLE",
+      "evidence_hash": "sha256:9a7b0e8b241bf47ebf190dffd932cd76af6dc4ba371a8d5a08845e2f70873b35",
+      "evidence_id": "evidence-252c94cf5c7814e96aed4f00",
+      "evidence_kind": "VERIFIER",
+      "object_type": "EVIDENCE_PROJECTION",
+      "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+      "obligation_id": "ro-purpose-analysis-root",
+      "retained_artifact_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/02201f79c62062d1c13b72f428269733b0e8546c389e1a84eb66128398dd3a05.json",
+      "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+      "schema_version": 1,
+      "scope_obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "summary": "",
+      "verifier_status": "PASS"
+    },
+    {
+      "artifact_sha256": "sha256:c4881a8d9185e7700e8eee6e4c8225c9b9bf2f211d400b9cd7ec11f600046eb4",
+      "audit_status": "FAIL",
+      "authority_refs": [],
+      "authority_status": "UNKNOWN",
+      "evidence_hash": "sha256:f88813c7c963ef15787515864b6a0c006a346a4628c95f5f9ed6967c81c5c47e",
+      "evidence_id": "evidence-f2df98b2b128412be07610e0",
+      "evidence_kind": "AUDIT",
+      "object_type": "EVIDENCE_PROJECTION",
+      "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+      "obligation_id": "ro-purpose-analysis-root",
+      "retained_artifact_path": "research/sessions/session-80caa6582b18f13dba1949b5/raw/c4881a8d9185e7700e8eee6e4c8225c9b9bf2f211d400b9cd7ec11f600046eb4.json",
+      "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+      "schema_version": 1,
+      "scope_obligation_ids": [
+        "ro-purpose-analysis-root"
+      ],
+      "summary": "",
+      "verifier_status": "NOT_APPLICABLE"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_MAP_CURRENT_PROJECTION",
+  "research_map_id": "map-purpose-analysis-20260824-013241",
+  "version": 3,
+  "research_map_hash": "sha256:db4cfc15a9b5245f997daa11cb624e7a37cad75ea556a5ccac225d301ebfdfad",
+  "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+  "open_obligation_ids": [
+    "ro-purpose-analysis-root"
+  ]
+}

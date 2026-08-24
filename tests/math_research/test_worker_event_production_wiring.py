@@ -217,7 +217,7 @@ def test_t13_production_planner_worker_verifier_truth_mutation_e2e(tmp_path: Pat
     ResearchOrchestrator(
         store,
         "demo-odd-sum",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         worker_count=3,
         dry_run=False,
     ).run()

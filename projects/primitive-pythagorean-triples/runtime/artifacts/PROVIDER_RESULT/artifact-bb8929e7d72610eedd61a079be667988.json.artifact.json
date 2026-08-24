@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "artifact_id": "artifact-bb8929e7d72610eedd61a079be667988",
+  "artifact_kind": "PROVIDER_RESULT",
+  "relative_path": "runtime/artifacts/PROVIDER_RESULT/artifact-bb8929e7d72610eedd61a079be667988.json",
+  "sha256": "sha256:e25382831a938390426fcefe62211407d07d09aa121fc0f18e3a5b315cac7e55",
+  "size": 614,
+  "producer_attempt_id": "attempt-c24a46d53904b4d52a5fa3c59eb4f9c7",
+  "created_at": "2026-08-23T17:32:42+00:00",
+  "result_metadata": {
+    "completion_status": "SUCCESS",
+    "idempotency_key": "attempt-c24a46d53904b4d52a5fa3c59eb4f9c7:provider-result",
+    "provider_metadata": {
+      "provider": "mock",
+      "model": "mock",
+      "reasoning_tier": "routine"
+    }
+  }
+}

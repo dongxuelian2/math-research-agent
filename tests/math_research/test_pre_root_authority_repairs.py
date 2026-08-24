@@ -258,7 +258,7 @@ def test_f007_current_domain_rejects_root_only_semantic_binding(tmp_path: Path):
     orchestrator = ResearchOrchestrator(
         project,
         "T1",
-        config_path=repository_root / "configs" / "models.mock.json",
+        config_path=repository_root / "tests" / "fixtures" / "models.mock.toml",
         run_id="binding-completeness",
         worker_count=1,
     )

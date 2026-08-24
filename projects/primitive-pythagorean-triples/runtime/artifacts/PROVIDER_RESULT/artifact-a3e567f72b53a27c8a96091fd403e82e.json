@@ -1,0 +1,20 @@
+{
+  "result": "The independent routes agree and the candidate is ready for the outer gate.\n\n<MRA_ACTION>\naction = \"write_items\"\n\n[[items]]\nslug = \"candidate-proof\"\ncontent = \"\"\"\nSummary: Complete induction proof for the demo odd-sum identity.\n\n# Candidate Proof\n\n## Scope\n\nThis proof concerns the demo theorem only and uses the allowed dependency `demo-next-square`.\n\n## Statement\n\nFor every natural number $n$, the sum of the first $n$ positive odd integers is $n^2$:\n\\[\n\\sum_{k=1}^{n}(2k-1)=n^2.\n\\]\n\n## Definitions\n\nThe empty sum for $n=0$ is defined to be $0$.\n\n## Proof\n\nWe use induction on $n$. For $n=0$, the left side is the empty sum, hence $0=0^2$.\nAssume for some $n\\ge 0$ that $\\sum_{k=1}^{n}(2k-1)=n^2$. Then\n\\[\n\\sum_{k=1}^{n+1}(2k-1)\n=\\sum_{k=1}^{n}(2k-1)+(2(n+1)-1)\n=n^2+2n+1\n=(n+1)^2,\n\\]\nwhere the last equality is the proved dependency `demo-next-square`. This completes the induction.\n\n## Converse / reconstruction\n\nThe theorem is an equality, not an iff classification; no converse is claimed.\n\n## Boundary cases\n\nThe case $n=0$ was handled explicitly. The first positive case $n=1$ gives $1=1$.\n\n## Computational evidence\n\nNone is used.\n\n## Status\n\nCANDIDATE_PROOF pending the outer independent audit gate.\n\n<!-- MRA_AUTHORITY_MANIFEST\n{\n  \"all_external_claims_classified\": true,\n  \"branches_resolved\": true,\n  \"unresolved\": [],\n  \"authority_uses\": [\n    {\n      \"claim\": \"(n+1)^2=n^2+2n+1\",\n      \"claim_class\": \"PROJECT_THEOREM\",\n      \"authority_id\": \"demo-next-square\",\n      \"authority_type\": \"project_theorem\",\n      \"proof_location\": \"\"\n    }\n  ],\n  \"source_paths\": []\n}\n-->\n\n\"\"\"\n</MRA_ACTION>\n\n<MRA_ACTION>\naction = \"submit_proof\"\nproof_slug = \"candidate-proof\"\n</MRA_ACTION>",
+  "thinking": "",
+  "cost": 0.0,
+  "duration_ms": 1,
+  "raw": {
+    "mock": true,
+    "model": "mock",
+    "label": "planner_step_2",
+    "usage": {
+      "input_tokens": 1646,
+      "output_tokens": 421
+    }
+  },
+  "finish_reason": "end_turn",
+  "usage": {
+    "input_tokens": 1646,
+    "output_tokens": 421
+  }
+}

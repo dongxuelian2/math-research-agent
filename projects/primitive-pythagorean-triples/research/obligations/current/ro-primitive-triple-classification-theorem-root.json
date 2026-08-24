@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "object_type": "RESEARCH_OBLIGATION_CURRENT_PROJECTION",
+  "obligation_id": "ro-primitive-triple-classification-theorem-root",
+  "obligation_hash": "sha256:5946365b569eac57ae1143f152da51723ef8efeb37e366c88d9732d24bec18e6",
+  "disposition": "OPEN",
+  "disposition_hash": "sha256:5397ce4c3bec3892703cad13c7c09c2716060c7694fda4bd30a6afb715262cc2",
+  "research_map_id": "map-primitive-triple-classification-theorem-20260824-023642",
+  "research_map_version": 1,
+  "root_claim_snapshot_hash": "sha256:a0d8415a32c84269cbed2d5621f4257dddd95fb4f7729235965b3df645df0b6d"
+}

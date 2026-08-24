@@ -74,4 +74,12 @@ audit and trust kernel
 - `FAILURE_MAP.json` / `failed_routes.json`：失败路线和修复上下文；
 - `formalization/formal_status.json`：可选 Lean 形式化状态。
 
+项目级恢复和导入还使用项目根目录的持久化工件：
+
+- `timeline.jsonl`：UI、流水线、文件整理和项目恢复的统一追加式轨迹；
+- `inbox/manifest.json` 与 `inbox/`：原始导入文件、哈希和处理状态；
+- `work/imported/`：从 Markdown、文本、TeX 或 PDF 提取出的项目工作文件和分析清单。
+
+导入材料默认是未验证上下文，只有经过正常依赖、证明和审计门，才可能影响定理状态。
+
 Observatory 直接读取这些工件，不从日志文本猜测项目状态。

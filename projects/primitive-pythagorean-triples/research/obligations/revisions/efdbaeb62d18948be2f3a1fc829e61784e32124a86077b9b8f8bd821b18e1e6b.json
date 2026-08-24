@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-08-23T17:32:41+00:00",
+  "created_in_map_version": 1,
+  "dependencies": [],
+  "object_type": "RESEARCH_OBLIGATION",
+  "obligation_hash": "sha256:efdbaeb62d18948be2f3a1fc829e61784e32124a86077b9b8f8bd821b18e1e6b",
+  "obligation_id": "ro-purpose-analysis-root",
+  "obligation_kind": "OTHER",
+  "previous_revision_hash": null,
+  "revised_at": "2026-08-23T17:32:41+00:00",
+  "root_claim_snapshot_hash": "sha256:56f7dfc41a6ba8da4fed5986385177025a0fbede71b5054b980ace73353e5efe",
+  "schema_version": 1,
+  "scope": [
+    "root theorem purpose-analysis"
+  ],
+  "semantic_revision": 1,
+  "statement": "Derive and verify the first exact consequence required by the project purpose.",
+  "title": "Resolve root research target purpose-analysis"
+}
