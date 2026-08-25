@@ -8,4 +8,8 @@ if [[ ! -f "$ROOT_DIR/backend/dist/src/index.js" ]]; then
   exit 2
 fi
 
+if [[ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" && -f "$ROOT_DIR/11111.json" ]]; then
+  export GOOGLE_APPLICATION_CREDENTIALS="$ROOT_DIR/11111.json"
+fi
+
 exec pnpm --dir "$ROOT_DIR" start -- "$@"

@@ -19,27 +19,31 @@ enabled = false
 [literature]
 enabled = false
 
-[models.mock]
-provider = "mock"
-model = "math-proof-offline"
+[models.gemini37]
+provider = "google-vertex"
+model = "gemini-3.7-flash"
+service_account_file_env = "GOOGLE_APPLICATION_CREDENTIALS"
+reasoning_effort = "high"
+context_window = 1048576
+max_tokens = 8192
 
 [roles.planner]
-model = "mock"
+model = "gemini37"
 
 [roles.worker]
-model = "mock"
+model = "gemini37"
 
 [roles.verifier]
-model = "mock"
+model = "gemini37"
 
 [roles.synthesizer]
-model = "mock"
+model = "gemini37"
 enabled = false
 
 [roles.formalizer]
-model = "mock"
+model = "gemini37"
 enabled = false
 
 [roles.literature_researcher]
-model = "mock"
+model = "gemini37"
 enabled = false

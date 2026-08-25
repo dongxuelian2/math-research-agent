@@ -1,6 +1,7 @@
 export * from "./anthropic.js";
 export * from "./codex.js";
 export * from "./google.js";
+export * from "./google-vertex.js";
 export * from "./http.js";
 export * from "./mock.js";
 export * from "./openai-compatible.js";

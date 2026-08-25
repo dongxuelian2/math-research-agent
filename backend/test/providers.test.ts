@@ -1,4 +1,8 @@
 import { strict as assert } from "node:assert";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
 	createProvider,
@@ -100,4 +104,40 @@ test("normalizes all six provider adapters through the same offline contract", a
 	const codexEvents = await collect(codex, request({ provider: "openai-codex", model: "codex-model" }));
 	assert.equal(codexEvents.some((event) => event.type === "text_delta" && event.text === "ok"), true);
 	assert.equal(codexEvents.at(-1)?.type, "complete");
+});
+
+test("authenticates the Vertex adapter with a service-account file and Gemini 3 thinking level", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "math-agent-google-vertex-"));
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+	const credentialPath = join(directory, "service-account.json");
+	await writeFile(credentialPath, JSON.stringify({
+		type: "service_account",
+		project_id: "test-project",
+		client_email: "test@test-project.iam.gserviceaccount.com",
+		private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+		private_key_id: "test-key",
+		token_uri: "https://oauth2.example.test/token",
+	}));
+	const transport = new StaticTransport([
+		' data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n'.trimStart(),
+	]);
+	const provider = createProvider(
+		{
+			provider: "google-vertex",
+			model: "gemini-3.7-flash",
+			credentialFileResolver: () => credentialPath,
+			reasoningEffort: "high",
+			maxTokens: 123,
+		},
+		{
+			transport,
+			googleVertex: { tokenRequester: async () => ({ accessToken: "access-token", expiresIn: 3600 }) },
+		},
+	);
+	const events = await collect(provider, request({ provider: "google-vertex", model: "gemini-3.7-flash", credentialFileResolver: () => credentialPath, reasoningEffort: "high", maxTokens: 123 }));
+	assert.equal(events.some((event) => event.type === "text_delta" && event.text === "ok"), true);
+	assert.equal(transport.requests.length, 1);
+	assert.match(transport.requests[0] ?? "", /"thinkingLevel":"high"/u);
+	assert.doesNotMatch(transport.requests[0] ?? "", /thinkingBudget/u);
 });
