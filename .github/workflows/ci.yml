@@ -11,88 +11,33 @@ permissions:
   contents: read
 
 jobs:
-  rust-tui:
-    name: Rust terminal client
+  typescript-proof-and-gui:
+    name: TypeScript proof core and standalone GUI
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Check Rust formatting
-        run: cargo fmt --manifest-path apps/mathagent-tui/Cargo.toml --all -- --check
-
-      - name: Check Rust terminal client
-        run: cargo test --manifest-path apps/mathagent-tui/Cargo.toml
-
-  quality:
-    name: Ruff, tests, and showcase
-    runs-on: ubuntu-latest
-    env:
-      UV_PYTHON: "3.12"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
+          version: 11.7.0
 
-      - name: Install Python
-        run: uv python install 3.12
-
-      - name: Sync locked development environment
-        run: uv sync --extra dev --locked
-
-      - name: Check Ruff formatting
-        run: uv run ruff format --check src tests
-
-      - name: Check Ruff lint
-        run: uv run ruff check src tests
-
-      - name: Run unit tests
-        run: uv run pytest -q
-
-      - name: Compile Python sources
-        run: uv run python -m compileall -q src
-
-      - name: Run deterministic repair showcase
-        env:
-          OBSERVATORY_PROJECT: ${{ runner.temp }}/observatory-demo
-        run: uv run python -m math_research_agent.research demo --project "$OBSERVATORY_PROJECT"
-
-  windows-bootstrap:
-    name: Windows bootstrap and launcher
-    runs-on: windows-latest
-    env:
-      UV_PYTHON: "3.12"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
+          node-version: 22
+          cache: pnpm
 
-      - name: Install Python
-        run: uv python install 3.12
+      - name: Install root workspace
+        run: pnpm install --frozen-lockfile
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Typecheck
+        run: pnpm run typecheck
 
-      - name: Bootstrap Windows environment
-        shell: pwsh
-        run: .\scripts\install.ps1
+      - name: Run proof tests
+        run: pnpm run test:proof
 
-      - name: Exercise PowerShell launcher
-        shell: pwsh
-        run: .\scripts\run_math_agent.ps1 -Command status -Project demo -Target demo-odd-sum
+      - name: Build proof core and standalone GUI
+        run: pnpm run build

@@ -7,11 +7,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
-$Binary = Join-Path $RepoRoot 'apps\mathagent-tui\target\release\mathagent-tui.exe'
 
-if (-not (Test-Path $Binary)) {
-    throw 'MathAgent is not installed. Run .\scripts\install.ps1 first.'
+if (-not (Test-Path (Join-Path $RepoRoot 'backend\dist\src\index.js'))) {
+  throw 'Math Research Agent is not installed. Run: .\scripts\install.ps1 first.'
 }
 
-& $Binary --root $RepoRoot @Arguments
+& pnpm --dir $RepoRoot start -- @Arguments
 exit $LASTEXITCODE
