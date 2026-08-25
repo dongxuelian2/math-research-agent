@@ -1,6 +1,7 @@
 import { AnthropicProvider } from "./anthropic.js";
 import { CodexCliProvider, type CodexCliProviderOptions } from "./codex.js";
 import { GoogleProvider } from "./google.js";
+import { GoogleVertexProvider, type GoogleVertexProviderOptions } from "./google-vertex.js";
 import { MockProvider, type MockResponse } from "./mock.js";
 import { OpenAICompatibleProvider } from "./openai-compatible.js";
 import type { ProviderTransport, ModelConfig, ModelProvider, ProviderId } from "./types.js";
@@ -9,6 +10,7 @@ export type ProviderFactoryOptions = {
 	readonly transport?: ProviderTransport;
 	readonly codex?: CodexCliProviderOptions;
 	readonly mockResponses?: readonly MockResponse[];
+	readonly googleVertex?: GoogleVertexProviderOptions;
 };
 
 export function createProvider(model: ModelConfig, options: ProviderFactoryOptions = {}): ModelProvider {
@@ -37,6 +39,8 @@ export function createProvider(model: ModelConfig, options: ProviderFactoryOptio
 			return new AnthropicProvider({ transport: options.transport });
 		case "google":
 			return new GoogleProvider({ transport: options.transport });
+		case "google-vertex":
+			return new GoogleVertexProvider({ ...options.googleVertex, transport: options.transport ?? options.googleVertex?.transport });
 		case "openai-codex":
 			return new CodexCliProvider(options.codex);
 		default:

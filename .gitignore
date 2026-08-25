@@ -27,3 +27,5 @@ backups/
 
 # Legacy Harness metadata, if an old checkout recreates it
 deepseek-harness/.git.harness-archive/
+
+11111.json

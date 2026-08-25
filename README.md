@@ -101,7 +101,15 @@ Run 和结果，应得到相同的持久化产物。
 Web 设置页“模型与证明角色”和高级 TOML 编辑器共用一个 `ConfigService`。
 修改使用修订号、串行化并发更新、文件锁语义和临时文件原子替换；正在运行的
 Proof Run 使用启动时配置快照，新配置只影响后续运行。密钥只保存环境变量名，
-不读取、不显示、不返回。
+不写入配置文件、不显示、不返回；Provider 仅在真实运行时按环境变量读取。
+
+当前默认配置已接入 Vertex AI 的 Service Account 路由：`gemini37` 使用
+`gemini-3.7-flash`，三个活动证明角色共用该模型。`11111.json` 这类文件是
+GCP Service Account 凭据，不是 Gemini Developer API key；启动脚本发现仓库根目录
+存在该文件时，会将其路径设置为 `GOOGLE_APPLICATION_CREDENTIALS`，并由后端换取
+短期 OAuth2 token。也可以手动设置该环境变量，项目 ID 默认从 JSON 的 `project_id`
+读取，区域可用 `GOOGLE_CLOUD_LOCATION` 覆盖（默认 `global`）。该 Service Account
+还必须在对应项目启用 Vertex AI API，并拥有调用模型所需的 IAM 权限。
 
 ## 开发检查
 
