@@ -1,0 +1,45 @@
+version = 1
+
+[runtime]
+host = "127.0.0.1"
+web_port = 3080
+proof_api_port = 4310
+data_dir = ".math-agent"
+open_browser = false
+
+[proof]
+default_mode = "prove"
+max_workers = 2
+max_steps = 8
+history_limit = 8
+
+[formalization]
+enabled = false
+
+[literature]
+enabled = false
+
+[models.mock]
+provider = "mock"
+model = "math-proof-offline"
+
+[roles.planner]
+model = "mock"
+
+[roles.worker]
+model = "mock"
+
+[roles.verifier]
+model = "mock"
+
+[roles.synthesizer]
+model = "mock"
+enabled = false
+
+[roles.formalizer]
+model = "mock"
+enabled = false
+
+[roles.literature_researcher]
+model = "mock"
+enabled = false

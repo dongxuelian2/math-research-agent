@@ -7,26 +7,26 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ScriptDir
 
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-    throw 'uv is required. Install uv, then rerun .\scripts\install.ps1.'
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    throw 'Node.js 22+ is required. Install Node.js, then rerun .\scripts\install.ps1.'
 }
-if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    throw 'Rust/Cargo is required. Install Rust, then rerun .\scripts\install.ps1.'
+if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+    throw 'pnpm is required. Install pnpm, then rerun .\scripts\install.ps1.'
 }
 
-Write-Host '→ syncing the locked Python research environment'
-& uv sync --project $RepoRoot --extra dev --locked
+Write-Host '→ installing the locked TypeScript workspace'
+& pnpm install --dir $RepoRoot --frozen-lockfile
 if ($LASTEXITCODE -ne 0) {
-    throw "uv sync failed with exit code $LASTEXITCODE"
+    throw "pnpm install failed with exit code $LASTEXITCODE"
 }
 
-Write-Host '→ building the Rust terminal client'
-& cargo build --manifest-path (Join-Path $RepoRoot 'apps\mathagent-tui\Cargo.toml') --release --locked
+Write-Host '→ building the TypeScript proof core and standalone GUI'
+& pnpm run --dir $RepoRoot build
 if ($LASTEXITCODE -ne 0) {
-    throw "cargo build failed with exit code $LASTEXITCODE"
+    throw "pnpm build failed with exit code $LASTEXITCODE"
 }
 
-Write-Host 'MathAgent is installed.' -ForegroundColor Green
+Write-Host 'Math Research Agent is installed.' -ForegroundColor Green
 if ($Launch) {
     & (Join-Path $ScriptDir 'start.ps1')
 } else {

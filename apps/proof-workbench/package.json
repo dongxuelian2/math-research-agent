@@ -1,0 +1,11 @@
+{
+  "name": "@math-research-agent/proof-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone browser GUI for the Math Research Agent proof API.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check web/app.js && node --check server/main.mjs",
+    "serve": "node server/main.mjs"
+  }
+}

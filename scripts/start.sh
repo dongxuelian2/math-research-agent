@@ -2,11 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-BINARY="$ROOT_DIR/apps/mathagent-tui/target/release/mathagent-tui"
 
-if [[ ! -x "$BINARY" ]]; then
-  printf '%s\n' 'MathAgent is not installed. Run: bash scripts/install.sh' >&2
+if [[ ! -f "$ROOT_DIR/backend/dist/src/index.js" ]]; then
+  printf '%s\n' 'Math Research Agent is not installed. Run: bash scripts/install.sh' >&2
   exit 2
 fi
 
-exec "$BINARY" --root "$ROOT_DIR" "$@"
+exec pnpm --dir "$ROOT_DIR" start -- "$@"

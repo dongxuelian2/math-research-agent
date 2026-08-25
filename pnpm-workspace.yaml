@@ -1,0 +1,5 @@
+packages:
+  - backend
+  - apps/proof-workbench
+allowBuilds:
+  esbuild: set this to true or false
