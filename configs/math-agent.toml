@@ -3,7 +3,7 @@ version = 1
 [runtime]
 host = "127.0.0.1"
 web_port = 3080
-proof_api_port = 4310
+proof_api_port = 43100
 data_dir = ".math-agent"
 open_browser = false
 
