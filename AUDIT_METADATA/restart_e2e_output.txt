@@ -1,0 +1,15 @@
+TAP version 13
+# Subtest: public HTTP API drives corpus -> bootstrap -> ProofRuntime -> reducer -> checkpoint and survives server restart
+ok 1 - public HTTP API drives corpus -> bootstrap -> ProofRuntime -> reducer -> checkpoint and survives server restart
+  ---
+  duration_ms: 625.7664
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 930.1973

@@ -1,0 +1,18 @@
+ README.md                              |  20 ++-
+ backend/package.json                   |   6 +-
+ backend/src/api/server.ts              | 259 ++++++++++++++++++++++++++++++++-
+ backend/src/config.ts                  | 117 +++++++++++++--
+ backend/src/index.ts                   |   1 +
+ backend/src/production.ts              |  29 +++-
+ backend/src/proof/agent-role.ts        |  41 +++++-
+ backend/src/proof/index.ts             |   1 +
+ backend/src/proof/runtime.ts           | 216 +++++++++++++++++++++++----
+ backend/src/proof/types.ts             |  78 ++++++++++
+ backend/src/providers/google-common.ts |  30 ++--
+ backend/src/providers/google-vertex.ts |   3 +
+ backend/src/providers/http.ts          |   5 +
+ backend/src/tools/builtin.ts           |   7 +-
+ backend/test/proof-workflow.test.ts    |   5 +
+ configs/math-agent.toml                |  39 ++++-
+ pnpm-lock.yaml                         |  10 ++
+ 17 files changed, 795 insertions(+), 72 deletions(-)

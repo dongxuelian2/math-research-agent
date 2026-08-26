@@ -27,7 +27,7 @@ API-only 模式适合前端开发和自动化测试：
 pnpm start:api
 ```
 
-默认 API 地址是 `http://127.0.0.1:4310`。启动链路只包含 Node、pnpm、
+仓库当前配置的 API 地址是 `http://127.0.0.1:43100`（以启动输出和 TOML 为准）。启动链路只包含 Node、pnpm、
 TypeScript proof API 和 `apps/proof-workbench`，不需要任何外部 Harness checkout。
 
 GUI 源码在 [`apps/proof-workbench`](apps/proof-workbench)。其中 `web/` 可以独立交给
@@ -92,11 +92,24 @@ Run 和结果，应得到相同的持久化产物。
 
 - `[runtime]`：Host、Web/API 端口、数据目录；
 - `[proof]`：模式、并行 Worker 数、步骤上限；
+- `[research]`、`[budgets]` 与 `[corpus]`：长周期策略、检查点/停滞、执行预算和语义导入；
+- `[tools]`：统一工件访问、允许的受控执行能力与可执行文件；
 - `[formalization]` 与可选 literature adapter；
 - `[models.*]`：Provider、Model ID、Base URL、API key 环境变量名、推理强度、
   context window、最大输出长度和自定义请求参数；
 - `[roles.*]`：Planner、Worker、Verifier、Synthesizer、Formalizer、Literature
-  Researcher 的模型映射和运行参数。
+  Researcher，以及 Research Director、Corpus Bootstrapper、Secondary Auditor 的模型映射和运行参数。
+
+## 自主研究 API
+
+`/v1/research/projects` 提供持久化的 MRR v1 研究链路：语义 corpus bootstrap、模型驱动策略、
+类型化中间数学贡献、严格 target-proof 门、统一跨周期工件检索、自动证据回执、路线/覆盖图、
+任务级恢复、文献、root readiness、综合、独立终审和可选 Lean 进程门。完整协议、硬不变量和外部
+Proof-as-Test 启动说明见：
+
+- [`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)
+- [`docs/MRR_V1_INVARIANTS.md`](docs/MRR_V1_INVARIANTS.md)
+- [`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)
 
 Web 设置页“模型与证明角色”和高级 TOML 编辑器共用一个 `ConfigService`。
 修改使用修订号、串行化并发更新、文件锁语义和临时文件原子替换；正在运行的
@@ -112,6 +125,9 @@ GCP Service Account 凭据，不是 Gemini Developer API key；启动脚本发�
 还必须在对应项目启用 Vertex AI API，并拥有调用模型所需的 IAM 权限。
 
 ## 开发检查
+
+研究运行时文档：[`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)。
+Critical Layer 启动与就绪边界：[`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)。
 
 ```bash
 pnpm install --frozen-lockfile

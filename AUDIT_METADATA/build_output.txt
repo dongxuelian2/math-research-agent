@@ -1,0 +1,5 @@
+$ pnpm run build:proof && pnpm run build:gui
+$ pnpm --filter @math-research-agent/backend run build
+$ tsc -p tsconfig.json
+$ pnpm --filter @math-research-agent/proof-workbench run check
+$ node --check web/app.js && node --check server/main.mjs

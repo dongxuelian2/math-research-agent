@@ -1,0 +1,43 @@
+import { strict as assert } from "node:assert";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { CorpusService, ResearchRuntime, ResearchStore, type SecondaryAuditor, type TacticalProofRunner } from "../src/index.js";
+
+async function setup(t: import("node:test").TestContext, faultPoint?: "after_director" | "mid_workers" | "after_verifier" | "after_effect") {
+	const directory = await mkdtemp(join(tmpdir(), "mrr-runtime-")); t.after(async () => rm(directory, { recursive: true, force: true })); const store = new ResearchStore(join(directory, "data")); await store.create("p", "project");
+	const corpusRoot = join(directory, "corpus"); await mkdir(corpusRoot); await writeFile(join(corpusRoot, "prior.md"), "Lemma Prior: exact established-looking note.\nOpen problem: finish the root theorem."); const corpus = new CorpusService(store); await corpus.attach("p", [corpusRoot]); await corpus.ingest("p");
+	let calls = 0; const proofRunner: TacticalProofRunner = async (request) => { calls += 1; assert.ok(request.contextManifest.artifactRefs.length > 0); const candidate = await store.putArtifact("p", { artifactType: "WORKER_CANDIDATE", body: "A complete proof from the exact prior source.", provenance: "test-worker", creationAttemptId: request.attemptId, references: [request.contextManifest.artifactRefs[0]!] }); const receipt = { receiptId: `primary-${request.attemptId}`, claimId: request.targetClaimId, candidate, verifierProfile: "primary", evidenceInspected: [request.contextManifest.artifactRefs[0]!], workerReadEvidence: [request.contextManifest.artifactRefs[0]!], verifierReadEvidence: [request.contextManifest.artifactRefs[0]!], verdict: "CORRECT" as const, independentContext: true, stale: false, createdAt: new Date().toISOString() }; return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "TARGET_PROVED", targetSubmission: { submissionId: `submission-${request.attemptId}`, targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, scope: "TARGET", statement: request.obligation.statement, candidate, primaryReceipt: receipt, assumptions: [], dependencies: [], evidenceArtifacts: [request.contextManifest.artifactRefs[0]!] }, contributions: [], routeObservations: [], executionReceipt: execution(request), feedback: "primary correct" }; };
+	const secondaryAuditor: SecondaryAuditor = async (request) => ({ verdict: "CORRECT", feedback: "fresh audit correct", profile: "secondary", evidenceInspected: request.workerReadEvidence }); const runtime = new ResearchRuntime({ store, proofRunner, secondaryAuditor, faultPoint }); await runtime.setRootObjective("p", "Root theorem"); return { directory, store, runtime, proofRunner, secondaryAuditor, calls: () => calls };
+}
+
+test("crash after Director decision resumes the same logical cycle and decision", async (t) => {
+	const setupValue = await setup(t, "after_director"); await assert.rejects(setupValue.runtime.runCycle("p"), /after_director/); assert.equal(setupValue.calls(), 0); const interrupted = await setupValue.store.read("p"); const cycleId = interrupted.activeCycleId; assert.ok(cycleId); assert.equal(interrupted.decisions.length, 1);
+	const resumed = new ResearchRuntime({ store: setupValue.store, proofRunner: setupValue.proofRunner, secondaryAuditor: setupValue.secondaryAuditor }); const final = await resumed.runCycle("p"); assert.equal(final.status, "PROVED"); assert.equal(setupValue.calls(), 1); assert.equal(final.decisions.length, 1); assert.equal(final.decisions[0]?.cycleId, cycleId);
+});
+
+test("interrupted tactical work resumes the same durable attempt without rerunning completed tactical work", async (t) => {
+	const setupValue = await setup(t, "mid_workers"); await assert.rejects(setupValue.runtime.runCycle("p"), /mid_workers/); assert.equal(setupValue.calls(), 1); let state = await setupValue.store.read("p"); assert.equal(Object.keys(state.jobs).length, 1); assert.equal(Object.values(state.attempts)[0]?.status, "RUNNING");
+	const resumed = new ResearchRuntime({ store: setupValue.store, proofRunner: setupValue.proofRunner, secondaryAuditor: setupValue.secondaryAuditor }); state = await resumed.runCycle("p"); assert.equal(setupValue.calls(), 2); assert.equal(Object.keys(state.jobs).length, 1); assert.equal(Object.keys(state.attempts).length, 1); assert.equal(Object.values(state.attempts)[0]?.status, "COMPLETED"); assert.equal(Object.keys(state.acceptedEffects).length, 1);
+});
+
+test("crash after verifier reuses completed tactical attempt and applies one stable effect", async (t) => {
+	const setupValue = await setup(t, "after_verifier"); await assert.rejects(setupValue.runtime.runCycle("p"), /after_verifier/); assert.equal(setupValue.calls(), 1); const interrupted = await setupValue.store.read("p"); assert.equal(Object.values(interrupted.attempts)[0]?.status, "COMPLETED"); assert.equal(Object.keys(interrupted.acceptedEffects).length, 0);
+	const resumed = new ResearchRuntime({ store: new ResearchStore(join(setupValue.directory, "data")), proofRunner: setupValue.proofRunner, secondaryAuditor: setupValue.secondaryAuditor }); const final = await resumed.runCycle("p"); assert.equal(setupValue.calls(), 1); assert.equal(final.status, "PROVED"); assert.equal(Object.keys(final.acceptedEffects).length, 1); assert.equal(final.checkpoints.length, 1); assert.equal(final.activeCycleId, undefined);
+});
+
+test("crash after effect application never duplicates promotion or canonical event", async (t) => {
+	const setupValue = await setup(t, "after_effect"); await assert.rejects(setupValue.runtime.runCycle("p"), /after_effect/); let state = await setupValue.store.read("p"); assert.equal(Object.keys(state.acceptedEffects).length, 1); assert.equal(state.events.filter((event) => event.type === "research/claim_promoted").length, 1);
+	const resumed = new ResearchRuntime({ store: setupValue.store, proofRunner: setupValue.proofRunner, secondaryAuditor: setupValue.secondaryAuditor }); state = await resumed.runCycle("p"); assert.equal(setupValue.calls(), 1); assert.equal(Object.keys(state.acceptedEffects).length, 1); assert.equal(state.events.filter((event) => event.type === "research/claim_promoted").length, 1); assert.equal(state.checkpoints.length, 1);
+});
+
+test("context manifests are deterministic, relevance-bounded, and omit whole corpus/history", async (t) => {
+	const { store, runtime } = await setup(t); await runtime.runCycle("p"); const state = await store.read("p"); const manifests = Object.values(state.contextManifests); assert.equal(manifests.length, 1); assert.ok(manifests[0]!.artifactRefs.length <= 8); assert.ok(manifests[0]!.claimIds.length <= 2); const artifact = state.artifacts[Object.keys(state.artifacts).find((id) => state.artifacts[id]?.artifactType === "CONTEXT_MANIFEST")!]; assert.ok(artifact); assert.equal((await store.resolveArtifact("p", artifact!)).artifact.contentHash, artifact!.contentHash);
+});
+
+test("stall threshold triggers a concrete strategic route change instead of resetting on prose", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "mrr-probe-")); t.after(async () => rm(directory, { recursive: true, force: true })); const store = new ResearchStore(join(directory, "data")); await store.create("p", "p"); let calls = 0; const runtime = new ResearchRuntime({ store, stallThreshold: 2, proofRunner: async (request) => { calls += 1; return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "TARGET_UNRESOLVED", contributions: [], routeObservations: [], executionReceipt: execution(request), feedback: "same route stalled" }; } }); await runtime.setRootObjective("p", "Hard root"); await runtime.runCycle("p"); await runtime.runCycle("p"); const state = await runtime.runCycle("p"); const root = state.rootClaimId as string; assert.notEqual(state.claims[root]?.at(-1)?.status, "PROVED"); assert.ok(state.events.some((item) => item.type === "research/strategic_review")); assert.ok(Object.values(state.routes).some((route) => route.status === "ACTIVE" && route.family.startsWith("fallback-alternative"))); assert.equal(state.cyclesSinceStructuralProgress, 1);
+});
+
+function execution(request: import("../src/index.js").TacticalProofRequest) { return { executionReceiptId: `receipt-${request.attemptId}`, logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], startedAt: new Date().toISOString(), completedAt: new Date().toISOString() }; }

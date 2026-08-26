@@ -1,0 +1,2 @@
+$ pnpm --filter @math-research-agent/backend run typecheck
+$ tsc --noEmit -p tsconfig.json

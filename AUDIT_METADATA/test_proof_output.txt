@@ -1,0 +1,311 @@
+$ pnpm --filter @math-research-agent/backend run test
+$ npm run build && node --test dist/test/*.test.js
+
+> @math-research-agent/backend@0.1.0 build
+> tsc -p tsconfig.json
+
+TAP version 13
+# Subtest: runs a streaming single turn and persists the projected context
+ok 1 - runs a streaming single turn and persists the projected context
+  ---
+  duration_ms: 34.9812
+  ...
+# Subtest: executes a sequential tool loop and distinguishes tool errors
+ok 2 - executes a sequential tool loop and distinguishes tool errors
+  ---
+  duration_ms: 14.087
+  ...
+# Subtest: runs multiple tools in parallel and survives invalid arguments
+ok 3 - runs multiple tools in parallel and survives invalid arguments
+  ---
+  duration_ms: 84.9524
+  ...
+# Subtest: records a tool execution exception as a tool error event
+ok 4 - records a tool execution exception as a tool error event
+  ---
+  duration_ms: 60.1426
+  ...
+# Subtest: injects steering during a run and follow-up after a turn
+ok 5 - injects steering during a run and follow-up after a turn
+  ---
+  duration_ms: 87.8901
+  ...
+# Subtest: separates model failure and user cancellation stop reasons
+ok 6 - separates model failure and user cancellation stop reasons
+  ---
+  duration_ms: 152.7822
+  ...
+# Subtest: loads one TOML authority, masks credentials, round-trips request parameters, and serializes revisions
+ok 7 - loads one TOML authority, masks credentials, round-trips request parameters, and serializes revisions
+  ---
+  duration_ms: 65.5761
+  ...
+# Subtest: canonical TOML output never serializes unsupported secret fields
+ok 8 - canonical TOML output never serializes unsupported secret fields
+  ---
+  duration_ms: 0.8062
+  ...
+# Subtest: real AgentCore API path produces and submits a simple proof
+ok 9 - real AgentCore API path produces and submits a simple proof
+  ---
+  duration_ms: 724.743
+  ...
+# Subtest: completes a proof through the HTTP session, theorem, run, and result API
+ok 10 - completes a proof through the HTTP session, theorem, run, and result API
+  ---
+  duration_ms: 689.5779
+  ...
+# Subtest: parses OpenProver-style tagged TOML action blocks
+ok 11 - parses OpenProver-style tagged TOML action blocks
+  ---
+  duration_ms: 2.6935
+  ...
+# Subtest: formal mode requires both accepted artifacts and persists OpenProver-shaped step evidence
+ok 12 - formal mode requires both accepted artifacts and persists OpenProver-shaped step evidence
+  ---
+  duration_ms: 748.3705
+  ...
+# Subtest: maxWorkers bounds concurrency without silently dropping any of seven logical tasks
+ok 13 - maxWorkers bounds concurrency without silently dropping any of seven logical tasks
+  ---
+  duration_ms: 823.6917
+  ...
+# Subtest: task-level crash resume reuses completed workers and runs only missing worker and verifiers
+ok 14 - task-level crash resume reuses completed workers and runs only missing worker and verifiers
+  ---
+  duration_ms: 347.6184
+  ...
+# Subtest: an invalidated plan dependency marks the old plan stale and replans the same step
+ok 15 - an invalidated plan dependency marks the old plan stale and replans the same step
+  ---
+  duration_ms: 240.3305
+  ...
+# Subtest: minimal proof runtime closes planner -> researcher -> verifier and persists typed events
+ok 16 - minimal proof runtime closes planner -> researcher -> verifier and persists typed events
+  ---
+  duration_ms: 392.4292
+  ...
+# Subtest: full proof actions persist repository, whiteboard, parallel workers, failed routes, and submit gate
+ok 17 - full proof actions persist repository, whiteboard, parallel workers, failed routes, and submit gate
+  ---
+  duration_ms: 761.4227
+  ...
+# Subtest: normalizes all six provider adapters through the same offline contract
+ok 18 - normalizes all six provider adapters through the same offline contract
+  ---
+  duration_ms: 4.7779
+  ...
+# Subtest: authenticates the Vertex adapter with a service-account file and Gemini 3 thinking level
+ok 19 - authenticates the Vertex adapter with a service-account file and Gemini 3 thinking level
+  ---
+  duration_ms: 347.339
+  ...
+# Subtest: public HTTP API drives corpus -> bootstrap -> ProofRuntime -> reducer -> checkpoint and survives server restart
+ok 20 - public HTTP API drives corpus -> bootstrap -> ProofRuntime -> reducer -> checkpoint and survives server restart
+  ---
+  duration_ms: 1460.6732
+  ...
+# Subtest: literature pipeline stores exact sources and refuses snippet-only theorem authority
+ok 21 - literature pipeline stores exact sources and refuses snippet-only theorem authority
+  ---
+  duration_ms: 167.6824
+  ...
+# Subtest: root synthesis uses authoritative manifest and fresh audit rejection reopens frontier; success promotes exact final body
+ok 22 - root synthesis uses authoritative manifest and fresh audit rejection reopens frontier; success promotes exact final body
+  ---
+  duration_ms: 849.2301
+  ...
+# Subtest: formal verifier reports real process success and failure instead of model certificates
+ok 23 - formal verifier reports real process success and failure instead of model certificates
+  ---
+  duration_ms: 172.5673
+  ...
+# Subtest: conditional assumptions survive promotion and block an unconditional root
+ok 24 - conditional assumptions survive promotion and block an unconditional root
+  ---
+  duration_ms: 210.4711
+  ...
+# Subtest: empty, singleton, self, and duplicate decompositions fail before truth or authority mutation
+ok 25 - empty, singleton, self, and duplicate decompositions fail before truth or authority mutation
+  ---
+  duration_ms: 89.3219
+  ...
+# Subtest: Planner contribution scope cannot be escalated to TARGET by a Worker
+ok 26 - Planner contribution scope cannot be escalated to TARGET by a Worker
+  ---
+  duration_ms: 177.0103
+  ...
+# Subtest: authority transition fault points commit either nothing or the full effect exactly once
+ok 27 - authority transition fault points commit either nothing or the full effect exactly once
+  ---
+  duration_ms: 669.6748
+  ...
+# Subtest: search, body read, and declared reliance remain distinct evidence classes
+ok 28 - search, body read, and declared reliance remain distinct evidence classes
+  ---
+  duration_ms: 141.5566
+  ...
+# Subtest: controlled computation produces a durable, hashed, receipted artifact
+ok 29 - controlled computation produces a durable, hashed, receipted artifact
+  ---
+  duration_ms: 146.9482
+  ...
+# Subtest: Director reduction and counterexample intents reach tactical execution as structured directives
+ok 30 - Director reduction and counterexample intents reach tactical execution as structured directives
+  ---
+  duration_ms: 469.4435
+  ...
+# Subtest: a CHANGE_ROUTE TacticalDirective reaches the actual Proof Planner context unchanged
+ok 31 - a CHANGE_ROUTE TacticalDirective reaches the actual Proof Planner context unchanged
+  ---
+  duration_ms: 56.7295
+  ...
+# Subtest: STOP_PROJECT persists an intentional terminal turn and does not start another cycle
+ok 32 - STOP_PROJECT persists an intentional terminal turn and does not start another cycle
+  ---
+  duration_ms: 77.0925
+  ...
+# Subtest: all typed route reopen predicates have deterministic state semantics
+ok 33 - all typed route reopen predicates have deterministic state semantics
+  ---
+  duration_ms: 0.9133
+  ...
+# Subtest: Director cannot reopen a route whose typed predicate is unsatisfied
+ok 34 - Director cannot reopen a route whose typed predicate is unsatisfied
+  ---
+  duration_ms: 205.3861
+  ...
+# Subtest: large corpus files are analyzed in bounded exact ranges and merged
+ok 35 - large corpus files are analyzed in bounded exact ranges and merged
+  ---
+  duration_ms: 81.6194
+  ...
+# Subtest: literature metadata, abstract, landing page, exact excerpt, and full text retain distinct authority tiers
+ok 36 - literature metadata, abstract, landing page, exact excerpt, and full text retain distinct authority tiers
+  ---
+  duration_ms: 89.8108
+  ...
+# Subtest: MRR v1 state migration preserves history and reopens unsafe authority for revalidation
+ok 37 - MRR v1 state migration preserves history and reopens unsafe authority for revalidation
+  ---
+  duration_ms: 19.198
+  ...
+# Subtest: artifact authority resolves exact immutable bodies and rejects missing/hash-mismatched bodies
+ok 38 - artifact authority resolves exact immutable bodies and rejects missing/hash-mismatched bodies
+  ---
+  duration_ms: 160.6199
+  ...
+# Subtest: stable orchestration effect identity promotes exactly once across retry and restart
+ok 39 - stable orchestration effect identity promotes exactly once across retry and restart
+  ---
+  duration_ms: 279.5599
+  ...
+# Subtest: corpus ingestion/search/bootstrap is durable, stable, and hash changes invalidate trust
+ok 40 - corpus ingestion/search/bootstrap is durable, stable, and hash changes invalidate trust
+  ---
+  duration_ms: 288.4247
+  ...
+# Subtest: isolated production tools read corpus, write only attempt scratch, reject traversal and destructive computation
+ok 41 - isolated production tools read corpus, write only attempt scratch, reject traversal and destructive computation
+  ---
+  duration_ms: 86.8073
+  ...
+# Subtest: reduction, explicit case coverage, route reopening, and reverse invalidation update frontier deterministically
+ok 42 - reduction, explicit case coverage, route reopening, and reverse invalidation update frontier deterministically
+  ---
+  duration_ms: 312.1529
+  ...
+# Subtest: real AgentCore lemma contribution cannot prove target, then later agents retrieve the promoted proof with exact receipts
+ok 43 - real AgentCore lemma contribution cannot prove target, then later agents retrieve the promoted proof with exact receipts
+  ---
+  duration_ms: 1938.3838
+  ...
+# Subtest: malformed TARGET_PROVED without exact target submission fails closed
+ok 44 - malformed TARGET_PROVED without exact target submission fails closed
+  ---
+  duration_ms: 16.2095
+  ...
+# Subtest: real AgentCore reduction and case-split contributions create dependency and coverage state
+ok 45 - real AgentCore reduction and case-split contributions create dependency and coverage state
+  ---
+  duration_ms: 866.8526
+  ...
+# Subtest: HTTP root synthesis uses configured roles and a failed fresh audit reopens research
+ok 46 - HTTP root synthesis uses configured roles and a failed fresh audit reopens research
+  ---
+  duration_ms: 2922.8732
+  ...
+# Subtest: production semantic bootstrap role reconstructs authority, dependencies, failed routes, coverage, and frontier
+ok 47 - production semantic bootstrap role reconstructs authority, dependencies, failed routes, coverage, and frontier
+  ---
+  duration_ms: 107.3869
+  ...
+# Subtest: public literature path acquires exact source and records Worker, Verifier, and auditor use
+ok 48 - public literature path acquires exact source and records Worker, Verifier, and auditor use
+  ---
+  duration_ms: 606.2935
+  ...
+# Subtest: non-default production configuration controls cycle cap, checkpoint cadence, stall turn, concurrency, and role mapping
+ok 49 - non-default production configuration controls cycle cap, checkpoint cadence, stall turn, concurrency, and role mapping
+  ---
+  duration_ms: 1360.0954
+  ...
+# Subtest: hardened full production E2E resumes a mid-plan crash before new planning and reaches fresh-audited closure
+ok 50 - hardened full production E2E resumes a mid-plan crash before new planning and reaches fresh-audited closure
+  ---
+  duration_ms: 9449.7502
+  ...
+# Subtest: research formalization constructs configured role but cannot pass without the authoritative process gate
+ok 51 - research formalization constructs configured role but cannot pass without the authoritative process gate
+  ---
+  duration_ms: 640.8897
+  ...
+# Subtest: crash after Director decision resumes the same logical cycle and decision
+ok 52 - crash after Director decision resumes the same logical cycle and decision
+  ---
+  duration_ms: 721.3555
+  ...
+# Subtest: interrupted tactical work resumes the same durable attempt without rerunning completed tactical work
+ok 53 - interrupted tactical work resumes the same durable attempt without rerunning completed tactical work
+  ---
+  duration_ms: 448.2504
+  ...
+# Subtest: crash after verifier reuses completed tactical attempt and applies one stable effect
+ok 54 - crash after verifier reuses completed tactical attempt and applies one stable effect
+  ---
+  duration_ms: 333.6781
+  ...
+# Subtest: crash after effect application never duplicates promotion or canonical event
+ok 55 - crash after effect application never duplicates promotion or canonical event
+  ---
+  duration_ms: 330.8942
+  ...
+# Subtest: context manifests are deterministic, relevance-bounded, and omit whole corpus/history
+ok 56 - context manifests are deterministic, relevance-bounded, and omit whole corpus/history
+  ---
+  duration_ms: 237.7919
+  ...
+# Subtest: stall threshold triggers a concrete strategic route change instead of resetting on prose
+ok 57 - stall threshold triggers a concrete strategic route change instead of resetting on prose
+  ---
+  duration_ms: 538.0367
+  ...
+# Subtest: resumes, branches, and preserves append-only JSONL entries
+ok 58 - resumes, branches, and preserves append-only JSONL entries
+  ---
+  duration_ms: 60.9203
+  ...
+# Subtest: read/write/edit/bash form a usable offline tool set
+ok 59 - read/write/edit/bash form a usable offline tool set
+  ---
+  duration_ms: 113.3402
+  ...
+1..59
+# tests 59
+# suites 0
+# pass 59
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 19004.4038

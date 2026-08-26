@@ -18,6 +18,7 @@ configs/*.local.toml
 *.pem
 *.key
 service-account*.json
+powerful-layout-478408-f9-7b34a96b996f.json
 
 # Logs & temporary run files
 logs/

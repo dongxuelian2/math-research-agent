@@ -1,4 +1,5 @@
 import type { ProviderTransport, TransportRequest } from "./types.js";
+import { configureProxyFromEnvironment } from "./network.js";
 
 export class ProviderHttpError extends Error {
 	readonly status: number;
@@ -13,6 +14,10 @@ export class ProviderHttpError extends Error {
 }
 
 export class FetchTransport implements ProviderTransport {
+	constructor() {
+		configureProxyFromEnvironment();
+	}
+
 	async *stream(request: TransportRequest): AsyncIterable<string> {
 		const response = await fetch(request.url, {
 			method: request.method,

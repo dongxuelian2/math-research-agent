@@ -1,4 +1,5 @@
 import type { Agent } from "../agent/types.js";
+import { assertContributionInvariants } from "../research/invariants.js";
 import type { AgentMessage, AgentRunResult, AssistantMessage } from "../models/index.js";
 import { isJsonObject, type JsonObject } from "../models/json.js";
 import type {
@@ -102,8 +103,10 @@ class AgentProofResearcher implements ProofResearcher {
 		const result = await this.agent.prompt(
 			[
 				"You are one independent mathematical worker in a planner/worker proof workflow.",
-				"Solve only the focused task below. Do not spawn other agents or perform literature search.",
-				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
+				"Solve only the focused task below. Do not spawn other agents. Use the available corpus/search/computation/scratch tools when evidence or computation is needed.",
+				"Search results are discovery only. Read every proof-critical artifact body. Declare reliedOnArtifactIds, which must be a subset of artifacts actually read.",
+				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content, assumptions?:string[], dependencyClaims?:string[], reliedOnArtifactIds?:string[]}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
+				"For research contributions return candidate.contribution={kind,statement,relationshipToTarget,claimId?,assumptions,dependencyClaims,childClaims?,coverageScope?,coverageAssertion?,closedCaseClaimId?,closureReason?,targetScope?,counterexampleScope?}. Reductions require >=1 unique non-self child; case splits require >=2 plus explicit scope/exhaustiveness; counterexamples require target and witness scopes. Do not label a lemma or local case as the target.",
 				"A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
 				`Theorem:\n${context.obligation.theorem}`,
 				context.obligation.context === undefined ? "" : `Theorem context:\n${context.obligation.context}`,
@@ -136,6 +139,8 @@ class AgentProofVerifier implements ProofVerifier {
 				`Original theorem:\n${context.obligation.theorem}`,
 				`Original task:\n${context.task.description}`,
 				`Candidate proof:\n${candidate.content}`,
+				candidate.evidence.length === 0 ? "Candidate evidence receipts: none" : `Candidate evidence receipts (retrieve/check exact ids and hashes):\n${JSON.stringify(candidate.evidence, null, 2)}`,
+				context.referencedMaterials === undefined || context.referencedMaterials.length === 0 ? "" : `Exact referenced repository bodies:\n${context.referencedMaterials}`,
 			].join("\n\n"),
 		);
 		throwIfAborted(signal);
@@ -204,6 +209,12 @@ function parseResearchResult(text: string, taskId: string): ResearchResult {
 				...(typeof candidate.candidateId === "string" ? { candidateId: candidate.candidateId } : {}),
 				...(typeof candidate.claim === "string" ? { claim: candidate.claim } : {}),
 				...(typeof candidate.claimFingerprint === "string" ? { claimFingerprint: candidate.claimFingerprint } : {}),
+				...(Array.isArray(candidate.evidence) ? { evidence: candidate.evidence.filter((item): item is { artifactId: string; contentHash: string; ranges?: string[] } => isRecord(item) && typeof item.artifactId === "string" && typeof item.contentHash === "string").map((item) => ({ artifactId: item.artifactId, contentHash: item.contentHash, ...(Array.isArray(item.ranges) ? { ranges: item.ranges.filter((range): range is string => typeof range === "string") } : {}) })) } : {}),
+				...(Array.isArray(candidate.reliedOnArtifactIds) ? { reliedOnArtifactIds: candidate.reliedOnArtifactIds.filter((item): item is string => typeof item === "string") } : {}),
+				...(candidate.scope === "TARGET" || candidate.scope === "CONTRIBUTION" ? { scope: candidate.scope } : {}),
+				...(Array.isArray(candidate.assumptions) ? { assumptions: candidate.assumptions.filter((item): item is string => typeof item === "string") } : {}),
+				...(Array.isArray(candidate.dependencyClaims) ? { dependencyClaims: candidate.dependencyClaims.filter((item): item is string => typeof item === "string") } : {}),
+				...(isRecord(candidate.contribution) ? { contribution: parseContribution(candidate.contribution) } : {}),
 			},
 		};
 	}
@@ -283,6 +294,13 @@ function parseAction(value: unknown): ProofAction {
 				...summary,
 			};
 		}
+		case "submit_target_proof": {
+			const candidateId = value.candidateId ?? value.candidate_id;
+			const targetObligationId = value.targetObligationId ?? value.target_obligation_id;
+			const targetClaimId = value.targetClaimId ?? value.target_claim_id;
+			if (typeof candidateId !== "string" || typeof targetObligationId !== "string" || typeof targetClaimId !== "string") throw new ProofProtocolError("submit_target_proof requires candidateId, targetObligationId, and targetClaimId");
+			return { action: "submit_target_proof", candidateId, targetObligationId, targetClaimId, ...summary };
+		}
 		case "submit_lean_proof": {
 			const proofSlug = value.proofSlug ?? value.leanProofSlug ?? value.lean_proof_slug;
 			if (typeof proofSlug !== "string") {
@@ -301,13 +319,29 @@ function parseTask(value: unknown): ProofTaskInput {
 	if (!isRecord(value) || typeof value.summary !== "string" || typeof value.description !== "string") {
 		throw new ProofProtocolError("spawn tasks require summary and description");
 	}
+	const contributionKind = value.contributionKind ?? value.contribution_kind;
 	return {
 		...(typeof value.taskId === "string" ? { taskId: value.taskId } : {}),
 		summary: value.summary,
 		description: value.description,
 		...(typeof value.routeKey === "string" ? { routeKey: value.routeKey } : {}),
+		...(value.scope === "TARGET" || value.scope === "CONTRIBUTION" ? { scope: value.scope } : {}),
+		...(typeof value.targetClaimId === "string" ? { targetClaimId: value.targetClaimId } : typeof value.target_claim_id === "string" ? { targetClaimId: value.target_claim_id } : {}),
+		...(isContributionKind(contributionKind) ? { contributionKind } : {}),
 	};
 }
+
+export function createAgentProofVerifier(verifier: Agent): ProofVerifier { return new AgentProofVerifier(verifier); }
+
+function parseContribution(value: Record<string, unknown>): import("./types.js").ProofContributionDraft {
+	if (!isContributionKind(value.kind) || typeof value.statement !== "string" || typeof value.relationshipToTarget !== "string") throw new ProofProtocolError("candidate.contribution requires kind, statement, and relationshipToTarget");
+	const children = Array.isArray(value.childClaims) ? value.childClaims.filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.claimId === "string" && typeof item.statement === "string").map((item) => ({ claimId: item.claimId as string, statement: item.statement as string })) : undefined;
+	const draft: import("./types.js").ProofContributionDraft = { kind: value.kind, statement: value.statement, relationshipToTarget: value.relationshipToTarget, ...(typeof value.claimId === "string" ? { claimId: value.claimId } : {}), assumptions: Array.isArray(value.assumptions) ? value.assumptions.filter((item): item is string => typeof item === "string") : [], dependencyClaims: Array.isArray(value.dependencyClaims) ? value.dependencyClaims.filter((item): item is string => typeof item === "string") : [], ...(children === undefined ? {} : { childClaims: children }), ...(typeof value.coverageScope === "string" ? { coverageScope: value.coverageScope } : {}), ...(typeof value.coverageAssertion === "string" ? { coverageAssertion: value.coverageAssertion } : {}), ...(typeof value.closedCaseClaimId === "string" ? { closedCaseClaimId: value.closedCaseClaimId } : {}), ...(typeof value.closureReason === "string" ? { closureReason: value.closureReason } : {}), ...(typeof value.targetScope === "string" ? { targetScope: value.targetScope } : {}), ...(typeof value.counterexampleScope === "string" ? { counterexampleScope: value.counterexampleScope } : {}) };
+	try { assertContributionInvariants({ ...draft, assumptions: draft.assumptions ?? [], dependencyClaims: draft.dependencyClaims ?? [] }); } catch (error) { throw new ProofProtocolError(String(error)); }
+	return draft;
+}
+
+function isContributionKind(value: unknown): value is import("./types.js").ProofContributionKind { return value === "LEMMA" || value === "REDUCTION" || value === "CASE_SPLIT" || value === "CASE_CLOSURE" || value === "COUNTEREXAMPLE" || value === "CONSTRUCTION" || value === "BOUND" || value === "OBSTRUCTION" || value === "STRUCTURAL_OBSERVATION" || value === "LITERATURE_APPLICATION"; }
 
 function parseItem(value: unknown): {
 	readonly slug: string;
@@ -441,6 +475,7 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 		`# STATUS\n\nmode=${context.mode ?? "prove"}\nstatus=${context.status}\nstep=${context.step}`,
 		"# REPOSITORY\n\n" + (repository || "(empty)"),
 		"# FAILED ROUTES\n\n" + failures,
+		context.tacticalDirective === undefined ? "" : "# TACTICAL DIRECTIVE\n\n" + JSON.stringify(context.tacticalDirective, null, 2),
 		"# RECENT WORKER / VERIFIER OUTPUT\n\n" + (history || "(none)"),
 		"# COORDINATION RULES\n\nDelegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy. Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. Return one or more actions in JSON or OpenProver TOML format.",
 	].filter((part) => part.length > 0).join("\n\n---\n\n");
@@ -449,7 +484,7 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 function plannerSystemPrompt(mode: string): string {
 	return [
 		"You are the PLANNER in an OpenProver-style proof workflow. Decide what work should happen next; workers do the mathematical reasoning.",
-	"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_lean_proof, stop.",
+	"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_target_proof, submit_lean_proof, stop.",
 	"Keep task descriptions self-contained. Workers only receive the theorem, task, and explicitly referenced repository material. Never silently repair a verifier rejection; create a new route and record the failure.",
 	mode === "prove" ? "Goal: accept a verified informal proof." : mode === "formalize_only" ? "Goal: accept only a formally checked Lean proof." : "Goal: accept both a verified informal proof and a formally checked Lean proof.",
 	].join("\n\n");
