@@ -1,0 +1,95 @@
+TAP version 13
+# Subtest: maxWorkers bounds concurrency without silently dropping any of seven logical tasks
+ok 1 - maxWorkers bounds concurrency without silently dropping any of seven logical tasks
+  ---
+  duration_ms: 360.0577
+  ...
+# Subtest: task-level crash resume reuses completed workers and runs only missing worker and verifiers
+ok 2 - task-level crash resume reuses completed workers and runs only missing worker and verifiers
+  ---
+  duration_ms: 201.4053
+  ...
+# Subtest: an invalidated plan dependency marks the old plan stale and replans the same step
+ok 3 - an invalidated plan dependency marks the old plan stale and replans the same step
+  ---
+  duration_ms: 152.1451
+  ...
+# Subtest: conditional assumptions survive promotion and block an unconditional root
+ok 4 - conditional assumptions survive promotion and block an unconditional root
+  ---
+  duration_ms: 77.1918
+  ...
+# Subtest: empty, singleton, self, and duplicate decompositions fail before truth or authority mutation
+ok 5 - empty, singleton, self, and duplicate decompositions fail before truth or authority mutation
+  ---
+  duration_ms: 36.7433
+  ...
+# Subtest: Planner contribution scope cannot be escalated to TARGET by a Worker
+ok 6 - Planner contribution scope cannot be escalated to TARGET by a Worker
+  ---
+  duration_ms: 68.1457
+  ...
+# Subtest: authority transition fault points commit either nothing or the full effect exactly once
+ok 7 - authority transition fault points commit either nothing or the full effect exactly once
+  ---
+  duration_ms: 266.8648
+  ...
+# Subtest: search, body read, and declared reliance remain distinct evidence classes
+ok 8 - search, body read, and declared reliance remain distinct evidence classes
+  ---
+  duration_ms: 87.9973
+  ...
+# Subtest: controlled computation produces a durable, hashed, receipted artifact
+ok 9 - controlled computation produces a durable, hashed, receipted artifact
+  ---
+  duration_ms: 101.3965
+  ...
+# Subtest: Director reduction and counterexample intents reach tactical execution as structured directives
+ok 10 - Director reduction and counterexample intents reach tactical execution as structured directives
+  ---
+  duration_ms: 373.197
+  ...
+# Subtest: a CHANGE_ROUTE TacticalDirective reaches the actual Proof Planner context unchanged
+ok 11 - a CHANGE_ROUTE TacticalDirective reaches the actual Proof Planner context unchanged
+  ---
+  duration_ms: 62.0951
+  ...
+# Subtest: STOP_PROJECT persists an intentional terminal turn and does not start another cycle
+ok 12 - STOP_PROJECT persists an intentional terminal turn and does not start another cycle
+  ---
+  duration_ms: 75.7773
+  ...
+# Subtest: all typed route reopen predicates have deterministic state semantics
+ok 13 - all typed route reopen predicates have deterministic state semantics
+  ---
+  duration_ms: 0.7269
+  ...
+# Subtest: Director cannot reopen a route whose typed predicate is unsatisfied
+ok 14 - Director cannot reopen a route whose typed predicate is unsatisfied
+  ---
+  duration_ms: 195.4953
+  ...
+# Subtest: large corpus files are analyzed in bounded exact ranges and merged
+ok 15 - large corpus files are analyzed in bounded exact ranges and merged
+  ---
+  duration_ms: 108.4838
+  ...
+# Subtest: literature metadata, abstract, landing page, exact excerpt, and full text retain distinct authority tiers
+ok 16 - literature metadata, abstract, landing page, exact excerpt, and full text retain distinct authority tiers
+  ---
+  duration_ms: 91.293
+  ...
+# Subtest: MRR v1 state migration preserves history and reopens unsafe authority for revalidation
+ok 17 - MRR v1 state migration preserves history and reopens unsafe authority for revalidation
+  ---
+  duration_ms: 15.7029
+  ...
+1..17
+# tests 17
+# suites 0
+# pass 17
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1900.9916

@@ -275,7 +275,12 @@ function countOccurrences(source: string, fragment: string): number {
 
 function runShellCommand(command: string, cwd: string, timeoutMs: number | undefined, signal: AbortSignal | undefined): Promise<BashDetails> {
 	return new Promise<BashDetails>((resolvePromise, reject) => {
-		const child = spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+		// A direct `program -e 'script'` path keeps the same quoting semantics on
+		// POSIX and Windows (cmd.exe does not treat single quotes as grouping).
+		const directScript = command.match(/^("[^"]+"|\S+)\s+-e\s+'([\s\S]*)'$/u);
+		const child = directScript === null
+			? spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] })
+			: spawn((directScript[1] ?? "").replace(/^"|"$/gu, ""), ["-e", directScript[2] ?? ""], { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
 		let timedOut = false;

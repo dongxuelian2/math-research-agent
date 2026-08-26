@@ -8,9 +8,12 @@ import type { MockResponse } from "./providers/mock.js";
 import type { ModelConfig, ProviderId, ReasoningEffort } from "./providers/types.js";
 
 export const PROOF_ROLES = [
+	"research_director",
+	"corpus_bootstrapper",
 	"planner",
 	"worker",
 	"verifier",
+	"secondary_auditor",
 	"synthesizer",
 	"formalizer",
 	"literature_researcher",
@@ -46,7 +49,6 @@ export type MathAgentConfig = {
 		readonly webPort: number;
 		readonly proofApiPort: number;
 		readonly dataDir: string;
-		readonly openBrowser: boolean;
 	};
 	readonly proof: {
 		readonly defaultMode: ProofMode;
@@ -64,6 +66,24 @@ export type MathAgentConfig = {
 	readonly literature: {
 		readonly enabled: boolean;
 	};
+	readonly research: {
+		readonly maxCycles: number;
+		readonly checkpointInterval: number;
+		readonly stallThreshold: number;
+		readonly structuralProbeBudget: number;
+		readonly maxActiveObligations: number;
+	};
+	readonly budgets: {
+		readonly plannerCalls: number;
+		readonly workerCalls: number;
+		readonly verifierCalls: number;
+		readonly secondaryAuditorCalls: number;
+		readonly literatureSearches: number;
+		readonly toolCalls: number;
+		readonly wallTimeSeconds: number;
+	};
+	readonly corpus: { readonly enabled: boolean; readonly roots: readonly string[]; readonly importAuthorityPolicy: string };
+	readonly tools: { readonly enabled: boolean; readonly allowedCapabilities: readonly string[]; readonly allowedExecutables: readonly string[]; readonly executionBoundary: "CONTROLLED_COMMAND_RUNNER" };
 };
 
 export type PublicModelProfile = ModelProfile & {
@@ -83,6 +103,10 @@ export type ConfigUpdate = {
 	readonly models?: Readonly<Record<string, Partial<ModelProfile>>>;
 	readonly roles?: Partial<Record<ProofRole, Partial<RoleProfile>>>;
 	readonly literature?: Partial<MathAgentConfig["literature"]>;
+	readonly research?: Partial<MathAgentConfig["research"]>;
+	readonly budgets?: Partial<MathAgentConfig["budgets"]>;
+	readonly corpus?: Partial<MathAgentConfig["corpus"]>;
+	readonly tools?: Partial<MathAgentConfig["tools"]>;
 };
 
 export const DEFAULT_CONFIG: MathAgentConfig = {
@@ -92,7 +116,6 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 		webPort: 3080,
 		proofApiPort: 4310,
 		dataDir: ".math-agent",
-		openBrowser: false,
 	},
 	proof: {
 		defaultMode: "prove",
@@ -107,14 +130,21 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 		mock: { provider: "mock", model: "math-proof-offline" },
 	},
 	roles: {
+		research_director: { model: "mock" },
+		corpus_bootstrapper: { model: "mock" },
 		planner: { model: "mock" },
 		worker: { model: "mock" },
 		verifier: { model: "mock" },
-		synthesizer: { model: "mock", enabled: false },
+		secondary_auditor: { model: "mock" },
+		synthesizer: { model: "mock", enabled: true },
 		formalizer: { model: "mock", enabled: false },
 		literature_researcher: { model: "mock", enabled: false },
 	},
 	literature: { enabled: false },
+	research: { maxCycles: 100, checkpointInterval: 1, stallThreshold: 3, structuralProbeBudget: 2, maxActiveObligations: 8 },
+	budgets: { plannerCalls: 1000, workerCalls: 1000, verifierCalls: 1000, secondaryAuditorCalls: 100, literatureSearches: 100, toolCalls: 5000, wallTimeSeconds: 86400 },
+	corpus: { enabled: true, roots: [], importAuthorityPolicy: "PROVISIONAL_IMPORTED" },
+	tools: { enabled: true, allowedCapabilities: ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], allowedExecutables: ["node", "python", "lean", "lake"], executionBoundary: "CONTROLLED_COMMAND_RUNNER" },
 };
 
 export class ConfigConflictError extends Error {
@@ -136,6 +166,7 @@ export class MathAgentConfigService {
 	private textValue = "";
 	private revisionValue = "";
 	private watcher: AsyncIterableIterator<{ readonly eventType: string }> | undefined;
+	private watcherAbort: AbortController | undefined;
 	private mutationTail: Promise<void> = Promise.resolve();
 
 	constructor(readonly path: string) {}
@@ -178,7 +209,8 @@ export class MathAgentConfigService {
 
 	async startWatching(onUpdate?: (config: MathAgentConfig) => void | Promise<void>): Promise<void> {
 		if (this.watcher !== undefined) return;
-		const iterator = watchFile(resolve(this.path), { persistent: false }) as AsyncIterableIterator<{ readonly eventType: string }>;
+		this.watcherAbort = new AbortController();
+		const iterator = watchFile(resolve(this.path), { persistent: false, signal: this.watcherAbort.signal }) as AsyncIterableIterator<{ readonly eventType: string }>;
 		this.watcher = iterator;
 		void (async () => {
 			try {
@@ -200,8 +232,12 @@ export class MathAgentConfigService {
 	}
 
 	async close(): Promise<void> {
-		await this.watcher?.return?.();
+		this.watcherAbort?.abort();
+		// Aborting the fs watcher is synchronous from the caller's perspective;
+		// awaiting iterator.return() can hang on Windows after the abort.
+		void this.watcher?.return?.();
 		this.watcher = undefined;
+		this.watcherAbort = undefined;
 	}
 
 	publicSnapshot(): PublicMathAgentConfig {
@@ -256,6 +292,10 @@ export class MathAgentConfigService {
 				models,
 				roles,
 				literature: { ...current.literature, ...update.literature },
+				research: { ...current.research, ...update.research },
+				budgets: { ...current.budgets, ...update.budgets },
+				corpus: { ...current.corpus, ...update.corpus },
+				tools: { ...current.tools, ...update.tools },
 			});
 			await this.persist(stringifyMathAgentConfig(next));
 			return this.publicSnapshot();
@@ -309,19 +349,29 @@ export function modelConfigOf(profile: ModelProfile): ModelConfig {
 	};
 }
 
-export function createMockResponses(role: ProofRole): readonly MockResponse[] {
+export function createMockResponses(role: ProofRole, targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }): readonly MockResponse[] {
 	if (role === "planner") {
+		if (targetGate !== undefined) return [
+			textResponse(JSON.stringify({ actions: [{ action: "spawn", tasks: [{ taskId: "mock-target-task", summary: "Prove the exact research target", description: "Give a complete proof of the exact target theorem.", scope: "TARGET", targetClaimId: targetGate.targetClaimId }] }] })),
+			textResponse(JSON.stringify({ actions: [{ action: "submit_target_proof", candidateId: "mock-target-task-candidate", targetObligationId: targetGate.targetObligationId, targetClaimId: targetGate.targetClaimId }] })),
+		];
 		return [
 			textResponse('{"actions":[{"action":"write_whiteboard","content":"Use ordinary mathematical induction and check the base case."},{"action":"spawn","tasks":[{"taskId":"mock-proof-task","summary":"Construct a complete proof","description":"Give a complete, self-contained proof of the theorem."}]}]}'),
 			textResponse('{"actions":[{"action":"submit_proof","candidateId":"mock-proof-task-candidate"}]}'),
 		];
 	}
 	if (role === "worker") {
-		return [textResponse('{"kind":"candidate","candidate":{"strategy":"induction","content":"For n = 1, the identity is immediate. Assume the identity holds for n. Adding the next odd number gives n^2 + (2n + 1) = (n + 1)^2, so the statement holds for n + 1. By mathematical induction, the identity holds for every n >= 1."}}')];
+		return [textResponse(`{"kind":"candidate","candidate":{"strategy":"induction","scope":"${targetGate === undefined ? "CONTRIBUTION" : "TARGET"}","content":"For n = 1, the identity is immediate. Assume the identity holds for n. Adding the next odd number gives n^2 + (2n + 1) = (n + 1)^2, so the statement holds for n + 1. By mathematical induction, the identity holds for every n >= 1."}}`)];
 	}
 	if (role === "verifier") {
-		return [textResponse("The base case and induction step are valid.\nVERDICT: CORRECT")];
+		return [textResponse('{"verdict":"CORRECT","feedback":"The base case and induction step are valid."}')];
 	}
+	if (role === "secondary_auditor") return [textResponse('{"verdict":"CORRECT","feedback":"Fresh independent audit found no gap."}')];
+	if (role === "corpus_bootstrapper") return [textResponse('{"proposals":[],"dependencies":[],"warnings":[]}')];
+	if (role === "research_director") return [textResponse('{"action":"ATTACK_OBLIGATION","reason":"offline mock delegates target selection to deterministic validation"}')];
+	if (role === "synthesizer") return [textResponse('{"proof":"The authoritative dependency and coverage manifest yields the stated root conclusion.","usedArtifactIds":[]}')];
+	if (role === "formalizer") return [textResponse('{"lean":"theorem mrr_placeholder : True := by\\n  trivial","notes":"Untrusted offline draft; the process gate remains authoritative."}')];
+	if (role === "literature_researcher") return [textResponse('{"applicable":false,"reason":"offline mock has no source","assumptions":[],"scopeLimitations":[]}')];
 	return [];
 }
 
@@ -334,6 +384,10 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 	const proof = record(value.proof) ?? {};
 	const formalization = record(value.formalization) ?? {};
 	const literature = record(value.literature) ?? {};
+	const research = record(value.research) ?? {};
+	const budgets = record(value.budgets) ?? {};
+	const corpus = record(value.corpus) ?? {};
+	const tools = record(value.tools) ?? {};
 	const modelValues = record(value.models) ?? {};
 	const roleValues = record(value.roles) ?? {};
 	const models: Record<string, ModelProfile> = {};
@@ -353,7 +407,6 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 			webPort: boundedInteger(runtime.web_port ?? runtime.webPort, DEFAULT_CONFIG.runtime.webPort),
 			proofApiPort: boundedInteger(runtime.proof_api_port ?? runtime.proofApiPort, DEFAULT_CONFIG.runtime.proofApiPort),
 			dataDir: stringValue(runtime.data_dir ?? runtime.dataDir, DEFAULT_CONFIG.runtime.dataDir),
-			openBrowser: booleanValue(runtime.open_browser ?? runtime.openBrowser, DEFAULT_CONFIG.runtime.openBrowser),
 		},
 		proof: {
 			defaultMode: proof.default_mode === "prove_and_formalize" || proof.defaultMode === "prove_and_formalize"
@@ -371,6 +424,18 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 		models,
 		roles,
 		literature: { enabled: booleanValue(literature.enabled, DEFAULT_CONFIG.literature.enabled) },
+		research: {
+			maxCycles: boundedInteger(research.max_cycles ?? research.maxCycles, DEFAULT_CONFIG.research.maxCycles),
+			checkpointInterval: boundedInteger(research.checkpoint_interval ?? research.checkpointInterval, DEFAULT_CONFIG.research.checkpointInterval),
+			stallThreshold: boundedInteger(research.stall_threshold ?? research.stallThreshold, DEFAULT_CONFIG.research.stallThreshold),
+			structuralProbeBudget: boundedInteger(research.structural_probe_budget ?? research.structuralProbeBudget, DEFAULT_CONFIG.research.structuralProbeBudget),
+			maxActiveObligations: boundedInteger(research.max_active_obligations ?? research.maxActiveObligations, DEFAULT_CONFIG.research.maxActiveObligations),
+		},
+		budgets: {
+			plannerCalls: boundedInteger(budgets.planner_calls ?? budgets.plannerCalls, DEFAULT_CONFIG.budgets.plannerCalls), workerCalls: boundedInteger(budgets.worker_calls ?? budgets.workerCalls, DEFAULT_CONFIG.budgets.workerCalls), verifierCalls: boundedInteger(budgets.verifier_calls ?? budgets.verifierCalls, DEFAULT_CONFIG.budgets.verifierCalls), secondaryAuditorCalls: boundedInteger(budgets.secondary_auditor_calls ?? budgets.secondaryAuditorCalls, DEFAULT_CONFIG.budgets.secondaryAuditorCalls), literatureSearches: boundedInteger(budgets.literature_searches ?? budgets.literatureSearches, DEFAULT_CONFIG.budgets.literatureSearches), toolCalls: boundedInteger(budgets.tool_calls ?? budgets.toolCalls, DEFAULT_CONFIG.budgets.toolCalls), wallTimeSeconds: boundedInteger(budgets.wall_time_seconds ?? budgets.wallTimeSeconds, DEFAULT_CONFIG.budgets.wallTimeSeconds),
+		},
+		corpus: { enabled: booleanValue(corpus.enabled, DEFAULT_CONFIG.corpus.enabled), roots: Array.isArray(corpus.roots) ? corpus.roots.filter((item): item is string => typeof item === "string") : [], importAuthorityPolicy: configuredImportAuthority(corpus.import_authority_policy ?? corpus.importAuthorityPolicy) },
+		tools: { enabled: booleanValue(tools.enabled, DEFAULT_CONFIG.tools.enabled), allowedCapabilities: configuredCapabilityNames(tools.allowed_capabilities ?? tools.allowedCapabilities), allowedExecutables: configuredExecutableNames(tools.allowed_executables ?? tools.allowedExecutables), executionBoundary: controlledExecutionBoundary(tools.execution_boundary ?? tools.executionBoundary ?? tools.sandbox_policy ?? tools.sandboxPolicy) },
 	};
 }
 
@@ -405,10 +470,14 @@ function normalizeRole(value: Record<string, unknown>): RoleProfile {
 }
 
 export function stringifyMathAgentConfig(config: MathAgentConfig): string {
-	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, `open_browser = ${config.runtime.openBrowser}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
+	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
 	if (config.formalization.projectDir !== undefined) lines.push(`project_dir = ${quote(config.formalization.projectDir)}`);
 	if (config.formalization.command !== undefined) lines.push(`command = ${quote(config.formalization.command)}`);
 	lines.push("", "[literature]", `enabled = ${config.literature.enabled}`);
+	lines.push("", "[research]", `max_cycles = ${config.research.maxCycles}`, `checkpoint_interval = ${config.research.checkpointInterval}`, `stall_threshold = ${config.research.stallThreshold}`, `structural_probe_budget = ${config.research.structuralProbeBudget}`, `max_active_obligations = ${config.research.maxActiveObligations}`);
+	lines.push("", "[budgets]", `planner_calls = ${config.budgets.plannerCalls}`, `worker_calls = ${config.budgets.workerCalls}`, `verifier_calls = ${config.budgets.verifierCalls}`, `secondary_auditor_calls = ${config.budgets.secondaryAuditorCalls}`, `literature_searches = ${config.budgets.literatureSearches}`, `tool_calls = ${config.budgets.toolCalls}`, `wall_time_seconds = ${config.budgets.wallTimeSeconds}`);
+	lines.push("", "[corpus]", `enabled = ${config.corpus.enabled}`, `roots = [${config.corpus.roots.map(quote).join(", ")}]`, `import_authority_policy = ${quote(config.corpus.importAuthorityPolicy)}`);
+	lines.push("", "[tools]", `enabled = ${config.tools.enabled}`, `allowed_capabilities = [${config.tools.allowedCapabilities.map(quote).join(", ")}]`, `allowed_executables = [${config.tools.allowedExecutables.map(quote).join(", ")}]`, `execution_boundary = ${quote(config.tools.executionBoundary)}`);
 	for (const [name, model] of Object.entries(config.models)) {
 		lines.push("", `[models.${tomlKey(name)}]`, `provider = ${quote(model.provider)}`, `model = ${quote(model.model)}`);
 		if (model.baseUrl !== undefined) lines.push(`base_url = ${quote(model.baseUrl)}`);
@@ -604,6 +673,34 @@ function isJsonValue(value: unknown): value is JsonValue {
 
 function stringValue(value: unknown, fallback: string): string {
 	return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function controlledExecutionBoundary(value: unknown): "CONTROLLED_COMMAND_RUNNER" {
+	if (value === undefined || value === "CONTROLLED_COMMAND_RUNNER") return "CONTROLLED_COMMAND_RUNNER";
+	throw new Error("tools.execution_boundary must be CONTROLLED_COMMAND_RUNNER; this runtime does not claim a hardened sandbox");
+}
+
+function configuredImportAuthority(value: unknown): string {
+	if (value === undefined) return DEFAULT_CONFIG.corpus.importAuthorityPolicy;
+	const allowed = ["VERIFIED_CURRENT", "VERIFIED_IMPORTED", "PROVISIONAL_IMPORTED", "UNVERIFIED_NOTE"];
+	if (typeof value === "string" && allowed.includes(value)) return value;
+	throw new Error(`corpus.import_authority_policy must be one of ${allowed.join(", ")}`);
+}
+
+function configuredExecutableNames(value: unknown): readonly string[] {
+	if (value === undefined) return DEFAULT_CONFIG.tools.allowedExecutables;
+	if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("tools.allowed_executables must be an array of executable names");
+	const allowed = ["node", "python", "lean", "lake"], invalid = value.filter((item) => !allowed.includes(item));
+	if (invalid.length > 0) throw new Error(`Unsupported controlled executable(s): ${invalid.join(", ")}`);
+	return [...new Set(value)];
+}
+
+function configuredCapabilityNames(value: unknown): readonly string[] {
+	if (value === undefined) return DEFAULT_CONFIG.tools.allowedCapabilities;
+	if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("tools.allowed_capabilities must be an array of capability names");
+	const allowed = ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], invalid = value.filter((item) => !allowed.includes(item));
+	if (invalid.length > 0) throw new Error(`Unsupported research capability/capabilities: ${invalid.join(", ")}`);
+	return [...new Set(value)];
 }
 
 function stringValueOrUndefined(value: unknown): string | undefined {

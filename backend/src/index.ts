@@ -3,6 +3,7 @@ export * from "./api/index.js";
 export * from "./models/index.js";
 export * from "./providers/index.js";
 export * from "./proof/index.js";
+export * from "./research/index.js";
 export * from "./session/index.js";
 export * from "./tools/index.js";
 export * from "./config.js";

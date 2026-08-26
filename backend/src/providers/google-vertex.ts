@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { FetchTransport } from "./http.js";
 import { asNumber, asRecord, asString } from "./parse.js";
 import { googleRequestBody, parseGoogleStream } from "./google-common.js";
+import { configureProxyFromEnvironment } from "./network.js";
 import {
 	resolveCredentialFile,
 	type ModelConfig,
@@ -53,6 +54,7 @@ export class GoogleVertexProvider implements ModelProvider {
 	private cachedToken: AccessToken | undefined;
 
 	constructor(options: GoogleVertexProviderOptions = {}) {
+		configureProxyFromEnvironment();
 		this.transport = options.transport ?? new FetchTransport();
 		this.tokenRequester = options.tokenRequester ?? requestAccessToken;
 		this.defaultBaseUrl = options.defaultBaseUrl;
@@ -135,6 +137,7 @@ async function readServiceAccount(model: ModelConfig): Promise<ServiceAccount> {
 }
 
 async function requestAccessToken(request: TokenRequest): Promise<TokenResponse> {
+	configureProxyFromEnvironment();
 	const now = Math.floor(Date.now() / 1000);
 	const header = {
 		alg: "RS256",

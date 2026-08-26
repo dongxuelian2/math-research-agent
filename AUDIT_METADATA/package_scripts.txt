@@ -1,0 +1,44 @@
+Lifecycle scripts:
+  start
+    pnpm --dir apps/proof-workbench run serve
+
+Commands available via "pnpm run":
+  build
+    pnpm run build:proof && pnpm run build:gui
+  build:proof
+    pnpm --filter @math-research-agent/backend run build
+  build:gui
+    pnpm --filter @math-research-agent/proof-workbench run check
+  typecheck
+    pnpm --filter @math-research-agent/backend run typecheck
+  test:proof
+    pnpm --filter @math-research-agent/backend run test
+  start:api
+    pnpm --dir apps/proof-workbench run serve -- --api-only
+Lifecycle scripts:
+  test
+    npm run build && node --test dist/test/*.test.js
+
+Commands available via "pnpm run":
+  build
+    tsc -p tsconfig.json
+  typecheck
+    tsc --noEmit -p tsconfig.json
+  smoke:real:mrr
+    npm run build && node scripts/real-provider-research-smoke.mjs
+
+Commands of the root workspace project (to run them, use "pnpm -w run"):
+  build
+    pnpm run build:proof && pnpm run build:gui
+  build:proof
+    pnpm --filter @math-research-agent/backend run build
+  build:gui
+    pnpm --filter @math-research-agent/proof-workbench run check
+  typecheck
+    pnpm --filter @math-research-agent/backend run typecheck
+  test:proof
+    pnpm --filter @math-research-agent/backend run test
+  start
+    pnpm --dir apps/proof-workbench run serve
+  start:api
+    pnpm --dir apps/proof-workbench run serve -- --api-only

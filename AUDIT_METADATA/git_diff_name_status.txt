@@ -1,0 +1,17 @@
+M	README.md
+M	backend/package.json
+M	backend/src/api/server.ts
+M	backend/src/config.ts
+M	backend/src/index.ts
+M	backend/src/production.ts
+M	backend/src/proof/agent-role.ts
+M	backend/src/proof/index.ts
+M	backend/src/proof/runtime.ts
+M	backend/src/proof/types.ts
+M	backend/src/providers/google-common.ts
+M	backend/src/providers/google-vertex.ts
+M	backend/src/providers/http.ts
+M	backend/src/tools/builtin.ts
+M	backend/test/proof-workflow.test.ts
+M	configs/math-agent.toml
+M	pnpm-lock.yaml

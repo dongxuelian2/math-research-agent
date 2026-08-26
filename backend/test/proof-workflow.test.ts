@@ -20,6 +20,8 @@ test("full proof actions persist repository, whiteboard, parallel workers, faile
 	let activeResearchers = 0;
 	let peakResearchers = 0;
 	const researched: string[] = [];
+	let releaseFirstWave: (() => void) | undefined;
+	const firstWaveReady = new Promise<void>((resolve) => { releaseFirstWave = resolve; });
 	const planner = {
 		async plan(context: { readonly step: number }): Promise<ProofPlan> {
 			if (context.step === 1) {
@@ -59,8 +61,11 @@ test("full proof actions persist repository, whiteboard, parallel workers, faile
 	const researcher = {
 		async research(context: ProofResearchContext) {
 			researched.push(context.task.taskId);
+			const invocation = researched.length;
 			activeResearchers += 1;
 			peakResearchers = Math.max(peakResearchers, activeResearchers);
+			if (invocation === 2) releaseFirstWave?.();
+			if (invocation <= 2) await Promise.race([firstWaveReady, new Promise<void>((resolve) => setTimeout(resolve, 500))]);
 			await new Promise((resolve) => setTimeout(resolve, 15));
 			activeResearchers -= 1;
 			if (context.task.taskId === "route-a") {

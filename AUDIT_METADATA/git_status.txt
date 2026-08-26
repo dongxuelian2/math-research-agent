@@ -1,0 +1,33 @@
+ M README.md
+ M backend/package.json
+ M backend/src/api/server.ts
+ M backend/src/config.ts
+ M backend/src/index.ts
+ M backend/src/production.ts
+ M backend/src/proof/agent-role.ts
+ M backend/src/proof/index.ts
+ M backend/src/proof/runtime.ts
+ M backend/src/proof/types.ts
+ M backend/src/providers/google-common.ts
+ M backend/src/providers/google-vertex.ts
+ M backend/src/providers/http.ts
+ M backend/src/tools/builtin.ts
+ M backend/test/proof-workflow.test.ts
+ M configs/math-agent.toml
+ M pnpm-lock.yaml
+?? AUDIT_METADATA/
+?? backend/scripts/
+?? backend/src/proof/tool-scope.ts
+?? backend/src/providers/network.ts
+?? backend/src/research/
+?? backend/test/proof-queue.test.ts
+?? backend/test/research-api.test.ts
+?? backend/test/research-closure.test.ts
+?? backend/test/research-hardening.test.ts
+?? backend/test/research-kernel.test.ts
+?? backend/test/research-production-protocol.test.ts
+?? backend/test/research-runtime.test.ts
+?? docs/MATHEMATICAL_RESEARCH_RUNTIME.md
+?? docs/MRR_CRITICAL_LAYER_READINESS.md
+?? docs/MRR_V1_INVARIANTS.md
+?? powerful-layout-478408-f9-7b34a96b996f.json

@@ -5,7 +5,6 @@ host = "127.0.0.1"
 web_port = 3080
 proof_api_port = 43100
 data_dir = ".math-agent"
-open_browser = false
 
 [proof]
 default_mode = "prove"
@@ -17,7 +16,34 @@ history_limit = 8
 enabled = false
 
 [literature]
-enabled = false
+enabled = true
+
+[research]
+max_cycles = 100
+checkpoint_interval = 1
+stall_threshold = 3
+structural_probe_budget = 2
+max_active_obligations = 8
+
+[budgets]
+planner_calls = 1000
+worker_calls = 1000
+verifier_calls = 1000
+secondary_auditor_calls = 100
+literature_searches = 100
+tool_calls = 5000
+wall_time_seconds = 86400
+
+[corpus]
+enabled = true
+roots = []
+import_authority_policy = "PROVISIONAL_IMPORTED"
+
+[tools]
+enabled = true
+allowed_capabilities = ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"]
+allowed_executables = ["node", "python", "lean", "lake"]
+execution_boundary = "CONTROLLED_COMMAND_RUNNER"
 
 [models.gemini37]
 provider = "google-vertex"
@@ -30,15 +56,24 @@ max_tokens = 8192
 [roles.planner]
 model = "gemini37"
 
+[roles.research_director]
+model = "gemini37"
+
+[roles.corpus_bootstrapper]
+model = "gemini37"
+
 [roles.worker]
 model = "gemini37"
 
 [roles.verifier]
 model = "gemini37"
 
+[roles.secondary_auditor]
+model = "gemini37"
+
 [roles.synthesizer]
 model = "gemini37"
-enabled = false
+enabled = true
 
 [roles.formalizer]
 model = "gemini37"
@@ -46,4 +81,4 @@ enabled = false
 
 [roles.literature_researcher]
 model = "gemini37"
-enabled = false
+enabled = true

@@ -37,6 +37,10 @@ export type ProofTaskInput = {
 	readonly description: string;
 	/** A stable route identity supplied by the planner when wording may vary. */
 	readonly routeKey?: string;
+	/** Only a Planner may designate a task as an attempt on the exact research target. */
+	readonly scope?: "TARGET" | "CONTRIBUTION";
+	readonly targetClaimId?: string;
+	readonly contributionKind?: ProofContributionKind;
 };
 
 export type ProofTask = {
@@ -45,6 +49,29 @@ export type ProofTask = {
 	readonly description: string;
 	readonly routeFingerprint: string;
 	readonly routeKey?: string;
+	readonly scope: "TARGET" | "CONTRIBUTION";
+	readonly targetClaimId?: string;
+	readonly contributionKind?: ProofContributionKind;
+};
+
+export type ProofContributionKind =
+	| "LEMMA" | "REDUCTION" | "CASE_SPLIT" | "CASE_CLOSURE" | "COUNTEREXAMPLE"
+	| "CONSTRUCTION" | "BOUND" | "OBSTRUCTION" | "STRUCTURAL_OBSERVATION" | "LITERATURE_APPLICATION";
+
+export type ProofContributionDraft = {
+	readonly kind: ProofContributionKind;
+	readonly statement: string;
+	readonly relationshipToTarget: string;
+	readonly claimId?: string;
+	readonly assumptions?: readonly string[];
+	readonly dependencyClaims?: readonly string[];
+	readonly childClaims?: readonly { readonly claimId: string; readonly statement: string }[];
+	readonly coverageScope?: string;
+	readonly coverageAssertion?: string;
+	readonly closedCaseClaimId?: string;
+	readonly closureReason?: string;
+	readonly targetScope?: string;
+	readonly counterexampleScope?: string;
 };
 
 export type ProofCandidateDraft = {
@@ -56,6 +83,14 @@ export type ProofCandidateDraft = {
 	readonly claim?: string;
 	/** Optional precomputed semantic fingerprint supplied by a trusted adapter. */
 	readonly claimFingerprint?: string;
+	/** Model-declared evidence is advisory; runtime evidence is attached separately. */
+	readonly evidence?: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
+	/** Exact artifact ids the Worker declares it mathematically relied upon. */
+	readonly reliedOnArtifactIds?: readonly string[];
+	readonly scope?: "TARGET" | "CONTRIBUTION";
+	readonly assumptions?: readonly string[];
+	readonly dependencyClaims?: readonly string[];
+	readonly contribution?: ProofContributionDraft;
 };
 
 export type ProofCandidate = {
@@ -67,6 +102,16 @@ export type ProofCandidate = {
 	readonly claimFingerprint: string;
 	readonly candidateFingerprint: string;
 	readonly claim?: string;
+	readonly evidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
+	readonly discoveredEvidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
+	readonly bodyReadEvidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
+	readonly declaredEvidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
+	readonly reliedOnArtifactIds: readonly string[];
+	readonly scope: "TARGET" | "CONTRIBUTION";
+	readonly targetClaimId?: string;
+	readonly assumptions: readonly string[];
+	readonly dependencyClaims: readonly string[];
+	readonly contribution?: ProofContributionDraft;
 };
 
 export type ResearchResult =
@@ -89,6 +134,8 @@ export type VerificationResult = {
 	readonly verdict: ProofVerdict;
 	readonly feedback: string;
 	readonly checks?: readonly string[];
+	/** Filled by runtime instrumentation, never trusted from model JSON. */
+	readonly evidence?: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
 };
 
 export type FormalVerificationResult = {
@@ -134,6 +181,7 @@ export type ProofOutput = {
 };
 
 export type ProofBudgetOptions = {
+	readonly maxPlannerCalls?: number;
 	readonly maxWorkerCalls?: number;
 	readonly maxVerifierCalls?: number;
 	readonly maxLiteratureSearches?: number;
@@ -142,11 +190,13 @@ export type ProofBudgetOptions = {
 };
 
 export type ProofBudgetState = {
+	readonly plannerCalls: number;
 	readonly workerCalls: number;
 	readonly verifierCalls: number;
 	readonly literatureSearches: number;
 	readonly toolCalls: number;
 	readonly startedAt: number;
+	readonly maxPlannerCalls?: number;
 	readonly maxWorkerCalls?: number;
 	readonly maxVerifierCalls?: number;
 	readonly maxLiteratureSearches?: number;
@@ -170,6 +220,7 @@ export type ProofPlannerContext = {
 	readonly stepHistory?: readonly ProofStepRecord[];
 	readonly budget?: ProofBudgetState;
 	readonly artifacts?: ProofArtifactStatus;
+	readonly tacticalDirective?: Readonly<Record<string, unknown>>;
 };
 
 export type ProofResearchContext = {
@@ -246,6 +297,13 @@ export type ProofAction =
 			readonly summary?: string;
 		}
 	| {
+			readonly action: "submit_target_proof";
+			readonly candidateId: string;
+			readonly targetObligationId: string;
+			readonly targetClaimId: string;
+			readonly summary?: string;
+		}
+	| {
 			readonly action: "submit_lean_proof";
 			readonly proofSlug?: string;
 			readonly leanProofSlug?: string;
@@ -256,6 +314,37 @@ export type ProofAction =
 export type ProofPlan = {
 	readonly actions: readonly ProofAction[];
 	readonly summary?: string;
+};
+
+export type ProofExecutionPlan = {
+	readonly planId: string;
+	readonly step: number;
+	readonly inputHash: string;
+	readonly plan: ProofPlan;
+	readonly taskIds: readonly string[];
+	readonly dependencyRefs: readonly { readonly artifactId: string; readonly contentHash: string }[];
+	readonly actionExecutions: readonly ProofPlanActionExecution[];
+	readonly status: "RUNNING" | "COMPLETED" | "STALE";
+	readonly staleReason?: string;
+	readonly createdAt: string;
+	readonly completedAt?: string;
+};
+
+export type ProofPlanActionExecutionStatus =
+	| "PENDING" | "RUNNING" | "COMPLETED" | "FAILED_RETRYABLE" | "FAILED_TERMINAL" | "INTERRUPTED" | "STALE";
+
+export type ProofPlanActionExecution = {
+	readonly actionId: string;
+	readonly planId: string;
+	readonly ordinal: number;
+	readonly action: ProofAction;
+	readonly status: ProofPlanActionExecutionStatus;
+	readonly resultArtifactIds: readonly string[];
+	readonly effectIds: readonly string[];
+	readonly result?: Readonly<Record<string, unknown>>;
+	readonly startedAt?: string;
+	readonly completedAt?: string;
+	readonly error?: string;
 };
 
 export type ProofRouteFailure = {
@@ -308,9 +397,16 @@ export type ProofState = {
 	readonly rejectedCandidates: readonly ProofRejectedCandidate[];
 	readonly recentOutputs: readonly ProofOutput[];
 	readonly stepHistory: readonly ProofStepRecord[];
+	readonly executionPlans: readonly ProofExecutionPlan[];
 	readonly budget: ProofBudgetState;
 	readonly submittedCandidateId?: string;
 	readonly submittedProofSlug?: string;
+	readonly targetSubmission?: {
+		readonly candidateId: string;
+		readonly targetObligationId: string;
+		readonly targetClaimId: string;
+		readonly scope: "TARGET";
+	};
 	readonly proofLeanPath?: string;
 	readonly lastError?: string;
 };

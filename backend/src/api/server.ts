@@ -3,11 +3,15 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createUserMessage } from "../models/index.js";
-import { ConfigConflictError, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService } from "../config.js";
+import { ConfigConflictError, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService, type ProofRole } from "../config.js";
+import type { Agent } from "../agent/types.js";
 import type { JsonObject } from "../models/json.js";
+import type { RuntimeTool } from "../models/tools.js";
 import { Session } from "../session/index.js";
 import { ProofWorkflow } from "../proof/runtime.js";
-import type { AgentProofRoles } from "../proof/agent-role.js";
+import { CommandProofFormalVerifier } from "../proof/formal.js";
+import { activeAuthorityForClaim, AgentCorpusBootstrapper, AgentFinalAuditRole, AgentFormalizerRole, AgentLiteratureApplicability, AgentResearchDirector, AgentSynthesisRole, CorpusService, LiteratureService, OpenAlexLiteratureProvider, ResearchEvidenceRecorder, ResearchInvariantValidator, ResearchRetrievalService, ResearchRuntime, ResearchStore, RootClosureService, createResearchTools, researchFrontier, rootSynthesisReadiness, stableId, type LiteratureProvider, type TacticalProofRequest, type TacticalResearchResult, type TrustReceipt, type VerifiedResearchContribution } from "../research/index.js";
+import { createAgentProofVerifier, type AgentProofRoles } from "../proof/agent-role.js";
 import type {
 	ProofMode,
 	ProofObligation,
@@ -16,15 +20,20 @@ import type {
 	ProofStatus,
 } from "../proof/types.js";
 
-export type ProofApiRoleFactory = (context: {
+export interface ProofApiRoleFactory {
+(context: {
 	readonly session: Session;
 	readonly sessionId: string;
 	readonly runId: string;
 	readonly obligation: ProofObligation;
 	readonly mode: ProofMode;
+	readonly tools?: readonly RuntimeTool[];
+	readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
 	/** Immutable configuration selected when this run was created. */
 	readonly config?: MathAgentConfig;
-}) => AgentProofRoles | Promise<AgentProofRoles>;
+}): AgentProofRoles | Promise<AgentProofRoles>;
+	createAgent?(context: { readonly role: ProofRole; readonly sessionId: string; readonly runId: string; readonly tools?: readonly RuntimeTool[]; readonly config?: MathAgentConfig }): Promise<Agent>;
+}
 
 export type ProofApiServerOptions = {
 	readonly rootDirectory: string;
@@ -33,6 +42,9 @@ export type ProofApiServerOptions = {
 	readonly defaultMode?: ProofMode;
 	readonly defaultMaxWorkers?: number;
 	readonly defaultMaxSteps?: number;
+	readonly literatureProvider?: LiteratureProvider;
+	/** Deterministic crash seam used by restart/fault E2E; never configured by the public API. */
+	readonly researchProofFaultAfterWorkerResults?: number;
 };
 
 type SessionRecord = {
@@ -63,7 +75,13 @@ export class ProofApiServer {
 	private readonly defaultMode: ProofMode;
 	private readonly defaultMaxWorkers: number;
 	private readonly defaultMaxSteps: number;
+	private readonly researchProofFaultAfterWorkerResults?: number;
 	private readonly sessions = new Map<string, SessionRecord>();
+	private readonly researchStore: ResearchStore;
+	private readonly researchCorpus: CorpusService;
+	private researchRuntime: ResearchRuntime;
+	private readonly literatureProvider: LiteratureProvider;
+	private readonly activeResearch = new Map<string, { readonly controller: AbortController; readonly promise: Promise<void> }>();
 	private readonly sseResponses = new Set<ServerResponse>();
 	private readonly sseRunResponses = new Map<RunRecord, Set<ServerResponse>>();
 	private server: Server | undefined;
@@ -76,6 +94,37 @@ export class ProofApiServer {
 		this.defaultMode = options.defaultMode ?? "prove";
 		this.defaultMaxWorkers = Math.max(1, options.defaultMaxWorkers ?? 3);
 		this.defaultMaxSteps = Math.max(1, options.defaultMaxSteps ?? 32);
+		this.researchProofFaultAfterWorkerResults = options.researchProofFaultAfterWorkerResults;
+		this.researchStore = new ResearchStore(join(this.rootDirectory, "research"));
+		this.researchCorpus = new CorpusService(this.researchStore);
+		this.literatureProvider = options.literatureProvider ?? new OpenAlexLiteratureProvider();
+		this.researchRuntime = this.buildResearchRuntime();
+	}
+
+	private buildResearchRuntime(): ResearchRuntime {
+		return new ResearchRuntime({
+			store: this.researchStore,
+			proofRunner: (request, signal) => this.runResearchProof(request, signal),
+			literatureRunner: (request, signal) => this.runLiteratureProof(request, signal),
+			synthesisRunner: (projectId, signal) => this.runRootSynthesis(projectId, signal),
+			...(this.createRoles.createAgent === undefined ? {} : { modelDirector: new AgentResearchDirector((snapshot) => this.createResearchAgent("research_director", snapshot.projectId, `cycle-${Date.now()}`)) }),
+			secondaryAuditor: async ({ projectId, claim, candidate, workerReadEvidence }, signal) => {
+				const auditId = stableResearchAuditId(projectId, candidate.contentHash), directory = join(this.researchStore.projectDirectory(projectId), "audits", auditId); await mkdir(directory, { recursive: true });
+				const config = this.projectConfigSnapshot(await this.researchStore.read(projectId)), recorder = new ResearchEvidenceRecorder(this.researchStore, projectId, auditId), tools = this.researchTools(projectId, directory, recorder, "secondary_auditor", config);
+				const agent = await this.createResearchAgent("secondary_auditor", projectId, auditId, tools), verifier = createAgentProofVerifier(agent), obligation: ProofObligation = { obligationId: auditId, theorem: claim.statement }, body = (await this.researchStore.resolveArtifact(projectId, candidate)).body;
+				const task = { taskId: auditId, summary: "Fresh independent root audit", description: `Audit the exact target proof. Retrieve every relied-on artifact before accepting.`, routeFingerprint: auditId, scope: "TARGET" as const, targetClaimId: claim.claimId }, proofCandidate = { candidateId: candidate.artifactId, taskId: auditId, content: body, strategy: "fresh-root-audit", routeFingerprint: auditId, claimFingerprint: candidate.contentHash, candidateFingerprint: candidate.contentHash, claim: claim.statement, evidence: workerReadEvidence, discoveredEvidence: [], bodyReadEvidence: workerReadEvidence, declaredEvidence: workerReadEvidence, reliedOnArtifactIds: workerReadEvidence.map((item) => item.artifactId), assumptions: claim.assumptions, dependencyClaims: claim.dependencies, scope: "TARGET" as const, targetClaimId: claim.claimId };
+				const result = await verifier.verify(proofCandidate, { runId: auditId, step: 1, obligation, task }, signal); const inspected = (await recorder.list("secondary_auditor")).filter((item) => item.operation === "READ").map((item) => item.artifact);
+				await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.budget = { ...draft.budget, secondaryAuditorCalls: draft.budget.secondaryAuditorCalls + 1 }; });
+				return { verdict: result.verdict === "NEEDS_MINOR_FIXES" ? "MINOR_FIX" : result.verdict, feedback: result.feedback, profile: "configured-secondary-auditor", evidenceInspected: inspected, toolReceiptIds: (await recorder.list("secondary_auditor")).map((item) => item.receiptId) };
+			},
+			// These are compatibility defaults only. Every v1.1 project with a valid
+			// snapshot overrides them from its own durable effectiveConfig.
+			checkpointInterval: 1,
+			stallThreshold: 3,
+			maxCycles: 100,
+			maxActiveObligations: 8,
+			structuralProbeBudget: 2,
+		});
 	}
 
 	get baseUrl(): string | undefined {
@@ -87,9 +136,11 @@ export class ProofApiServer {
 		if (this.server !== undefined && this.baseUrlValue !== undefined) return this.baseUrlValue;
 		await mkdir(join(this.rootDirectory, "sessions"), { recursive: true });
 		await mkdir(join(this.rootDirectory, "proof-runs"), { recursive: true });
+		await this.researchStore.initialize();
 		if (this.configService !== undefined) {
 			await this.configService.load();
 			await this.configService.startWatching();
+			this.researchRuntime = this.buildResearchRuntime();
 		}
 		await this.discoverPersistedSessions();
 		const host = options.host ?? "127.0.0.1";
@@ -117,7 +168,9 @@ export class ProofApiServer {
 
 	async stop(): Promise<void> {
 		for (const run of this.allRuns()) run.controller.abort();
+		for (const run of this.activeResearch.values()) run.controller.abort();
 		await Promise.allSettled(this.allRuns().map((run) => run.promise ?? Promise.resolve()));
+		await Promise.allSettled([...this.activeResearch.values()].map((run) => run.promise));
 		for (const response of this.sseResponses) response.end();
 		this.sseResponses.clear();
 		this.sseRunResponses.clear();
@@ -146,6 +199,10 @@ export class ProofApiServer {
 			}
 			if (parts[0] === "v1" && parts[1] === "config") {
 				await this.handleConfigRoute(parts, request, response);
+				return;
+			}
+			if (parts[0] === "v1" && parts[1] === "research") {
+				await this.handleResearchRoute(parts, url, request, response);
 				return;
 			}
 			if (parts.length === 2 && parts[0] === "v1" && parts[1] === "sessions" && request.method === "POST") {
@@ -209,6 +266,157 @@ export class ProofApiServer {
 		}
 	}
 
+	private async handleResearchRoute(parts: readonly string[], url: URL, request: IncomingMessage, response: ServerResponse): Promise<void> {
+		if (parts.length === 3 && parts[2] === "projects" && request.method === "GET") {
+			const projects = await this.researchStore.listProjects();
+			this.send(response, 200, { projects: projects.map((state) => ({ projectId: state.projectId, name: state.name, status: state.status, rootObjective: state.rootObjective, cycle: state.cycle, frontierSize: researchFrontier(state).length })) }); return;
+		}
+		if (parts.length === 3 && parts[2] === "projects" && request.method === "POST") {
+			const body = await readJsonObject(request); const projectId = optionalString(body.projectId) ?? randomUUID(); const name = optionalString(body.name) ?? projectId;
+			let state = await this.researchRuntime.createProject(projectId, name, this.configService === undefined ? {} : jsonObjectOf(this.configService.config)); const projectConfig = mathAgentConfigOf(state.effectiveConfig), configuredRoots = projectConfig?.corpus.enabled === true ? projectConfig.corpus.roots : [];
+			if (configuredRoots.length > 0) state = await this.researchCorpus.attach(projectId, configuredRoots);
+			state = (await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.events = [...draft.events, { eventId: `project-${projectId}`, type: "research/project_created", projectId, timestamp: new Date().toISOString(), detail: { name, configRevision: draft.configRevision } }]; })).state;
+			this.send(response, 201, { state, links: researchLinks(projectId) }); return;
+		}
+		if (parts.length < 4 || parts[2] !== "projects") throw new ApiHttpError(404, "Research API route not found");
+		const projectId = parts[3] ?? ""; let state;
+		try { state = await this.researchStore.read(projectId); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new ApiHttpError(404, `Research project not found: ${projectId}`); throw error; }
+		if (parts.length === 4 && request.method === "GET") { this.send(response, 200, { state, active: this.activeResearch.has(projectId), links: researchLinks(projectId) }); return; }
+		const operation = parts[4] ?? "", projectConfig = mathAgentConfigOf(state.effectiveConfig);
+		if (operation === "root" && request.method === "POST") { const body = await readJsonObject(request); const objective = requiredString(body.objective ?? body.statement, "objective"); if (body.allowedAssumptions !== undefined && (!Array.isArray(body.allowedAssumptions) || !body.allowedAssumptions.every((item) => typeof item === "string"))) throw new ApiHttpError(400, "allowedAssumptions must be an array of exact assumption statements"); this.send(response, 200, { state: await this.researchRuntime.setRootObjective(projectId, objective, (body.allowedAssumptions as string[] | undefined) ?? []) }); return; }
+		if (operation === "corpus" && parts.length === 5 && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus access is disabled by the project configuration snapshot"); const body = await readJsonObject(request); if (!Array.isArray(body.roots) || !body.roots.every((item) => typeof item === "string")) throw new ApiHttpError(400, "roots must be an array of directory paths"); this.send(response, 200, { state: await this.researchCorpus.attach(projectId, body.roots) }); return; }
+		if (operation === "corpus" && (parts[5] === "ingest" || parts[5] === "reindex") && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus ingestion is disabled by the project configuration snapshot"); const result = await this.researchCorpus.ingest(projectId, configuredImportAuthority(projectConfig?.corpus.importAuthorityPolicy)); this.send(response, 200, result); return; }
+		if (operation === "corpus" && parts[5] === "search" && request.method === "GET") { const query = url.searchParams.get("q") ?? ""; this.send(response, 200, { matches: await this.researchCorpus.search(projectId, query, url.searchParams.get("exact") === "true") }); return; }
+		if (operation === "corpus" && parts[5] !== undefined && request.method === "GET") { this.send(response, 200, await this.researchCorpus.read(projectId, parts[5], Number(url.searchParams.get("offset") ?? 0), url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined)); return; }
+		if (operation === "corpus" && request.method === "GET") { this.send(response, 200, { corpus: await this.researchCorpus.list(projectId) }); return; }
+		if (operation === "bootstrap" && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus bootstrap is disabled by the project configuration snapshot"); const bootstrapper = this.createRoles.createAgent === undefined || projectConfig?.roles.corpus_bootstrapper.enabled === false ? undefined : new AgentCorpusBootstrapper((artifactId) => this.createResearchAgent("corpus_bootstrapper", projectId, artifactId)); this.send(response, 200, { report: await this.researchCorpus.bootstrap(projectId, bootstrapper), state: await this.researchStore.read(projectId) }); return; }
+		if ((operation === "start" || operation === "resume") && request.method === "POST") {
+			if (this.activeResearch.has(projectId)) throw new ApiHttpError(409, "Research project is already running"); const body = await readJsonObject(request); const maxCycles = positiveInteger(body.maxCycles) ?? projectConfig?.research.maxCycles ?? 100; const controller = new AbortController();
+			const promise = this.researchRuntime.run(projectId, maxCycles, controller.signal).then(() => undefined).catch(async (error: unknown) => { await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.status = "BLOCKED"; mutable.lastError = errorMessage(error); }); }).finally(() => { this.activeResearch.delete(projectId); });
+			this.activeResearch.set(projectId, { controller, promise }); this.send(response, 202, { projectId, status: operation === "resume" ? "RESUMING" : "RUNNING", links: researchLinks(projectId) }); return;
+		}
+		if (operation === "cancel" && request.method === "POST") { const active = this.activeResearch.get(projectId); if (active === undefined) throw new ApiHttpError(409, "Research project is not active"); active.controller.abort(); this.send(response, 202, { projectId, status: "CANCELLATION_REQUESTED" }); return; }
+		if (operation === "checkpoint" && request.method === "POST") { this.send(response, 201, { state: await this.researchRuntime.createCheckpoint(projectId) }); return; }
+		if (operation === "root-readiness" && request.method === "GET") { this.send(response, 200, await this.rootClosureService(projectId).then((service) => service.readiness(projectId))); return; }
+		if (operation === "synthesis" && request.method === "POST") { this.send(response, 200, { state: await this.runRootSynthesis(projectId) }); return; }
+		if (operation === "bootstrap-report" && request.method === "GET") { this.send(response, 200, { reports: state.bootstrapReports, latest: state.bootstrapReports.at(-1) }); return; }
+		if (operation === "audit" && request.method === "GET") { const invariants = await new ResearchInvariantValidator(this.researchStore).check(projectId); this.send(response, 200, { projectId, schemaVersion: state.schemaVersion, rootObjectiveContract: state.rootObjectiveContract, effectiveConfig: state.effectiveConfig, configRevision: state.configRevision, migrationReports: state.migrationReports, executionPlans: state.executionPlans, executionTasks: state.executionTasks, evidenceReceipts: state.toolEvidenceReceipts, trustReceipts: state.trustReceipts, authorityReceipts: state.authorityReceipts, authorityValidation: state.authorityValidation, acceptedEffects: state.acceptedEffects, finalProofHistory: state.finalProofHistory, currentFinalProofAuthority: state.currentFinalProofAuthority, bootstrapReports: state.bootstrapReports, invariants, rootReadiness: rootSynthesisReadiness(state) }); return; }
+		if (operation === "invalidate" && request.method === "POST") { const body = await readJsonObject(request); this.send(response, 200, { state: await this.researchRuntime.reducer.invalidate(projectId, requiredString(body.claimId, "claimId"), requiredString(body.reason, "reason")) }); return; }
+		if (operation === "frontier" && request.method === "GET") { this.send(response, 200, { frontier: researchFrontier(state) }); return; }
+		if (operation === "claims" && parts[5] !== undefined && request.method === "GET") { const revisions = state.claims[parts[5]]; if (revisions === undefined) throw new ApiHttpError(404, "Claim not found"); this.send(response, 200, { claimId: parts[5], revisions, latest: revisions.at(-1), outgoingSupport: state.supportEdges.filter((edge) => edge.fromClaimId === parts[5]), incomingSupport: state.supportEdges.filter((edge) => edge.toClaimId === parts[5]) }); return; }
+		if (operation === "claims" && request.method === "GET") { this.send(response, 200, { claims: state.claims, supportEdges: state.supportEdges }); return; }
+		if (operation === "dependencies" && request.method === "GET") { this.send(response, 200, { dependencies: Object.fromEntries(Object.entries(state.claims).map(([id, revisions]) => [id, revisions.at(-1)?.dependencies ?? []])) }); return; }
+		if (operation === "coverage" && request.method === "GET") { this.send(response, 200, { coverage: state.coverage }); return; }
+		if (operation === "routes" && parts[5] !== undefined && parts[6] === "reopen" && request.method === "POST") { const body = await readJsonObject(request); this.send(response, 200, { state: await this.researchRuntime.reopenRouteAsOperator(projectId, parts[5], requiredString(body.reason, "reason")) }); return; }
+		if (operation === "routes" && parts[5] !== undefined && request.method === "GET") { const route = state.routes[parts[5]]; if (route === undefined) throw new ApiHttpError(404, "Route not found"); this.send(response, 200, { route }); return; }
+		if (operation === "routes" && request.method === "GET") { this.send(response, 200, { routes: state.routes }); return; }
+		if (operation === "checkpoints" && request.method === "GET") { this.send(response, 200, { checkpoints: state.checkpoints }); return; }
+		if (operation === "events" && request.method === "GET") { this.send(response, 200, { events: state.events }); return; }
+		if (operation === "artifacts" && parts[5] !== undefined && parts[6] === "metadata" && request.method === "GET") { const artifact = state.artifacts[parts[5]]; if (artifact === undefined) throw new ApiHttpError(404, "Artifact not found"); this.send(response, 200, { artifact }); return; }
+		if (operation === "artifacts" && parts[5] !== undefined && request.method === "GET") { const artifact = state.artifacts[parts[5]]; if (artifact === undefined) throw new ApiHttpError(404, "Artifact not found"); this.send(response, 200, await this.researchStore.resolveArtifact(projectId, artifact)); return; }
+		if (operation === "artifacts" && request.method === "GET") { this.send(response, 200, { artifacts: state.artifacts }); return; }
+		if (operation === "formalization" && request.method === "GET") { this.send(response, 200, { status: state.formalizationStatus ?? "NOT_REQUESTED", enabled: projectConfig?.formalization.enabled ?? false, artifacts: Object.values(state.artifacts).filter((item) => item.artifactType === "LEAN_SOURCE" || item.artifactType === "LEAN_CERTIFICATE" || item.artifactType === "FORMAL_PROOF") }); return; }
+		if (operation === "formalization" && request.method === "POST") { const body = await readJsonObject(request); const mode = optionalString(body.mode) ?? "formalize_existing"; if (mode === "informal_only") { this.send(response, 200, { state, status: state.formalizationStatus ?? "NOT_REQUESTED" }); return; } if (mode !== "formalize_existing" && mode !== "prove_and_formalize") throw new ApiHttpError(400, "formalization mode must be informal_only, formalize_existing, or prove_and_formalize"); this.send(response, 200, await this.runResearchFormalization(projectId, mode, optionalString(body.existingLean))); return; }
+		if (operation === "literature" && parts[5] === "search" && request.method === "POST") { const body = await readJsonObject(request), query = requiredString(body.query, "query"), targetObligationId = requiredString(body.targetObligationId, "targetObligationId"), obligation = state.obligations[targetObligationId]; if (obligation === undefined) throw new ApiHttpError(404, "Target obligation not found"); this.send(response, 200, { results: await this.discoverLiterature(projectId, query, obligation) }); return; }
+		if (operation === "literature" && request.method === "GET") { this.send(response, 200, { artifacts: Object.values(state.artifacts).filter((item) => item.artifactType === "LITERATURE_SOURCE") }); return; }
+		if (operation === "result" && request.method === "GET") { const root = state.rootClaimId === undefined ? undefined : state.claims[state.rootClaimId]?.at(-1), currentFinal = state.currentFinalProofAuthority?.status === "ACTIVE" ? state.currentFinalProofAuthority.artifact : undefined; this.send(response, 200, { projectId, status: state.status, root, finalProofArtifact: currentFinal, currentFinalProofAuthority: state.currentFinalProofAuthority, historicalFinalProof: state.finalProofArtifact === undefined ? undefined : { artifact: state.finalProofArtifact, status: state.currentFinalProofAuthority?.artifact.artifactId === state.finalProofArtifact.artifactId ? state.currentFinalProofAuthority.status : "HISTORICAL" }, frontier: researchFrontier(state), latestCheckpoint: state.checkpoints.at(-1), lastError: state.lastError }); return; }
+		throw new ApiHttpError(404, "Research API route not found");
+	}
+
+	private async runResearchProof(request: TacticalProofRequest, signal?: AbortSignal): Promise<TacticalResearchResult> {
+		const sessionDirectory = join(request.scratchDirectory, "session"); await mkdir(sessionDirectory, { recursive: true }); const sessionPath = join(sessionDirectory, `${request.attemptId}.jsonl`);
+		let session: Session; try { await access(sessionPath); session = await Session.resume(sessionPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; session = await Session.create({ projectId: request.attemptId, sessionId: request.attemptId, cwd: request.scratchDirectory, directory: sessionDirectory }); }
+		const proofObligation: ProofObligation = { obligationId: request.obligation.obligationId, theorem: request.obligation.statement, context: [`Research project ${request.projectId}.`, `Exact target obligation id: ${request.obligation.obligationId}.`, `Exact target claim id: ${request.targetClaimId}.`, `Context manifest ${request.contextManifest.manifestId} lists available evidence only; search is not read and read is not reliance. Use artifact_read and declare reliedOnArtifactIds.`, `Tactical directive (authoritative strategy intent): ${JSON.stringify(request.directive)}`, `Failed/exhausted route mechanisms: ${JSON.stringify(request.directive.relevantFailedRoutes)}`].join("\n") };
+		const evidenceRecorder = new ResearchEvidenceRecorder(this.researchStore, request.projectId, request.attemptId);
+		const projectState = await this.researchStore.read(request.projectId), config = this.projectConfigSnapshot(projectState), projectBudget = projectState.budget, tools = this.researchTools(request.projectId, request.scratchDirectory, evidenceRecorder, undefined, config);
+		const targetGate = { targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId };
+		const roles = await this.createRoles({ session, sessionId: request.attemptId, runId: request.logicalJobId, obligation: proofObligation, mode: "prove", tools, targetGate, ...(config === undefined ? {} : { config }) });
+		const workflow = new ProofWorkflow({ session, obligation: proofObligation, ...roles, mode: "prove", maxWorkers: config?.proof.maxWorkers ?? this.defaultMaxWorkers, maxSteps: config?.proof.maxSteps ?? this.defaultMaxSteps, historyLimit: config?.proof.historyLimit, workspaceDirectory: join(request.scratchDirectory, "proof-runtime"), runId: request.logicalJobId, tools: [], targetGate, tacticalDirective: request.directive as unknown as Readonly<Record<string, unknown>>, planDependencies: request.contextManifest.artifactRefs, planDependencyValidator: async (plan) => { const current = await this.researchStore.read(request.projectId); for (const ref of plan.dependencyRefs) try { const resolved = await this.researchStore.resolveArtifact(request.projectId, ref); if (resolved.artifact.artifactType === "PROMOTED_PROOF") { const currentAuthority = Object.values(current.authorityReceipts).some((authority) => authority.artifact.artifactId === ref.artifactId && authority.artifact.contentHash === ref.contentHash && activeAuthorityForClaim(current, authority.claimId, authority.claimRevision)?.authorityReceiptId === authority.authorityReceiptId); if (!currentAuthority) return `Plan dependency invalidated: promoted authority is no longer current for ${ref.artifactId}`; } } catch (error) { return `Plan dependency invalidated: ${ref.artifactId}: ${errorMessage(error)}`; } return undefined; }, evidenceProvider: (role, taskId, classification) => evidenceRecorder.refs(role, taskId, classification), ...(this.researchProofFaultAfterWorkerResults === undefined ? {} : { faultAfterWorkerResults: this.researchProofFaultAfterWorkerResults }), budget: config === undefined ? undefined : { maxPlannerCalls: Math.max(0, config.budgets.plannerCalls - projectBudget.plannerCalls), maxWorkerCalls: Math.max(0, config.budgets.workerCalls - projectBudget.workerCalls), maxVerifierCalls: Math.max(0, config.budgets.verifierCalls - projectBudget.verifierCalls), maxLiteratureSearches: Math.max(0, config.budgets.literatureSearches - projectBudget.literatureCalls), maxToolCalls: Math.max(0, config.budgets.toolCalls - projectBudget.toolCalls), maxWallTimeMs: Math.max(0, config.budgets.wallTimeSeconds * 1000 - (Date.now() - projectBudget.startedAt)) } });
+		const result = await workflow.run(signal), state = workflow.state, candidateArtifacts = new Map<string, import("../research/index.js").ResearchArtifact>();
+		if (this.researchProofFaultAfterWorkerResults !== undefined && result.status === "FAILED" && /Injected fault after worker result/u.test(result.reason ?? "")) { await this.syncExecutionTasks(request, workflow, candidateArtifacts); throw new Error(result.reason); }
+		for (const candidate of state.candidates) candidateArtifacts.set(candidate.candidateId, await this.researchStore.putArtifact(request.projectId, { artifactType: "WORKER_CANDIDATE", body: candidate.content, provenance: `ProofRuntime-worker:${candidate.taskId}`, creationAttemptId: request.attemptId, references: candidate.evidence, metadata: { candidateId: candidate.candidateId, taskId: candidate.taskId, plannerScope: candidate.scope, strategy: candidate.strategy, discoveredEvidence: candidate.discoveredEvidence, bodyReadEvidence: candidate.bodyReadEvidence, reliedOnEvidence: candidate.evidence } }));
+		const contributions: VerifiedResearchContribution[] = [];
+		for (const candidate of state.candidates) { const verification = state.verifications[candidate.candidateId], draft = candidate.contribution, artifact = candidateArtifacts.get(candidate.candidateId); if (verification?.verdict !== "CORRECT" || draft === undefined || artifact === undefined || !verifierCoveredEvidence(candidate.evidence, verification.evidence ?? [])) continue; const receipt = primaryReceipt(request, candidate, artifact, verification, request.contextManifest.artifactRefs, await evidenceRecorder.list()); contributions.push({ contributionId: stableId("contribution", request.logicalJobId, candidate.candidateId, draft.kind), kind: draft.kind, statement: draft.statement, relationshipToTarget: draft.relationshipToTarget, targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, ...(draft.claimId === undefined ? {} : { claimId: draft.claimId }), assumptions: draft.assumptions ?? [], dependencyClaims: draft.dependencyClaims ?? [], evidenceArtifacts: candidate.evidence, candidate: artifact, producer: { role: "worker", identity: "ProofRuntime-worker", taskId: candidate.taskId }, verification: receipt, ...(draft.childClaims === undefined ? {} : { childClaims: draft.childClaims }), ...(draft.coverageScope === undefined ? {} : { coverageScope: draft.coverageScope }), ...(draft.coverageAssertion === undefined ? {} : { coverageAssertion: draft.coverageAssertion }), ...(draft.closedCaseClaimId === undefined ? {} : { closedCaseClaimId: draft.closedCaseClaimId }), ...(draft.closureReason === undefined ? {} : { closureReason: draft.closureReason }), ...(draft.targetScope === undefined ? {} : { targetScope: draft.targetScope }), ...(draft.counterexampleScope === undefined ? {} : { counterexampleScope: draft.counterexampleScope }) }); }
+		let targetSubmission: TacticalResearchResult["targetSubmission"]; const submitted = state.targetSubmission; if (submitted !== undefined) { const candidate = state.candidates.find((item) => item.candidateId === submitted.candidateId), verification = candidate === undefined ? undefined : state.verifications[candidate.candidateId], artifact = candidate === undefined ? undefined : candidateArtifacts.get(candidate.candidateId); if (candidate !== undefined && verification?.verdict === "CORRECT" && artifact !== undefined && candidate.scope === "TARGET" && candidate.targetClaimId === request.targetClaimId && verifierCoveredEvidence(candidate.evidence, verification.evidence ?? [])) targetSubmission = { submissionId: stableId("target-submission", request.logicalJobId, candidate.candidateId), targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, scope: "TARGET", statement: request.obligation.statement, candidate: artifact, assumptions: candidate.assumptions, dependencies: candidate.dependencyClaims, evidenceArtifacts: candidate.evidence, primaryReceipt: primaryReceipt(request, candidate, artifact, verification, request.contextManifest.artifactRefs, await evidenceRecorder.list()) }; }
+		const routeObservations = state.failedRoutes.map((failure) => { const task = state.tasks.find((item) => item.taskId === failure.taskId), candidate = state.candidates.find((item) => item.candidateFingerprint === failure.candidateFingerprint), artifact = candidate === undefined ? undefined : candidateArtifacts.get(candidate.candidateId); return { observationId: stableId("route-observation", request.logicalJobId, failure.routeFingerprint, String(failure.step)), targetObligationId: request.obligation.obligationId, routeFamily: task?.routeKey ?? task?.contributionKind?.toLocaleLowerCase() ?? "tactical", mechanism: task?.routeKey ?? candidate?.strategy ?? "tactical", strategy: candidate?.strategy ?? task?.description ?? "unspecified", status: "FAILED" as const, failureMechanism: failure.reason, evidence: artifact === undefined ? [] : [artifact] }; });
+		await this.syncExecutionTasks(request, workflow, candidateArtifacts); const allEvidence = await evidenceRecorder.list(), attempt = (await this.researchStore.read(request.projectId)).attempts[request.attemptId], failureKind = classifyProofFailure(result);
+		return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: targetSubmission !== undefined ? "TARGET_PROVED" : failureKind === undefined ? "TARGET_UNRESOLVED" : "EXECUTION_FAILED", ...(targetSubmission === undefined ? {} : { targetSubmission }), contributions, routeObservations, executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: Object.values((await this.researchStore.read(request.projectId)).executionTasks).filter((task) => task.logicalJobId === request.logicalJobId).map((task) => task.executionTaskId), evidenceReceiptIds: allEvidence.map((receipt) => receipt.receiptId), ...(failureKind === undefined ? {} : { failureKind }), startedAt: attempt?.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() }, feedback: result.reason ?? `ProofRuntime ended ${result.status}` };
+	}
+
+	private async runLiteratureProof(request: TacticalProofRequest, signal?: AbortSignal): Promise<TacticalResearchResult> {
+		const config = mathAgentConfigOf((await this.researchStore.read(request.projectId)).effectiveConfig);
+		if (config?.literature.enabled === false || config?.roles.literature_researcher.enabled === false) { const now = new Date().toISOString(); return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "EXECUTION_FAILED", contributions: [], routeObservations: [], executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId, "literature-disabled"), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], failureKind: "LITERATURE_ERROR", startedAt: now, completedAt: now }, feedback: "Literature production path is disabled by the project configuration snapshot" }; }
+		let results; try { results = await this.discoverLiterature(request.projectId, request.decision.literatureQuery ?? request.obligation.statement, request.obligation, signal); } catch (error) { const now = new Date().toISOString(); return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "EXECUTION_FAILED", contributions: [], routeObservations: [], executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId, "literature-error"), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], failureKind: signal?.aborted ? "CANCELLED" : "LITERATURE_ERROR", startedAt: now, completedAt: now }, feedback: `Literature production failure: ${errorMessage(error)}` }; } if (!results.some((item) => item.stage === "ACCEPTED_FOR_USE")) { const now = new Date().toISOString(); return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "EXECUTION_FAILED", contributions: [], routeObservations: [], executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId, "literature-empty"), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], failureKind: "LITERATURE_ERROR", startedAt: now, completedAt: now }, feedback: "No acquired literature source passed applicability verification" }; }
+		return this.runResearchProof(request, signal);
+	}
+
+	private async discoverLiterature(projectId: string, query: string, obligation: import("../research/index.js").ResearchObligation, signal?: AbortSignal) {
+		const project = await this.researchStore.read(projectId), config = mathAgentConfigOf(project.effectiveConfig); if (config?.literature.enabled === false || config?.roles.literature_researcher.enabled === false) throw new ApiHttpError(409, "Literature is disabled by the project configuration snapshot"); if (config !== undefined && project.budget.literatureCalls >= config.budgets.literatureSearches) throw new ApiHttpError(409, "Literature search budget exhausted");
+		const assessor = new AgentLiteratureApplicability(() => this.createResearchAgent("literature_researcher", projectId, stableId("literature", projectId, obligation.obligationId, query)));
+		const results = await new LiteratureService(this.researchStore, this.literatureProvider).discover(projectId, query, obligation.obligationId, (candidate, body) => assessor.assess(candidate, body, obligation.statement), signal);
+		await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.budget = { ...draft.budget, literatureCalls: draft.budget.literatureCalls + 1 }; mutable.events = [...draft.events, { eventId: stableId("event", projectId, "literature", obligation.obligationId, query), type: "research/literature_completed", projectId, timestamp: new Date().toISOString(), detail: { query, targetObligationId: obligation.obligationId, acquired: results.filter((item) => item.artifact !== undefined).length, accepted: results.filter((item) => item.stage === "ACCEPTED_FOR_USE").length } }]; }); return results;
+	}
+
+	private async createResearchAgent(role: ProofRole, sessionId: string, runId: string, tools?: readonly RuntimeTool[]): Promise<Agent> {
+		const factory = this.createRoles.createAgent; if (factory === undefined) throw new Error(`Production research role factory is unavailable for ${role}`); let projectState: import("../research/index.js").ResearchProjectState | undefined; try { projectState = await this.researchStore.read(sessionId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } const config = projectState === undefined ? this.configService?.config : this.projectConfigSnapshot(projectState); if (config?.roles[role].enabled === false) throw new Error(`Research role is disabled: ${role}`); const agent = await factory({ role, sessionId, runId, ...(tools === undefined ? {} : { tools }), ...(config === undefined ? {} : { config }) }); if (projectState !== undefined && config !== undefined) await this.researchStore.transaction(sessionId, (draft) => { const profile = config.roles[role], model = config.models[profile.model], eventId = stableId("event", sessionId, "role-config", runId, role, draft.configRevision); if (draft.events.some((item) => item.eventId === eventId)) return; (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).events = [...draft.events, { eventId, type: "research/role_constructed", projectId: sessionId, timestamp: new Date().toISOString(), detail: { role, provider: model?.provider, model: model?.model, reasoningEffort: model?.reasoningEffort, configRevision: draft.configRevision } }]; }); return agent;
+	}
+
+	private researchTools(projectId: string, scratchDirectory: string, evidenceRecorder: ResearchEvidenceRecorder, defaultRole?: import("../research/index.js").EvidenceRole, projectConfig?: MathAgentConfig): readonly RuntimeTool[] {
+		const config = projectConfig;
+		if (config?.tools.enabled === false) return [];
+		return createResearchTools({ projectId, store: this.researchStore, corpus: this.researchCorpus, retrieval: new ResearchRetrievalService(this.researchStore), evidenceRecorder, ...(defaultRole === undefined ? {} : { defaultRole }), scratchDirectory, ...(config === undefined ? {} : { allowedCapabilities: config.tools.allowedCapabilities, allowedExecutables: configuredExecutables(config.tools.allowedExecutables), executionBoundary: config.tools.executionBoundary }) });
+	}
+
+	private async runResearchFormalization(projectId: string, mode: "formalize_existing" | "prove_and_formalize", existingLean?: string): Promise<Record<string, unknown>> {
+		const project = await this.researchStore.read(projectId), config = mathAgentConfigOf(project.effectiveConfig);
+		if (config?.formalization.enabled !== true || config.roles.formalizer.enabled === false) throw new ApiHttpError(409, "Formalization and the formalizer role must both be enabled");
+		let state = await this.researchStore.read(projectId);
+		if (mode === "prove_and_formalize" && state.currentFinalProofAuthority?.status !== "ACTIVE") state = await this.runRootSynthesis(projectId);
+		const root = state.rootClaimId === undefined ? undefined : state.claims[state.rootClaimId]?.at(-1), finalRef = state.currentFinalProofAuthority?.status === "ACTIVE" ? state.currentFinalProofAuthority.artifact : undefined;
+		if (root === undefined || finalRef === undefined) throw new ApiHttpError(409, "A fresh-audited final proof is required before formalization");
+		if (!/\b(?:theorem|lemma|def)\s/iu.test(root.statement)) {
+			state = (await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = "FORMAL_ERROR: root objective is not an exact Lean declaration"; })).state;
+			return { state, status: "BLOCKED_FORMAL", feedback: "The root objective must contain the exact Lean theorem/lemma declaration; refusing to certify an unrelated formal theorem." };
+		}
+		await this.researchStore.transaction(projectId, (draft) => { (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).formalizationStatus = "PENDING"; });
+		const runId = stableId("formalization", projectId, finalRef.contentHash), agent = new AgentFormalizerRole(() => this.createResearchAgent("formalizer", projectId, runId));
+		let draft;
+		try { draft = await agent.formalize({ rootStatement: root.statement, informalProof: (await this.researchStore.resolveArtifact(projectId, finalRef)).body, ...(existingLean === undefined ? {} : { existingLean }) }); }
+		catch (error) { state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = `FORMAL_ERROR: ${errorMessage(error)}`; })).state; return { state, status: "BLOCKED_FORMAL", feedback: errorMessage(error) }; }
+		const source = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_SOURCE", body: draft.lean, provenance: "configured-formalizer-untrusted-draft", references: [finalRef], metadata: { notes: draft.notes, mode } }), formalDirectory = resolve(config.formalization.projectDir ?? join(this.researchStore.projectDirectory(projectId), "formalization")); await mkdir(formalDirectory, { recursive: true });
+		const command = config.formalization.command ?? "lake", verifier = new CommandProofFormalVerifier({ projectDirectory: formalDirectory, command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
+		const checked = await verifier.verify(draft.lean, { runId, step: 1, obligation: { obligationId: stableId("formal-obligation", projectId, root.claimId), theorem: root.statement }, theoremText: root.statement, workDirectory: formalDirectory });
+		const certificate = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_CERTIFICATE", body: `${JSON.stringify(checked, null, 2)}\n`, provenance: "CommandProofFormalVerifier", references: [source] });
+		let formalProof: import("../research/index.js").ResearchArtifact | undefined;
+		if (checked.ok) formalProof = await this.researchStore.putArtifact(projectId, { artifactType: "FORMAL_PROOF", body: draft.lean, provenance: "process-verified-Lean", authority: "FORMAL_CERTIFICATE", references: [source, certificate] });
+		state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = checked.ok ? "VERIFIED" : "BLOCKED_FORMAL"; mutable.lastError = checked.ok ? undefined : `FORMAL_ERROR: ${checked.feedback}`; mutable.events = [...project.events, { eventId: stableId("event", projectId, "formalization", source.contentHash, certificate.contentHash), type: "research/formalization_checked", projectId, timestamp: new Date().toISOString(), detail: { ok: checked.ok, sourceArtifactId: source.artifactId, certificateArtifactId: certificate.artifactId, ...(formalProof === undefined ? {} : { formalProofArtifactId: formalProof.artifactId }) } }]; })).state;
+		return { state, status: state.formalizationStatus, source, certificate, ...(formalProof === undefined ? {} : { formalProof }), feedback: checked.feedback };
+	}
+
+	private async rootClosureService(projectId: string): Promise<RootClosureService> {
+		const project = await this.researchStore.read(projectId), config = this.projectConfigSnapshot(project); if (config?.roles.synthesizer.enabled === false) throw new ApiHttpError(409, "Synthesizer role is disabled");
+		const synthesisId = stableId("synthesis-run", projectId, String(project.cycle + 1));
+		const synthesizer = new AgentSynthesisRole(() => this.createResearchAgent("synthesizer", projectId, synthesisId));
+		const primaryAttempt = `${synthesisId}-primary`, finalAttempt = `${synthesisId}-final`, primaryDirectory = join(this.researchStore.projectDirectory(projectId), "audits", primaryAttempt), finalDirectory = join(this.researchStore.projectDirectory(projectId), "audits", finalAttempt); await mkdir(primaryDirectory, { recursive: true }); await mkdir(finalDirectory, { recursive: true }); const primaryRecorder = new ResearchEvidenceRecorder(this.researchStore, projectId, primaryAttempt), finalRecorder = new ResearchEvidenceRecorder(this.researchStore, projectId, finalAttempt), primaryTools = this.researchTools(projectId, primaryDirectory, primaryRecorder, "verifier", config), finalTools = this.researchTools(projectId, finalDirectory, finalRecorder, "secondary_auditor", config);
+		const primaryRole = new AgentFinalAuditRole(() => this.createResearchAgent("verifier", projectId, primaryAttempt, primaryTools), "configured-synthesis-primary-auditor"), finalRole = new AgentFinalAuditRole(() => this.createResearchAgent("secondary_auditor", projectId, finalAttempt, finalTools), "configured-fresh-final-auditor");
+		const primary = { audit: async (request: Parameters<AgentFinalAuditRole["audit"]>[0], signal?: AbortSignal) => { await this.reserveResearchBudget(projectId, "verifierCalls", config?.budgets.verifierCalls); const result = await primaryRole.audit(request, signal), reads = (await primaryRecorder.list("verifier")).filter((item) => item.operation === "READ"); return { ...result, evidenceInspected: reads.map((item) => item.artifact), toolReceiptIds: reads.map((item) => item.receiptId) }; } }, final = { audit: async (request: Parameters<AgentFinalAuditRole["audit"]>[0], signal?: AbortSignal) => { await this.reserveResearchBudget(projectId, "secondaryAuditorCalls", config?.budgets.secondaryAuditorCalls); const result = await finalRole.audit(request, signal), reads = (await finalRecorder.list("secondary_auditor")).filter((item) => item.operation === "READ"); return { ...result, evidenceInspected: reads.map((item) => item.artifact), toolReceiptIds: reads.map((item) => item.receiptId) }; } };
+		return new RootClosureService(this.researchStore, synthesizer, primary, final);
+	}
+	private async reserveResearchBudget(projectId: string, counter: "verifierCalls" | "secondaryAuditorCalls", limit?: number): Promise<void> { await this.researchStore.transaction(projectId, (draft) => { if (limit !== undefined && draft.budget[counter] >= limit) throw new ApiHttpError(409, `${counter} budget exhausted`); (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).budget = { ...draft.budget, [counter]: draft.budget[counter] + 1 }; }); }
+	private projectConfigSnapshot(project: import("../research/index.js").ResearchProjectState): MathAgentConfig | undefined { const config = mathAgentConfigOf(project.effectiveConfig); if (config === undefined && this.configService !== undefined) throw new Error(`Project ${project.projectId} has no valid effective-config snapshot; refusing to mix the current live configuration into an existing project`); return config; }
+	private async runRootSynthesis(projectId: string, signal?: AbortSignal): Promise<import("../research/index.js").ResearchProjectState> { return (await this.rootClosureService(projectId)).synthesizeAndAudit(projectId, signal); }
+
+	private async syncExecutionTasks(request: TacticalProofRequest, workflow: ProofWorkflow, artifacts: ReadonlyMap<string, import("../research/index.js").ResearchArtifact>): Promise<void> {
+		const now = new Date().toISOString(), proofState = workflow.state;
+		await this.researchStore.transaction(request.projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }, tasks = { ...draft.executionTasks }; let newPlanners = 0, newWorkers = 0, newVerifiers = 0;
+			const executionPlans = { ...draft.executionPlans }; for (const plan of proofState.executionPlans) executionPlans[plan.planId] = { planId: plan.planId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, step: plan.step, inputHash: plan.inputHash, taskIds: plan.taskIds, dependencyRefs: plan.dependencyRefs, actionExecutions: plan.actionExecutions.map((action) => ({ actionId: action.actionId, planId: action.planId, ordinal: action.ordinal, action: action.action as unknown as Readonly<Record<string, unknown>>, status: action.status, resultArtifactIds: action.resultArtifactIds.map((id) => artifacts.get(id)?.artifactId ?? id), effectIds: action.effectIds, ...(action.result === undefined ? {} : { result: action.result }), ...(action.startedAt === undefined ? {} : { startedAt: action.startedAt }), ...(action.completedAt === undefined ? {} : { completedAt: action.completedAt }), ...(action.error === undefined ? {} : { error: action.error }) })), status: plan.status, ...(plan.staleReason === undefined ? {} : { staleReason: plan.staleReason }), createdAt: plan.createdAt, ...(plan.completedAt === undefined ? {} : { completedAt: plan.completedAt }) };
+			for (const step of proofState.stepHistory) { const plannerId = stableId("execution-task", request.logicalJobId, "PLANNER", `step-${step.step}`); if (tasks[plannerId] === undefined) newPlanners += 1; tasks[plannerId] = { executionTaskId: plannerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "PLANNER", logicalTaskId: `step-${step.step}`, status: step.status === "interrupted" ? "INTERRUPTED" : step.status === "failed" ? "FAILED_RETRYABLE" : "COMPLETED", inputHash: stableId("input", request.logicalJobId, "planner", String(step.step)), startedAt: now, ...(step.status === "completed" ? { completedAt: now } : {}) }; }
+			for (const task of proofState.tasks) { const workerId = stableId("execution-task", request.logicalJobId, "WORKER", task.taskId), candidate = proofState.candidates.find((item) => item.taskId === task.taskId), workerCompleted = workflow.events.some((event) => event.type === "proof/research_result" && event.taskId === task.taskId); if (tasks[workerId] === undefined && workerCompleted) newWorkers += 1; tasks[workerId] = { executionTaskId: workerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "WORKER", logicalTaskId: task.taskId, status: workerCompleted ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", task.taskId, task.description), ...(candidate === undefined || artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(workerCompleted ? { completedAt: now } : {}) }; if (candidate !== undefined) { const verifierId = stableId("execution-task", request.logicalJobId, "VERIFIER", candidate.candidateId), completed = proofState.verifications[candidate.candidateId] !== undefined; if (tasks[verifierId] === undefined && completed) newVerifiers += 1; tasks[verifierId] = { executionTaskId: verifierId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "VERIFIER", logicalTaskId: candidate.candidateId, status: completed ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", candidate.candidateFingerprint), ...(artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(completed ? { completedAt: now } : {}) }; } }
+			const mergeId = stableId("execution-task", request.logicalJobId, "MERGE", "merge"), mergeCompleted = proofState.executionPlans.length === 0 || proofState.executionPlans.every((plan) => plan.status === "COMPLETED"); tasks[mergeId] = { executionTaskId: mergeId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "MERGE", logicalTaskId: "merge", status: mergeCompleted ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", request.logicalJobId, "merge"), startedAt: tasks[mergeId]?.startedAt ?? now, ...(mergeCompleted ? { completedAt: now } : {}) }; if (proofState.targetSubmission !== undefined) { const targetId = stableId("execution-task", request.logicalJobId, "TARGET_SUBMISSION", proofState.targetSubmission.candidateId); tasks[targetId] = { executionTaskId: targetId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "TARGET_SUBMISSION", logicalTaskId: proofState.targetSubmission.candidateId, status: "COMPLETED", inputHash: stableId("input", proofState.targetSubmission.candidateId), ...(artifacts.get(proofState.targetSubmission.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(proofState.targetSubmission.candidateId) }), startedAt: now, completedAt: now }; }
+			mutable.executionTasks = tasks; mutable.executionPlans = executionPlans; mutable.budget = { ...draft.budget, plannerCalls: draft.budget.plannerCalls + newPlanners, workerCalls: draft.budget.workerCalls + newWorkers, verifierCalls: draft.budget.verifierCalls + newVerifiers };
+		});
+	}
+
 	private async handleConfigRoute(parts: readonly string[], request: IncomingMessage, response: ServerResponse): Promise<void> {
 		const service = this.configService;
 		if (service === undefined) throw new ApiHttpError(404, "Configuration API is not enabled");
@@ -232,7 +440,7 @@ export class ProofApiServer {
 				revision: snapshot.revision,
 				models,
 				roles: snapshot.roles,
-				providers: ["mock", "openai", "openai-codex", "anthropic", "google", "openrouter", "deepseek"],
+				providers: ["mock", "openai", "openai-codex", "anthropic", "google", "google-vertex", "openrouter", "deepseek"],
 			});
 			return;
 		}
@@ -315,8 +523,10 @@ export class ProofApiServer {
 			...roles,
 			maxWorkers,
 			maxSteps,
+			historyLimit: config?.proof.historyLimit,
 			workspaceDirectory: join(this.rootDirectory, "proof-runs", sessionId, runId),
 			runId,
+			...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId)) } : {}),
 			...(config === undefined ? {} : { runConfig: { config: jsonObjectOf(config) } }),
 		});
 		const run: RunRecord = { runId, workflow, controller: new AbortController(), startedAt: Date.now() };
@@ -491,8 +701,10 @@ export class ProofApiServer {
 				...roles,
 				maxWorkers: positiveInteger(runConfig.maxWorkers) ?? this.defaultMaxWorkers,
 				maxSteps: positiveInteger(runConfig.maxSteps) ?? this.defaultMaxSteps,
+				historyLimit: config?.proof.historyLimit,
 				workspaceDirectory: join(directory, runId),
 				runId,
+				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(directory, runId)) } : {}),
 				runConfig: jsonObjectOf(runConfig),
 			});
 			await workflow.hydrate();
@@ -704,3 +916,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isMissingFile(error: unknown): boolean {
 	return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
+
+function researchLinks(projectId: string): Readonly<Record<string, string>> {
+	const base = `/v1/research/projects/${projectId}`;
+	return { status: base, audit: `${base}/audit`, frontier: `${base}/frontier`, claims: `${base}/claims`, dependencies: `${base}/dependencies`, coverage: `${base}/coverage`, routes: `${base}/routes`, artifacts: `${base}/artifacts`, literature: `${base}/literature`, bootstrapReport: `${base}/bootstrap-report`, checkpoints: `${base}/checkpoints`, events: `${base}/events`, rootReadiness: `${base}/root-readiness`, synthesis: `${base}/synthesis`, formalization: `${base}/formalization`, result: `${base}/result`, resume: `${base}/resume` };
+}
+
+function configuredProofFormalVerifier(config: MathAgentConfig, fallbackDirectory: string): CommandProofFormalVerifier {
+	const command = config.formalization.command ?? "lake";
+	return new CommandProofFormalVerifier({ projectDirectory: resolve(config.formalization.projectDir ?? fallbackDirectory), command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
+}
+
+function configuredImportAuthority(value: string | undefined): import("../research/index.js").ImportAuthority {
+	const allowed: readonly import("../research/index.js").ImportAuthority[] = ["VERIFIED_CURRENT", "VERIFIED_IMPORTED", "PROVISIONAL_IMPORTED", "UNVERIFIED_NOTE", "FAILED_HISTORICAL_ROUTE", "OPEN_HISTORICAL_OBLIGATION", "DEFINITION", "LITERATURE_SOURCE", "COMPUTATIONAL_EVIDENCE", "FORMAL_CERTIFICATE"];
+	return allowed.includes(value as import("../research/index.js").ImportAuthority) ? value as import("../research/index.js").ImportAuthority : "PROVISIONAL_IMPORTED";
+}
+
+function configuredExecutables(names: readonly string[]): Readonly<Record<string, string>> {
+	const supported: Readonly<Record<string, string>> = { node: process.execPath, python: "python", lean: "lean", lake: "lake" };
+	return Object.fromEntries(names.flatMap((name) => supported[name] === undefined ? [] : [[name, supported[name]]]));
+}
+
+function stableResearchAuditId(projectId: string, hash: string): string {
+	return `audit-${projectId}-${hash.slice(0, 16)}`;
+}
+
+function verifierCoveredEvidence(worker: readonly { readonly artifactId: string; readonly contentHash: string }[], verifier: readonly { readonly artifactId: string; readonly contentHash: string }[]): boolean { const inspected = new Set(verifier.map((ref) => `${ref.artifactId}:${ref.contentHash}`)); return worker.every((ref) => inspected.has(`${ref.artifactId}:${ref.contentHash}`)); }
+
+function classifyProofFailure(result: ProofRunResult): import("../research/index.js").ResearchFailureKind | undefined {
+	const reason = result.reason?.toLocaleLowerCase() ?? "";
+	if (result.status === "CANCELLED") return "CANCELLED";
+	if (/\b(?:quota|rate limit|429)\b/u.test(reason)) return "QUOTA_ERROR";
+	if (/\b(?:budget|call limit|wall time)\b/u.test(reason)) return "BUDGET_EXHAUSTED";
+	if (/\b(?:tool error|tool failed|invalid_tool)\b/u.test(reason)) return "TOOL_ERROR";
+	if (/\b(?:protocol|malformed|structured json|schema)\b/u.test(reason)) return "PROTOCOL_ERROR";
+	return result.status === "BLOCKED_PROVIDER" ? "PROVIDER_ERROR" : undefined;
+}
+
+function primaryReceipt(request: TacticalProofRequest, candidate: import("../proof/types.js").ProofCandidate, artifact: import("../research/index.js").ResearchArtifact, verification: import("../proof/types.js").VerificationResult, available: readonly import("../research/index.js").ArtifactRef[], evidenceReceipts: readonly import("../research/index.js").ToolEvidenceReceipt[]): TrustReceipt { const verifierEvidence = (verification.evidence ?? []).map(({ artifactId, contentHash }) => ({ artifactId, contentHash })), workerRead = candidate.bodyReadEvidence.map(({ artifactId, contentHash }) => ({ artifactId, contentHash })), reliedOn = candidate.evidence.map(({ artifactId, contentHash }) => ({ artifactId, contentHash })); return { receiptId: stableId("receipt", artifact.artifactId, "primary", candidate.candidateId), claimId: candidate.targetClaimId ?? request.targetClaimId, candidate: artifact, verifierProfile: "configured-independent-verifier", evidenceInspected: verifierEvidence, availableEvidence: available, workerReadEvidence: workerRead, workerDeclaredEvidence: reliedOn, verifierReadEvidence: verifierEvidence, toolReceiptIds: evidenceReceipts.filter((item) => item.logicalTaskId === candidate.taskId).map((item) => item.receiptId), verdict: verification.verdict === "NEEDS_MINOR_FIXES" ? "MINOR_FIX" : verification.verdict, independentContext: true, stale: false, createdAt: new Date().toISOString() }; }

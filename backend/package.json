@@ -13,7 +13,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run build && node --test dist/test/*.test.js"
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "smoke:real:mrr": "npm run build && node scripts/real-provider-research-smoke.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -21,5 +22,8 @@
   "devDependencies": {
     "@types/node": "^22.19.0",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "undici": "6.21.0"
   }
 }

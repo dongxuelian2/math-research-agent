@@ -1,0 +1,17 @@
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/api/server.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/config.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/production.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/proof/agent-role.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/proof/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/proof/runtime.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/proof/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/providers/google-common.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/providers/google-vertex.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/providers/http.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/src/tools/builtin.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'backend/test/proof-workflow.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'configs/math-agent.toml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pnpm-lock.yaml', LF will be replaced by CRLF the next time Git touches it

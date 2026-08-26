@@ -95,19 +95,24 @@ function toGoogleContents(request: ProviderRequest): readonly Record<string, unk
 			continue;
 		}
 		if (message.role === "assistant") {
+			const parts = message.content.map((part) =>
+				part.kind === "text"
+					? { text: part.text }
+					: {
+							functionCall: {
+								name: part.name,
+								args: part.arguments,
+								...(isGemini3Model(request.model.model) ? { id: part.id } : {}),
+							},
+						},
+			);
+			// An interrupted/empty model turn can be retained in the Agent
+			// history. Vertex rejects a content item whose parts array is empty;
+			// omitting that no-op turn preserves the valid conversation state.
+			if (parts.length === 0) continue;
 			contents.push({
 				role: "model",
-				parts: message.content.map((part) =>
-					part.kind === "text"
-						? { text: part.text }
-						: {
-								functionCall: {
-									name: part.name,
-									args: part.arguments,
-									...(isGemini3Model(request.model.model) ? { id: part.id } : {}),
-								},
-							},
-				),
+				parts,
 			});
 			continue;
 		}
@@ -123,6 +128,9 @@ function toGoogleContents(request: ProviderRequest): readonly Record<string, unk
 				},
 			],
 		});
+	}
+	if (contents.length === 0) {
+		contents.push({ role: "user", parts: [{ text: "Continue." }] });
 	}
 	return contents;
 }

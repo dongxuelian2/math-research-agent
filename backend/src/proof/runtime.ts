@@ -5,6 +5,7 @@ import type { JsonObject } from "../models/json.js";
 import type { Session, SessionCustomEntry } from "../session/index.js";
 import { ProofProviderError, ProofProtocolError } from "./agent-role.js";
 import { ProofRepository } from "./repository.js";
+import { withProofToolScope } from "./tool-scope.js";
 import type {
 	FormalVerificationResult,
 	ProofAction,
@@ -13,6 +14,8 @@ import type {
 	ProofBudgetState,
 	ProofCandidate,
 	ProofEvent,
+	ProofExecutionPlan,
+	ProofPlanActionExecution,
 	ProofFormalVerifier,
 	ProofItemInput,
 	ProofLiteratureSearcher,
@@ -62,12 +65,25 @@ export interface ProofRuntimeOptions {
 	readonly budget?: ProofBudgetOptions;
 	/** Secret-free launch configuration captured for durable resume. */
 	readonly runConfig?: JsonObject;
+	/** Enables the explicit research-target submission gate. Ordinary proof API runs omit this. */
+	readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
+	/** Returns automatically instrumented evidence for one logical tactical task. */
+	readonly evidenceProvider?: (role: "worker" | "verifier", taskId: string, classification?: "BODY_READ" | "DISCOVERED") => Promise<readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[]>;
+	readonly evidenceResolver?: (refs: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[]) => Promise<string>;
+	readonly tacticalDirective?: Readonly<Record<string, unknown>>;
+	readonly planDependencies?: readonly { readonly artifactId: string; readonly contentHash: string }[];
+	readonly planDependencyValidator?: (plan: ProofExecutionPlan) => Promise<string | undefined>;
+	/** Deterministic fault injection used to verify task-granular resume. */
+	readonly faultAfterWorkerResults?: number;
+	/** Deterministic crash window after a durable per-action COMPLETED receipt. */
+	readonly faultAfterCompletedActionReceipts?: number;
 }
 
 type ResearchWork = {
 	readonly task: ProofTask;
 	readonly result: ResearchResult;
 	readonly providerBlocked: boolean;
+	readonly persisted: boolean;
 };
 
 type CandidateWork = {
@@ -110,6 +126,16 @@ export class ProofRuntime {
 	private readonly verifyLeanItems: boolean;
 	private readonly runConfigValue: JsonObject;
 	private readonly requestedMode?: ProofMode;
+	private readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
+	private readonly evidenceProvider?: ProofRuntimeOptions["evidenceProvider"];
+	private readonly evidenceResolver?: ProofRuntimeOptions["evidenceResolver"];
+	private readonly tacticalDirective?: Readonly<Record<string, unknown>>;
+	private readonly planDependencies: readonly { readonly artifactId: string; readonly contentHash: string }[];
+	private readonly planDependencyValidator?: ProofRuntimeOptions["planDependencyValidator"];
+	private readonly faultAfterWorkerResults?: number;
+	private readonly faultAfterCompletedActionReceipts?: number;
+	private persistedWorkerResults = 0;
+	private persistedActionReceipts = 0;
 	private stateValue: ProofState;
 	private eventList: ProofEvent[] = [];
 	private readonly eventListeners = new Set<(event: ProofEvent) => void | Promise<void>>();
@@ -127,6 +153,14 @@ export class ProofRuntime {
 		this.historyLimit = Math.max(1, options.historyLimit ?? 3);
 		this.obligation = options.obligation;
 		this.requestedMode = options.mode;
+		this.targetGate = options.targetGate;
+		this.evidenceProvider = options.evidenceProvider;
+		this.evidenceResolver = options.evidenceResolver;
+		this.tacticalDirective = options.tacticalDirective;
+		this.planDependencies = options.planDependencies ?? [];
+		this.planDependencyValidator = options.planDependencyValidator;
+		this.faultAfterWorkerResults = options.faultAfterWorkerResults;
+		this.faultAfterCompletedActionReceipts = options.faultAfterCompletedActionReceipts;
 		this.runIdValue = selectRunId(options.session, options.obligation, options.runId);
 		this.runDirectory = options.workspaceDirectory ?? join(options.session.cwd, ".math-agent", "proof-runs", this.runIdValue);
 		this.repositoryValue = options.repository ?? new ProofRepository(join(this.runDirectory, "repo"));
@@ -150,6 +184,7 @@ export class ProofRuntime {
 			rejectedCandidates: [],
 			recentOutputs: [],
 			stepHistory: [],
+			executionPlans: [],
 			budget: createBudget(options.budget),
 		};
 		this.restoreFromSession();
@@ -205,7 +240,8 @@ export class ProofRuntime {
 				await this.changeStatus("RUNNING", "Resuming a durable proof run");
 			}
 
-			const firstStep = this.stateValue.step + 1;
+			const unfinishedPlan = [...this.stateValue.executionPlans].reverse().find((item) => item.status === "RUNNING");
+			const firstStep = unfinishedPlan?.step ?? this.stateValue.step + 1;
 			for (let step = firstStep; step <= this.maxSteps; step += 1) {
 				this.stateValue = { ...this.stateValue, step };
 				const stepDirectory = await this.startStep(step);
@@ -214,12 +250,19 @@ export class ProofRuntime {
 					await this.finishStep(step, stepDirectory, "interrupted", "Proof run was cancelled");
 					return this.result("Proof run was cancelled");
 				}
-
 				const context = await this.plannerContext();
 				await writeJson(join(stepDirectory, "planner_context.json"), context);
 				let plan: ProofPlan;
-				try {
+				let persisted = [...this.stateValue.executionPlans].reverse().find((item) => item.step === step && item.status === "RUNNING");
+				if (persisted !== undefined) {
+					const invalidation = await this.planDependencyValidator?.(persisted);
+					if (invalidation === undefined) plan = persisted.plan;
+					else { await this.markPlanStale(persisted, invalidation); persisted = undefined; plan = { actions: [] }; }
+				} else plan = { actions: [] };
+				if (persisted === undefined) try {
+					if (!this.consumeBudget("plannerCalls")) { await this.changeStatus("PARTIAL", "Planner or wall-time budget exhausted"); await this.finishStep(step, stepDirectory, "interrupted", "Planner or wall-time budget exhausted"); return this.result("Planner or wall-time budget exhausted"); }
 					plan = await this.planner.plan(context, signal);
+					validatePlanTaskIdentities(plan);
 				} catch (error) {
 					const message = errorMessage(error);
 					await this.writePlannerFailure(stepDirectory, error);
@@ -233,8 +276,9 @@ export class ProofRuntime {
 					continue;
 				}
 
-				await this.writePlannerArtifacts(stepDirectory, plan);
-				await this.executePlan(plan, signal, stepDirectory);
+				if (persisted === undefined) persisted = await this.writePlannerArtifacts(stepDirectory, plan);
+				else await writeJson(join(stepDirectory, "planner_plan.json"), plan);
+				await this.executePlan(persisted, signal, stepDirectory);
 				await this.finishStep(step, stepDirectory, "completed", plan.summary ?? `Proof workflow step ${step} completed`);
 
 				if (["PROVED", "CANCELLED", "BLOCKED_PROVIDER"].includes(this.stateValue.status)) return this.result();
@@ -299,7 +343,8 @@ export class ProofRuntime {
 				...saved,
 				obligation: this.obligation,
 				mode: this.requestedMode ?? saved.mode ?? this.stateValue.mode,
-				budget: saved.budget ?? this.stateValue.budget,
+				budget: { ...this.stateValue.budget, ...(saved.budget ?? {}), plannerCalls: saved.budget?.plannerCalls ?? 0 },
+				executionPlans: (saved.executionPlans ?? []).map(normalizeExecutionPlan),
 			};
 			if (saved.submittedCandidateId !== undefined) {
 				this.proofPathValue = join(this.runDirectory, "PROOF.md");
@@ -341,6 +386,7 @@ export class ProofRuntime {
 		this.stateValue = {
 			...this.stateValue,
 			stepHistory: [...this.stateValue.stepHistory.filter((entry) => entry.step !== step), record].sort((a, b) => a.step - b.step),
+			executionPlans: this.stateValue.executionPlans.map((plan) => plan.step === step && plan.status === "RUNNING" && status === "completed" ? { ...plan, status: "COMPLETED", completedAt: new Date().toISOString() } : plan),
 		};
 		await writeJson(join(directory, "step_status.json"), record);
 		await this.emit({
@@ -353,13 +399,16 @@ export class ProofRuntime {
 		});
 	}
 
-	private async writePlannerArtifacts(directory: string, plan: ProofPlan): Promise<void> {
+	private async writePlannerArtifacts(directory: string, plan: ProofPlan): Promise<ProofExecutionPlan> {
 		const trace = this.planner as ProofPlannerWithTrace;
 		if (trace.lastTrace?.prompt !== undefined) await writeFile(join(directory, "planner_prompt.md"), trace.lastTrace.prompt, "utf8");
 		if (trace.lastTrace?.response !== undefined) await writeFile(join(directory, "planner_response.txt"), trace.lastTrace.response, "utf8");
 		await writeJson(join(directory, "planner_plan.json"), plan);
+		const taskIds = plan.actions.flatMap((action) => action.action === "spawn" ? action.tasks.map((task) => task.taskId).filter((item): item is string => item !== undefined) : []);
+		const planId = fingerprint(`${this.runIdValue}\n${this.stateValue.step}\n${JSON.stringify(plan)}\n${this.stateValue.executionPlans.length}`), executionPlan: ProofExecutionPlan = { planId, step: this.stateValue.step, inputHash: fingerprint(JSON.stringify({ obligation: this.obligation, directive: this.tacticalDirective, dependencies: this.planDependencies })), plan, taskIds, dependencyRefs: this.planDependencies, actionExecutions: plan.actions.map((action, ordinal) => actionExecution(planId, action, ordinal)), status: "RUNNING", createdAt: new Date().toISOString() };
 		this.stateValue = {
 			...this.stateValue,
+			executionPlans: [...this.stateValue.executionPlans, executionPlan],
 			stepHistory: this.stateValue.stepHistory.map((record) => record.step === this.stateValue.step ? {
 				...record,
 				status: "started",
@@ -368,6 +417,13 @@ export class ProofRuntime {
 			} : record),
 		};
 		await this.persistState();
+		return executionPlan;
+	}
+
+	private async markPlanStale(plan: ProofExecutionPlan, reason: string): Promise<void> {
+		this.stateValue = { ...this.stateValue, executionPlans: this.stateValue.executionPlans.map((item) => item.planId === plan.planId ? { ...item, status: "STALE", staleReason: reason, actionExecutions: item.actionExecutions.map((action) => action.status === "COMPLETED" ? action : { ...action, status: "STALE", error: reason }) } : item) };
+		await this.persistState();
+		this.addOutput("planner", "Persisted plan invalidated", reason);
 	}
 
 	private async writePlannerFailure(directory: string, error: unknown): Promise<void> {
@@ -377,16 +433,19 @@ export class ProofRuntime {
 		await writeJson(join(directory, "planner_error.json"), { error: errorMessage(error), trace: trace.lastTrace ?? null });
 	}
 
-	private async executePlan(plan: ProofPlan, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
-		await writeJson(join(stepDirectory, "actions.json"), plan.actions);
-		for (const action of plan.actions) {
+	private async executePlan(executionPlan: ProofExecutionPlan, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
+		const plan = executionPlan.plan; await writeJson(join(stepDirectory, "actions.json"), plan.actions);
+		for (let ordinal = 0; ordinal < plan.actions.length; ordinal += 1) {
+			const action = plan.actions[ordinal] as ProofAction, current = this.actionExecution(executionPlan.planId, ordinal);
+			if (current?.status === "COMPLETED") { if (action.action === "stop") { await this.rehydrateTerminalAction(action, current); return; } continue; }
 			if (signal?.aborted) {
 				await this.changeStatus("CANCELLED", "Proof run was cancelled during action execution");
 				return;
 			}
 			if (["PROVED", "CANCELLED", "BLOCKED_PROVIDER"].includes(this.stateValue.status)) return;
-			this.setCurrentAction(action);
-			switch (action.action) {
+			this.setCurrentAction(action); const startedAt = new Date().toISOString(), before = actionResultCursor(this.stateValue, this.eventList);
+			await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "RUNNING", startedAt: item.startedAt ?? startedAt, error: undefined }));
+			try { switch (action.action) {
 				case "read_theorem":
 					this.addOutput("read_theorem", action.summary ?? "Read theorem", await this.readTheorem());
 					break;
@@ -411,15 +470,27 @@ export class ProofRuntime {
 				case "submit_proof":
 					await this.submitProof(action, stepDirectory);
 					break;
+				case "submit_target_proof":
+					await this.submitTargetProof(action, stepDirectory);
+					break;
 				case "submit_lean_proof":
 					await this.submitLeanProof(action, signal, stepDirectory);
 					break;
 				case "stop":
 					await this.changeStatus("PARTIAL", action.reason ?? "Planner stopped the run");
-					return;
-			}
+					break;
+			} } catch (error) { await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "INTERRUPTED", error: errorMessage(error) })); throw error; }
+			if (signal?.aborted || this.stateValue.status === "CANCELLED") { await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "INTERRUPTED", error: "Action interrupted by cancellation" })); return; }
+			const completedAt = new Date().toISOString(), result = collectActionResult(action, before, this.stateValue, this.eventList);
+			await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "COMPLETED", completedAt, resultArtifactIds: result.resultArtifactIds, effectIds: result.effectIds, result: result.result }));
+			this.persistedActionReceipts += 1; if (this.faultAfterCompletedActionReceipts === this.persistedActionReceipts) throw new InjectedProofTaskFault(`Injected fault after completed action receipt ${this.persistedActionReceipts}`);
+			if (action.action === "stop") return;
 		}
 	}
+
+	private actionExecution(planId: string, ordinal: number): ProofPlanActionExecution | undefined { return this.stateValue.executionPlans.find((plan) => plan.planId === planId)?.actionExecutions.find((action) => action.ordinal === ordinal); }
+	private async updateActionExecution(planId: string, ordinal: number, update: (action: ProofPlanActionExecution) => ProofPlanActionExecution): Promise<void> { this.stateValue = { ...this.stateValue, executionPlans: this.stateValue.executionPlans.map((plan) => plan.planId === planId ? { ...plan, actionExecutions: plan.actionExecutions.map((action) => action.ordinal === ordinal ? update(action) : action) } : plan) }; await this.persistState(); }
+	private async rehydrateTerminalAction(action: Extract<ProofAction, { readonly action: "stop" }>, execution: ProofPlanActionExecution): Promise<void> { const status = execution.result?.terminalStatus, terminalStatus: ProofStatus = status === "PARTIAL" || status === "FAILED" || status === "CANCELLED" || status === "BLOCKED_PROVIDER" ? status : "PARTIAL", reason = typeof execution.result?.terminalReason === "string" ? execution.result.terminalReason : action.reason ?? "Planner stopped the run"; this.stateValue = { ...this.stateValue, status: terminalStatus, lastError: reason }; await this.persistState(); }
 
 	private setCurrentAction(action: ProofAction): void {
 		this.stateValue = {
@@ -489,8 +560,13 @@ export class ProofRuntime {
 	}
 
 	private async dispatchTasks(taskInputs: readonly ProofTaskInput[], signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
-		const materialized = taskInputs.slice(0, this.maxWorkers).map((input) => this.materializeTask(input));
-		this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, ...materialized] };
+		// maxWorkers is a concurrency limit, not an admission limit.  The old
+		// slice silently discarded every task beyond the first worker batch.
+		// mapConcurrent below already provides a bounded queue, so materialize
+		// every logical task and let that queue account for all of them.
+		const materialized = taskInputs.map((input, index) => this.materializeTask(input, index));
+		if (new Set(materialized.map((task) => task.taskId)).size !== materialized.length) throw new ProofProtocolError("Planner task ids must be unique inside a persisted plan");
+		this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, ...materialized.filter((task) => !this.stateValue.tasks.some((existing) => existing.taskId === task.taskId))] };
 		const accepted: ProofTask[] = [];
 		const seenRoutes = new Set<string>();
 		for (const task of materialized) {
@@ -504,13 +580,14 @@ export class ProofRuntime {
 				this.addOutput("spawn", task.summary, "Rejected duplicate failed route.");
 				continue;
 			}
-			if (!this.consumeBudget("workerCalls")) {
+			const completed = this.persistedResearchResult(task.taskId);
+			if (completed === undefined && !this.consumeBudget("workerCalls")) {
 				this.addOutput("spawn", task.summary, "Worker budget exhausted; task was not dispatched.");
 				continue;
 			}
 			seenRoutes.add(task.routeFingerprint);
 			accepted.push(task);
-			await this.emit({
+			if (completed === undefined) await this.emit({
 				type: "proof/task_dispatched",
 				eventId: randomUUID(),
 				runId: this.runIdValue,
@@ -521,8 +598,10 @@ export class ProofRuntime {
 		}
 
 		const researchWorks = await mapConcurrent(accepted, this.maxWorkers, async (task): Promise<ResearchWork> => {
+			const persisted = this.persistedResearchResult(task.taskId);
+			if (persisted !== undefined) return { task, result: persisted, providerBlocked: false, persisted: true };
 			await writeFile(join(stepDirectory, `worker_${slugify(task.taskId)}_task.md`), task.description, "utf8");
-			if (signal?.aborted) return { task, result: { kind: "blocked", reason: "Proof run was aborted" }, providerBlocked: false };
+			if (signal?.aborted) return { task, result: { kind: "blocked", reason: "Proof run was aborted" }, providerBlocked: false, persisted: false };
 			try {
 				const referencedMaterials = await this.repositoryValue.resolveWikilinks(task.description);
 				const context: ProofResearchContext = {
@@ -533,39 +612,47 @@ export class ProofRuntime {
 					task,
 					referencedMaterials,
 				};
-				return { task, result: await this.researcher.research(context, signal), providerBlocked: false };
+				const result = await withProofToolScope({ role: "worker", logicalTaskId: task.taskId }, () => this.researcher.research(context, signal));
+				await writeJson(join(stepDirectory, `worker_${slugify(task.taskId)}_result.json`), result);
+				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
+				this.persistedWorkerResults += 1; if (this.faultAfterWorkerResults === this.persistedWorkerResults) throw new InjectedProofTaskFault(`Injected fault after worker result ${this.persistedWorkerResults}`);
+				return { task, result, providerBlocked: false, persisted: false };
 			} catch (error) {
-				return { task, result: { kind: "blocked", reason: errorMessage(error) }, providerBlocked: isProviderFailure(error) };
+				if (error instanceof InjectedProofTaskFault) throw error;
+				const result: ResearchResult = { kind: "blocked", reason: errorMessage(error) };
+				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
+				return { task, result, providerBlocked: isProviderFailure(error), persisted: false };
 			}
 		});
 
 		const candidates: CandidateWork[] = [];
 		let providerBlockedResearch = 0;
 		for (const work of researchWorks) {
-			await writeJson(join(stepDirectory, `worker_${slugify(work.task.taskId)}_result.json`), work.result);
+			if (work.persisted) await writeJson(join(stepDirectory, `worker_${slugify(work.task.taskId)}_result.json`), work.result);
 			if (work.result.kind === "candidate") {
 				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), work.result.candidate.content, "utf8");
 			} else {
 				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), work.result.kind === "observation" ? work.result.content : work.result.reason, "utf8");
 			}
-			await this.emit({
-				type: "proof/research_result",
-				eventId: randomUUID(),
-				runId: this.runIdValue,
-				timestamp: Date.now(),
-				step: this.stateValue.step,
-				taskId: work.task.taskId,
-				result: work.result,
-			});
 			if (work.providerBlocked) providerBlockedResearch += 1;
 			if (work.result.kind === "candidate") {
-				const candidate = this.materializeCandidate(work.task, work.result);
-				const duplicate = this.duplicateCandidateReason(candidate);
+				const materializedCandidate = this.materializeCandidate(work.task, work.result);
+				const bodyReadEvidence = uniqueEvidence(await this.evidenceProvider?.("worker", work.task.taskId, "BODY_READ") ?? []);
+				const discoveredEvidence = uniqueEvidence(await this.evidenceProvider?.("worker", work.task.taskId, "DISCOVERED") ?? []);
+				const declaredIds = materializedCandidate.reliedOnArtifactIds.length > 0 ? materializedCandidate.reliedOnArtifactIds : materializedCandidate.declaredEvidence.map((item) => item.artifactId);
+				const reliedOnIds = declaredIds.length > 0 ? declaredIds : bodyReadEvidence.map((item) => item.artifactId);
+				const bodyReadIds = new Set(bodyReadEvidence.map((item) => item.artifactId));
+				const inaccessible = reliedOnIds.filter((artifactId) => !bodyReadIds.has(artifactId));
+				if (inaccessible.length > 0) throw new ProofProtocolError(`Worker declared reliance on artifacts it did not read: ${inaccessible.join(", ")}`);
+				const reliedOnEvidence = bodyReadEvidence.filter((item) => reliedOnIds.includes(item.artifactId));
+				const restored = this.stateValue.candidates.find((item) => item.candidateId === materializedCandidate.candidateId);
+				const candidate: ProofCandidate = restored ?? { ...materializedCandidate, evidence: reliedOnEvidence, bodyReadEvidence, discoveredEvidence, reliedOnArtifactIds: reliedOnIds };
+				const duplicate = restored === undefined ? this.duplicateCandidateReason(candidate) : undefined;
 				if (duplicate !== undefined) {
 					await this.rejectCandidate(candidate, work.task, duplicate);
 					continue;
 				}
-				this.stateValue = { ...this.stateValue, candidates: [...this.stateValue.candidates, candidate] };
+				if (restored === undefined) this.stateValue = { ...this.stateValue, candidates: [...this.stateValue.candidates, candidate] };
 				await this.repositoryValue.writeItem({
 					slug: `candidates/${candidate.candidateId}`,
 					content: candidate.content,
@@ -584,18 +671,26 @@ export class ProofRuntime {
 		}
 
 		const verificationWorks = await mapConcurrent(candidates, this.maxWorkers, async (work): Promise<VerificationWork> => {
+			const completed = this.stateValue.verifications[work.candidate.candidateId];
+			if (completed !== undefined) return { ...work, providerBlocked: false, result: completed };
 			if (!this.consumeBudget("verifierCalls")) {
 				return { ...work, providerBlocked: false, result: { verdict: "UNFINISHED", feedback: "Verifier budget exhausted; candidate was not verified." } };
 			}
 			if (signal?.aborted) return { ...work, providerBlocked: false, error: "Proof run was aborted" };
 			try {
+				const repositoryMaterials = await this.repositoryValue.resolveWikilinks(work.task.description);
+				const evidenceMaterials = await this.evidenceResolver?.(work.candidate.evidence) ?? "";
+				const referencedMaterials = [repositoryMaterials, evidenceMaterials].filter(Boolean).join("\n\n");
 				const context: ProofVerifierContext = {
 					runId: this.runIdValue,
 					step: this.stateValue.step,
 					obligation: this.obligation,
 					task: work.task,
+					referencedMaterials,
 				};
-				return { ...work, providerBlocked: false, result: await this.verifier.verify(work.candidate, context, signal) };
+				const modelResult = await withProofToolScope({ role: "verifier", logicalTaskId: work.task.taskId }, () => this.verifier.verify(work.candidate, context, signal));
+				const evidence = await this.evidenceProvider?.("verifier", work.task.taskId, "BODY_READ") ?? [];
+				return { ...work, providerBlocked: false, result: { ...modelResult, evidence: uniqueEvidence(evidence) } };
 			} catch (error) {
 				return { ...work, providerBlocked: isProviderFailure(error), error: errorMessage(error) };
 			}
@@ -609,7 +704,7 @@ export class ProofRuntime {
 				this.addOutput("spawn", work.task.summary, `Verifier failed: ${work.error ?? "unknown verifier error"}`);
 				continue;
 			}
-			await this.recordVerification(work.task, work.candidate, work.result);
+			if (this.stateValue.verifications[work.candidate.candidateId] === undefined) await this.recordVerification(work.task, work.candidate, work.result);
 		}
 		this.addOutput("spawn", "Merged Worker + Verifier feedback", mergeWorkerVerifierOutput(researchWorks, verificationWorks));
 		if (providerBlockedVerifiers === verificationWorks.length && verificationWorks.length > 0) {
@@ -745,6 +840,10 @@ export class ProofRuntime {
 	}
 
 	private async submitProof(action: Extract<ProofAction, { action: "submit_proof" }>, stepDirectory: string): Promise<void> {
+		if (this.targetGate !== undefined) {
+			this.addOutput("submit_proof", "Submission rejected", "Research targets require submit_target_proof with exact obligation and claim identity.");
+			return;
+		}
 		if (this.stateValue.mode === "formalize_only") {
 			this.addOutput("submit_proof", "Submission rejected", "formalize_only requires submit_lean_proof.");
 			return;
@@ -797,6 +896,44 @@ export class ProofRuntime {
 			proofPath,
 		});
 		await this.checkCompletion(`PROOF.md written${action.proofSlug === undefined ? "" : ` from [[${action.proofSlug}]]`}.`);
+	}
+
+	private persistedResearchResult(taskId: string): ResearchResult | undefined {
+		for (let index = this.eventList.length - 1; index >= 0; index -= 1) {
+			const event = this.eventList[index];
+			if (event?.type === "proof/research_result" && event.taskId === taskId) return event.result;
+		}
+		return undefined;
+	}
+
+	private async submitTargetProof(action: Extract<ProofAction, { action: "submit_target_proof" }>, stepDirectory: string): Promise<void> {
+		const gate = this.targetGate;
+		if (gate === undefined || action.targetObligationId !== gate.targetObligationId || action.targetClaimId !== gate.targetClaimId) {
+			this.addOutput("submit_target_proof", "Submission rejected", "Target identity does not match the active research obligation gate.");
+			return;
+		}
+		const candidate = this.stateValue.candidates.find((item) => item.candidateId === action.candidateId);
+		if (candidate === undefined || candidate.scope !== "TARGET" || candidate.targetClaimId !== gate.targetClaimId) {
+			this.addOutput("submit_target_proof", "Submission rejected", "Candidate was not Planner-designated for the exact target claim.");
+			return;
+		}
+		const verification = this.stateValue.verifications[candidate.candidateId];
+		if (verification?.verdict !== "CORRECT") {
+			this.addOutput("submit_target_proof", "Submission rejected", "The target candidate has no independent CORRECT verification.");
+			return;
+		}
+		if (!this.noveltyGate(candidate)) {
+			this.addOutput("submit_target_proof", "Submission rejected", "Candidate novelty gate rejected the target submission.");
+			return;
+		}
+		const proofPath = join(this.runDirectory, "PROOF.md");
+		const proof = [`# Proof: ${this.obligation.theorem}`, "", candidate.content, "", `<!-- target_obligation_id: ${gate.targetObligationId} -->`, `<!-- target_claim_id: ${gate.targetClaimId} -->`, `<!-- candidate_id: ${candidate.candidateId} -->`, ""].join("\n");
+		await writeFile(proofPath, proof, "utf8");
+		await writeFile(join(stepDirectory, "submitted_target_proof.md"), proof, "utf8");
+		this.proofPathValue = proofPath;
+		this.stateValue = { ...this.stateValue, submittedCandidateId: candidate.candidateId, targetSubmission: { candidateId: candidate.candidateId, targetObligationId: gate.targetObligationId, targetClaimId: gate.targetClaimId, scope: "TARGET" } };
+		await this.emit({ type: "proof/submitted", eventId: randomUUID(), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, candidateId: candidate.candidateId, proofPath });
+		await this.checkCompletion("Exact research target submission passed the tactical gate.");
 	}
 
 	private async submitLeanProof(action: Extract<ProofAction, { action: "submit_lean_proof" }>, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
@@ -897,6 +1034,7 @@ export class ProofRuntime {
 			stepHistory: [...this.stateValue.stepHistory],
 			budget: this.stateValue.budget,
 			artifacts: this.artifactStatus(),
+			...(this.tacticalDirective === undefined ? {} : { tacticalDirective: this.tacticalDirective }),
 		};
 	}
 
@@ -911,21 +1049,28 @@ export class ProofRuntime {
 		};
 	}
 
-	private materializeTask(input: ProofTaskInput): ProofTask {
-		const taskId = input.taskId ?? `${this.runIdValue}-task-${this.stateValue.tasks.length + 1}`;
+	private materializeTask(input: ProofTaskInput, index = 0): ProofTask {
+		const taskId = input.taskId ?? `${this.runIdValue}-task-${this.stateValue.tasks.length + index + 1}`;
+		if (this.targetGate !== undefined && input.scope === "TARGET" && input.targetClaimId !== this.targetGate.targetClaimId) throw new ProofProtocolError("Planner TARGET task must carry the exact runtime target claim id");
 		const routeKey = input.routeKey ?? input.description;
 		return {
 			taskId,
 			summary: input.summary,
 			description: input.description,
 			routeFingerprint: fingerprint(`${this.obligation.theorem}\n${routeKey}`),
+			scope: input.scope ?? "CONTRIBUTION",
 			...(input.routeKey === undefined ? {} : { routeKey: input.routeKey }),
+			...(input.targetClaimId === undefined ? {} : { targetClaimId: input.targetClaimId }),
+			...(input.contributionKind === undefined ? {} : { contributionKind: input.contributionKind }),
 		};
 	}
 
 	private materializeCandidate(task: ProofTask, result: Extract<ResearchResult, { kind: "candidate" }>): ProofCandidate {
 		const content = result.candidate.content.trim();
 		const claim = result.candidate.claim;
+		const declaredEvidence = result.candidate.evidence ?? [];
+		if (result.candidate.scope !== undefined && result.candidate.scope !== task.scope) throw new ProofProtocolError(`Worker scope ${result.candidate.scope} disagrees with Planner task scope ${task.scope}`);
+		if (task.contributionKind !== undefined && result.candidate.contribution?.kind !== task.contributionKind) throw new ProofProtocolError(`Worker contribution kind disagrees with Planner task kind ${task.contributionKind}`);
 		return {
 			candidateId: result.candidate.candidateId ?? `${task.taskId}-candidate`,
 			taskId: task.taskId,
@@ -934,6 +1079,16 @@ export class ProofRuntime {
 			routeFingerprint: task.routeFingerprint,
 			claimFingerprint: result.candidate.claimFingerprint ?? fingerprint(claim ?? this.obligation.theorem),
 			candidateFingerprint: fingerprint(`${this.obligation.theorem}\n${content}`),
+			evidence: [],
+			discoveredEvidence: [],
+			bodyReadEvidence: [],
+			declaredEvidence,
+			reliedOnArtifactIds: result.candidate.reliedOnArtifactIds ?? [],
+			scope: task.scope,
+			...(task.targetClaimId === undefined ? {} : { targetClaimId: task.targetClaimId }),
+			assumptions: result.candidate.assumptions ?? result.candidate.contribution?.assumptions ?? [],
+			dependencyClaims: result.candidate.dependencyClaims ?? result.candidate.contribution?.dependencyClaims ?? [],
+			...(result.candidate.contribution === undefined ? {} : { contribution: result.candidate.contribution }),
 			...(claim === undefined ? {} : { claim }),
 		};
 	}
@@ -956,9 +1111,10 @@ export class ProofRuntime {
 		});
 	}
 
-	private consumeBudget(counter: "workerCalls" | "verifierCalls" | "literatureSearches" | "toolCalls"): boolean {
+	private consumeBudget(counter: "plannerCalls" | "workerCalls" | "verifierCalls" | "literatureSearches" | "toolCalls"): boolean {
 		const budget = this.stateValue.budget;
 		const limitKey = {
+			plannerCalls: "maxPlannerCalls",
 			workerCalls: "maxWorkerCalls",
 			verifierCalls: "maxVerifierCalls",
 			literatureSearches: "maxLiteratureSearches",
@@ -1081,6 +1237,21 @@ export class ProofRuntime {
 /** Named entry point for callers that want the orchestration concept explicitly. */
 export class ProofWorkflow extends ProofRuntime {}
 
+class InjectedProofTaskFault extends Error { constructor(message: string) { super(message); this.name = "InjectedProofTaskFault"; } }
+
+function actionExecution(planId: string, action: ProofAction, ordinal: number): ProofPlanActionExecution { return { actionId: fingerprint(`${planId}\n${ordinal}\n${JSON.stringify(action)}`), planId, ordinal, action, status: "PENDING", resultArtifactIds: [], effectIds: [] }; }
+function normalizeExecutionPlan(plan: ProofExecutionPlan): ProofExecutionPlan {
+	const actions = Array.isArray((plan as Partial<ProofExecutionPlan>).actionExecutions) ? plan.actionExecutions : undefined;
+	if (actions !== undefined) return plan;
+	return { ...plan, actionExecutions: plan.plan.actions.map((action, ordinal) => actionExecution(plan.planId, action, ordinal)), ...(plan.status === "RUNNING" ? { status: "STALE" as const, staleReason: "Legacy persisted plan lacks per-action completion receipts; fail-closed replanning is required" } : {}) };
+}
+interface ActionResultCursor { readonly eventCount: number; readonly candidateIds: ReadonlySet<string>; readonly taskIds: ReadonlySet<string>; readonly outputCount: number; readonly submittedCandidateId?: string; readonly proofLeanPath?: string; }
+function actionResultCursor(state: ProofState, events: readonly ProofEvent[]): ActionResultCursor { return { eventCount: events.length, candidateIds: new Set(state.candidates.map((item) => item.candidateId)), taskIds: new Set(state.tasks.map((item) => item.taskId)), outputCount: state.recentOutputs.length, ...(state.submittedCandidateId === undefined ? {} : { submittedCandidateId: state.submittedCandidateId }), ...(state.proofLeanPath === undefined ? {} : { proofLeanPath: state.proofLeanPath }) }; }
+function collectActionResult(action: ProofAction, before: ActionResultCursor, state: ProofState, events: readonly ProofEvent[]): { readonly resultArtifactIds: readonly string[]; readonly effectIds: readonly string[]; readonly result: Readonly<Record<string, unknown>> } {
+	const candidateIds = state.candidates.filter((item) => !before.candidateIds.has(item.candidateId)).map((item) => item.candidateId), taskIds = state.tasks.filter((item) => !before.taskIds.has(item.taskId)).map((item) => item.taskId), repositorySlugs = action.action === "write_items" ? action.items.map((item) => item.slug) : action.action === "literature_search" ? [`literature/${slugify(action.query)}`] : [], submittedCandidateId = state.submittedCandidateId !== before.submittedCandidateId ? state.submittedCandidateId : undefined, resultArtifactIds = [...repositorySlugs, ...candidateIds, ...(submittedCandidateId === undefined ? [] : [submittedCandidateId]), ...(state.proofLeanPath !== before.proofLeanPath && state.proofLeanPath !== undefined ? [state.proofLeanPath] : [])], effectIds = events.slice(before.eventCount).map((event) => event.eventId), outputs = state.recentOutputs.slice(Math.min(before.outputCount, state.recentOutputs.length));
+	return { resultArtifactIds: [...new Set(resultArtifactIds)], effectIds: [...new Set(effectIds)], result: { action: action.action, taskIds, candidateIds, repositorySlugs, outputs, ...(submittedCandidateId === undefined ? {} : { submittedCandidateId }), ...(action.action === "stop" ? { terminalStatus: state.status, terminalReason: state.lastError ?? action.reason ?? "Planner stopped the run" } : {}) } };
+}
+
 async function mapConcurrent<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
 	const results: R[] = [];
 	let cursor = 0;
@@ -1098,11 +1269,13 @@ async function mapConcurrent<T, R>(items: readonly T[], limit: number, fn: (item
 
 function createBudget(options: ProofBudgetOptions | undefined): ProofBudgetState {
 	return {
+		plannerCalls: 0,
 		workerCalls: 0,
 		verifierCalls: 0,
 		literatureSearches: 0,
 		toolCalls: 0,
 		startedAt: Date.now(),
+		...(options?.maxPlannerCalls === undefined ? {} : { maxPlannerCalls: options.maxPlannerCalls }),
 		...(options?.maxWorkerCalls === undefined ? {} : { maxWorkerCalls: options.maxWorkerCalls }),
 		...(options?.maxVerifierCalls === undefined ? {} : { maxVerifierCalls: options.maxVerifierCalls }),
 		...(options?.maxLiteratureSearches === undefined ? {} : { maxLiteratureSearches: options.maxLiteratureSearches }),
@@ -1136,6 +1309,7 @@ function snapshotState(state: ProofState): ProofState {
 		rejectedCandidates: [...state.rejectedCandidates],
 		recentOutputs: [...state.recentOutputs],
 		stepHistory: [...state.stepHistory],
+		executionPlans: [...state.executionPlans],
 		budget: { ...state.budget },
 	};
 }
@@ -1186,6 +1360,15 @@ function stringify(value: unknown): string {
 	}
 }
 
+function stableEventId(runId: string, phase: string, logicalId: string): string {
+	return `${phase}-${fingerprint(`${runId}:${phase}:${logicalId}`).slice(0, 32)}`;
+}
+
+function uniqueEvidence<T extends { readonly artifactId: string; readonly contentHash: string }>(refs: readonly T[]): T[] {
+	const seen = new Set<string>();
+	return refs.filter((ref) => { const key = `${ref.artifactId}:${ref.contentHash}`; if (seen.has(key)) return false; seen.add(key); return true; });
+}
+
 function mergeWorkerVerifierOutput(research: readonly ResearchWork[], verifications: readonly VerificationWork[]): string {
 	const byTask = new Map(verifications.map((work) => [work.task.taskId, work]));
 	return research.map((work, index) => {
@@ -1232,4 +1415,9 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validatePlanTaskIdentities(plan: ProofPlan): void {
+	const ids = plan.actions.flatMap((action) => action.action === "spawn" ? action.tasks.map((task) => task.taskId).filter((item): item is string => item !== undefined) : []);
+	if (new Set(ids).size !== ids.length) throw new ProofProtocolError("Planner task ids must be unique inside a persisted plan");
 }

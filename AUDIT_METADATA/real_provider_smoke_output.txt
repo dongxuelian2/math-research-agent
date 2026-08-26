@@ -1,0 +1,30 @@
+$ npm run build && node scripts/real-provider-research-smoke.mjs
+
+> @math-research-agent/backend@0.1.0 build
+> tsc -p tsconfig.json
+
+{
+  "status": "RAN",
+  "projectStatus": "PARTIAL",
+  "cycle": 1,
+  "decisions": [
+    {
+      "action": "ATTACK_OBLIGATION",
+      "direction": "FALLBACK_DIRECTED",
+      "protocolError": "ResearchRoleProviderError: research_director provider failed: Provider request failed with HTTP 429: {\n    \"error\": {\n        \"message\": \"You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors.\",\n        \"type\": \"insufficient_quota\",\n        \"param\": null,\n        \"code\": \"insufficient_quota\"\n    }\n}\n"
+    }
+  ],
+  "budget": {
+    "cycles": 1,
+    "plannerCalls": 1,
+    "workerCalls": 0,
+    "verifierCalls": 0,
+    "secondaryAuditorCalls": 0,
+    "literatureCalls": 0,
+    "toolCalls": 0,
+    "startedAt": 1787715053748
+  },
+  "toolReceiptCount": 0,
+  "workerReadCount": 0,
+  "verifierReadCount": 0
+}

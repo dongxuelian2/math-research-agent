@@ -1,0 +1,1808 @@
+diff --git a/README.md b/README.md
+index fa14bb5..ad6ab39 100644
+--- a/README.md
++++ b/README.md
+@@ -27,7 +27,7 @@ API-only 模式适合前端开发和自动化测试：
+ pnpm start:api
+ ```
+ 
+-默认 API 地址是 `http://127.0.0.1:4310`。启动链路只包含 Node、pnpm、
++仓库当前配置的 API 地址是 `http://127.0.0.1:43100`（以启动输出和 TOML 为准）。启动链路只包含 Node、pnpm、
+ TypeScript proof API 和 `apps/proof-workbench`，不需要任何外部 Harness checkout。
+ 
+ GUI 源码在 [`apps/proof-workbench`](apps/proof-workbench)。其中 `web/` 可以独立交给
+@@ -92,11 +92,24 @@ Run 和结果，应得到相同的持久化产物。
+ 
+ - `[runtime]`：Host、Web/API 端口、数据目录；
+ - `[proof]`：模式、并行 Worker 数、步骤上限；
++- `[research]`、`[budgets]` 与 `[corpus]`：长周期策略、检查点/停滞、执行预算和语义导入；
++- `[tools]`：统一工件访问、允许的受控执行能力与可执行文件；
+ - `[formalization]` 与可选 literature adapter；
+ - `[models.*]`：Provider、Model ID、Base URL、API key 环境变量名、推理强度、
+   context window、最大输出长度和自定义请求参数；
+ - `[roles.*]`：Planner、Worker、Verifier、Synthesizer、Formalizer、Literature
+-  Researcher 的模型映射和运行参数。
++  Researcher，以及 Research Director、Corpus Bootstrapper、Secondary Auditor 的模型映射和运行参数。
++
++## 自主研究 API
++
++`/v1/research/projects` 提供持久化的 MRR v1 研究链路：语义 corpus bootstrap、模型驱动策略、
++类型化中间数学贡献、严格 target-proof 门、统一跨周期工件检索、自动证据回执、路线/覆盖图、
++任务级恢复、文献、root readiness、综合、独立终审和可选 Lean 进程门。完整协议、硬不变量和外部
++Proof-as-Test 启动说明见：
++
++- [`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)
++- [`docs/MRR_V1_INVARIANTS.md`](docs/MRR_V1_INVARIANTS.md)
++- [`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)
+ 
+ Web 设置页“模型与证明角色”和高级 TOML 编辑器共用一个 `ConfigService`。
+ 修改使用修订号、串行化并发更新、文件锁语义和临时文件原子替换；正在运行的
+@@ -113,6 +126,9 @@ GCP Service Account 凭据，不是 Gemini Developer API key；启动脚本发
+ 
+ ## 开发检查
+ 
++研究运行时文档：[`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)。
++Critical Layer 启动与就绪边界：[`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)。
++
+ ```bash
+ pnpm install --frozen-lockfile
+ pnpm run typecheck
+diff --git a/backend/package.json b/backend/package.json
+index 1ca6fb4..a53c4fb 100644
+--- a/backend/package.json
++++ b/backend/package.json
+@@ -13,7 +13,8 @@
+   "scripts": {
+     "build": "tsc -p tsconfig.json",
+     "typecheck": "tsc --noEmit -p tsconfig.json",
+-    "test": "npm run build && node --test dist/test/*.test.js"
++    "test": "npm run build && node --test dist/test/*.test.js",
++    "smoke:real:mrr": "npm run build && node scripts/real-provider-research-smoke.mjs"
+   },
+   "engines": {
+     "node": ">=22"
+@@ -21,5 +22,8 @@
+   "devDependencies": {
+     "@types/node": "^22.19.0",
+     "typescript": "^5.9.3"
++  },
++  "dependencies": {
++    "undici": "6.21.0"
+   }
+ }
+diff --git a/backend/src/api/server.ts b/backend/src/api/server.ts
+index 947fab3..45f6ce9 100644
+--- a/backend/src/api/server.ts
++++ b/backend/src/api/server.ts
+@@ -3,11 +3,15 @@ import { randomUUID } from "node:crypto";
+ import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+ import { join, resolve } from "node:path";
+ import { createUserMessage } from "../models/index.js";
+-import { ConfigConflictError, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService } from "../config.js";
++import { ConfigConflictError, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService, type ProofRole } from "../config.js";
++import type { Agent } from "../agent/types.js";
+ import type { JsonObject } from "../models/json.js";
++import type { RuntimeTool } from "../models/tools.js";
+ import { Session } from "../session/index.js";
+ import { ProofWorkflow } from "../proof/runtime.js";
+-import type { AgentProofRoles } from "../proof/agent-role.js";
++import { CommandProofFormalVerifier } from "../proof/formal.js";
++import { AgentCorpusBootstrapper, AgentFinalAuditRole, AgentFormalizerRole, AgentLiteratureApplicability, AgentResearchDirector, AgentSynthesisRole, CorpusService, LiteratureService, OpenAlexLiteratureProvider, ResearchEvidenceRecorder, ResearchInvariantValidator, ResearchRetrievalService, ResearchRuntime, ResearchStore, RootClosureService, createResearchTools, researchFrontier, rootSynthesisReadiness, stableId, type LiteratureProvider, type TacticalProofRequest, type TacticalResearchResult, type TrustReceipt, type VerifiedResearchContribution } from "../research/index.js";
++import { createAgentProofVerifier, type AgentProofRoles } from "../proof/agent-role.js";
+ import type {
+ 	ProofMode,
+ 	ProofObligation,
+@@ -16,15 +20,20 @@ import type {
+ 	ProofStatus,
+ } from "../proof/types.js";
+ 
+-export type ProofApiRoleFactory = (context: {
++export interface ProofApiRoleFactory {
++(context: {
+ 	readonly session: Session;
+ 	readonly sessionId: string;
+ 	readonly runId: string;
+ 	readonly obligation: ProofObligation;
+ 	readonly mode: ProofMode;
++	readonly tools?: readonly RuntimeTool[];
++	readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
+ 	/** Immutable configuration selected when this run was created. */
+ 	readonly config?: MathAgentConfig;
+-}) => AgentProofRoles | Promise<AgentProofRoles>;
++}): AgentProofRoles | Promise<AgentProofRoles>;
++	createAgent?(context: { readonly role: ProofRole; readonly sessionId: string; readonly runId: string; readonly tools?: readonly RuntimeTool[]; readonly config?: MathAgentConfig }): Promise<Agent>;
++}
+ 
+ export type ProofApiServerOptions = {
+ 	readonly rootDirectory: string;
+@@ -33,6 +42,9 @@ export type ProofApiServerOptions = {
+ 	readonly defaultMode?: ProofMode;
+ 	readonly defaultMaxWorkers?: number;
+ 	readonly defaultMaxSteps?: number;
++	readonly literatureProvider?: LiteratureProvider;
++	/** Deterministic crash seam used by restart/fault E2E; never configured by the public API. */
++	readonly researchProofFaultAfterWorkerResults?: number;
+ };
+ 
+ type SessionRecord = {
+@@ -63,7 +75,13 @@ export class ProofApiServer {
+ 	private readonly defaultMode: ProofMode;
+ 	private readonly defaultMaxWorkers: number;
+ 	private readonly defaultMaxSteps: number;
++	private readonly researchProofFaultAfterWorkerResults?: number;
+ 	private readonly sessions = new Map<string, SessionRecord>();
++	private readonly researchStore: ResearchStore;
++	private readonly researchCorpus: CorpusService;
++	private researchRuntime: ResearchRuntime;
++	private readonly literatureProvider: LiteratureProvider;
++	private readonly activeResearch = new Map<string, { readonly controller: AbortController; readonly promise: Promise<void> }>();
+ 	private readonly sseResponses = new Set<ServerResponse>();
+ 	private readonly sseRunResponses = new Map<RunRecord, Set<ServerResponse>>();
+ 	private server: Server | undefined;
+@@ -76,6 +94,37 @@ export class ProofApiServer {
+ 		this.defaultMode = options.defaultMode ?? "prove";
+ 		this.defaultMaxWorkers = Math.max(1, options.defaultMaxWorkers ?? 3);
+ 		this.defaultMaxSteps = Math.max(1, options.defaultMaxSteps ?? 32);
++		this.researchProofFaultAfterWorkerResults = options.researchProofFaultAfterWorkerResults;
++		this.researchStore = new ResearchStore(join(this.rootDirectory, "research"));
++		this.researchCorpus = new CorpusService(this.researchStore);
++		this.literatureProvider = options.literatureProvider ?? new OpenAlexLiteratureProvider();
++		this.researchRuntime = this.buildResearchRuntime();
++	}
++
++	private buildResearchRuntime(): ResearchRuntime {
++		return new ResearchRuntime({
++			store: this.researchStore,
++			proofRunner: (request, signal) => this.runResearchProof(request, signal),
++			literatureRunner: (request, signal) => this.runLiteratureProof(request, signal),
++			synthesisRunner: (projectId, signal) => this.runRootSynthesis(projectId, signal),
++			...(this.createRoles.createAgent === undefined ? {} : { modelDirector: new AgentResearchDirector((snapshot) => this.createResearchAgent("research_director", snapshot.projectId, `cycle-${Date.now()}`)) }),
++			secondaryAuditor: async ({ projectId, claim, candidate, workerReadEvidence }, signal) => {
++				const auditId = stableResearchAuditId(projectId, candidate.contentHash), directory = join(this.researchStore.projectDirectory(projectId), "audits", auditId); await mkdir(directory, { recursive: true });
++				const config = this.projectConfigSnapshot(await this.researchStore.read(projectId)), recorder = new ResearchEvidenceRecorder(this.researchStore, projectId, auditId), tools = this.researchTools(projectId, directory, recorder, "secondary_auditor", config);
++				const agent = await this.createResearchAgent("secondary_auditor", projectId, auditId, tools), verifier = createAgentProofVerifier(agent), obligation: ProofObligation = { obligationId: auditId, theorem: claim.statement }, body = (await this.researchStore.resolveArtifact(projectId, candidate)).body;
++				const task = { taskId: auditId, summary: "Fresh independent root audit", description: `Audit the exact target proof. Retrieve every relied-on artifact before accepting.`, routeFingerprint: auditId, scope: "TARGET" as const, targetClaimId: claim.claimId }, proofCandidate = { candidateId: candidate.artifactId, taskId: auditId, content: body, strategy: "fresh-root-audit", routeFingerprint: auditId, claimFingerprint: candidate.contentHash, candidateFingerprint: candidate.contentHash, claim: claim.statement, evidence: workerReadEvidence, discoveredEvidence: [], bodyReadEvidence: workerReadEvidence, declaredEvidence: workerReadEvidence, reliedOnArtifactIds: workerReadEvidence.map((item) => item.artifactId), assumptions: claim.assumptions, dependencyClaims: claim.dependencies, scope: "TARGET" as const, targetClaimId: claim.claimId };
++				const result = await verifier.verify(proofCandidate, { runId: auditId, step: 1, obligation, task }, signal); const inspected = (await recorder.list("secondary_auditor")).filter((item) => item.operation === "READ").map((item) => item.artifact);
++				await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.budget = { ...draft.budget, secondaryAuditorCalls: draft.budget.secondaryAuditorCalls + 1 }; });
++				return { verdict: result.verdict === "NEEDS_MINOR_FIXES" ? "MINOR_FIX" : result.verdict, feedback: result.feedback, profile: "configured-secondary-auditor", evidenceInspected: inspected, toolReceiptIds: (await recorder.list("secondary_auditor")).map((item) => item.receiptId) };
++			},
++			// These are compatibility defaults only. Every v1.1 project with a valid
++			// snapshot overrides them from its own durable effectiveConfig.
++			checkpointInterval: 1,
++			stallThreshold: 3,
++			maxCycles: 100,
++			maxActiveObligations: 8,
++			structuralProbeBudget: 2,
++		});
+ 	}
+ 
+ 	get baseUrl(): string | undefined {
+@@ -87,9 +136,11 @@ export class ProofApiServer {
+ 		if (this.server !== undefined && this.baseUrlValue !== undefined) return this.baseUrlValue;
+ 		await mkdir(join(this.rootDirectory, "sessions"), { recursive: true });
+ 		await mkdir(join(this.rootDirectory, "proof-runs"), { recursive: true });
++		await this.researchStore.initialize();
+ 		if (this.configService !== undefined) {
+ 			await this.configService.load();
+ 			await this.configService.startWatching();
++			this.researchRuntime = this.buildResearchRuntime();
+ 		}
+ 		await this.discoverPersistedSessions();
+ 		const host = options.host ?? "127.0.0.1";
+@@ -117,7 +168,9 @@ export class ProofApiServer {
+ 
+ 	async stop(): Promise<void> {
+ 		for (const run of this.allRuns()) run.controller.abort();
++		for (const run of this.activeResearch.values()) run.controller.abort();
+ 		await Promise.allSettled(this.allRuns().map((run) => run.promise ?? Promise.resolve()));
++		await Promise.allSettled([...this.activeResearch.values()].map((run) => run.promise));
+ 		for (const response of this.sseResponses) response.end();
+ 		this.sseResponses.clear();
+ 		this.sseRunResponses.clear();
+@@ -148,6 +201,10 @@ export class ProofApiServer {
+ 				await this.handleConfigRoute(parts, request, response);
+ 				return;
+ 			}
++			if (parts[0] === "v1" && parts[1] === "research") {
++				await this.handleResearchRoute(parts, url, request, response);
++				return;
++			}
+ 			if (parts.length === 2 && parts[0] === "v1" && parts[1] === "sessions" && request.method === "POST") {
+ 				await this.createSession(request, response);
+ 				return;
+@@ -209,6 +266,156 @@ export class ProofApiServer {
+ 		}
+ 	}
+ 
++	private async handleResearchRoute(parts: readonly string[], url: URL, request: IncomingMessage, response: ServerResponse): Promise<void> {
++		if (parts.length === 3 && parts[2] === "projects" && request.method === "GET") {
++			const projects = await this.researchStore.listProjects();
++			this.send(response, 200, { projects: projects.map((state) => ({ projectId: state.projectId, name: state.name, status: state.status, rootObjective: state.rootObjective, cycle: state.cycle, frontierSize: researchFrontier(state).length })) }); return;
++		}
++		if (parts.length === 3 && parts[2] === "projects" && request.method === "POST") {
++			const body = await readJsonObject(request); const projectId = optionalString(body.projectId) ?? randomUUID(); const name = optionalString(body.name) ?? projectId;
++			let state = await this.researchRuntime.createProject(projectId, name, this.configService === undefined ? {} : jsonObjectOf(this.configService.config)); const projectConfig = mathAgentConfigOf(state.effectiveConfig), configuredRoots = projectConfig?.corpus.enabled === true ? projectConfig.corpus.roots : [];
++			if (configuredRoots.length > 0) state = await this.researchCorpus.attach(projectId, configuredRoots);
++			state = (await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.events = [...draft.events, { eventId: `project-${projectId}`, type: "research/project_created", projectId, timestamp: new Date().toISOString(), detail: { name, configRevision: draft.configRevision } }]; })).state;
++			this.send(response, 201, { state, links: researchLinks(projectId) }); return;
++		}
++		if (parts.length < 4 || parts[2] !== "projects") throw new ApiHttpError(404, "Research API route not found");
++		const projectId = parts[3] ?? ""; let state;
++		try { state = await this.researchStore.read(projectId); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new ApiHttpError(404, `Research project not found: ${projectId}`); throw error; }
++		if (parts.length === 4 && request.method === "GET") { this.send(response, 200, { state, active: this.activeResearch.has(projectId), links: researchLinks(projectId) }); return; }
++		const operation = parts[4] ?? "", projectConfig = mathAgentConfigOf(state.effectiveConfig);
++		if (operation === "root" && request.method === "POST") { const body = await readJsonObject(request); const objective = requiredString(body.objective ?? body.statement, "objective"); this.send(response, 200, { state: await this.researchRuntime.setRootObjective(projectId, objective) }); return; }
++		if (operation === "corpus" && parts.length === 5 && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus access is disabled by the project configuration snapshot"); const body = await readJsonObject(request); if (!Array.isArray(body.roots) || !body.roots.every((item) => typeof item === "string")) throw new ApiHttpError(400, "roots must be an array of directory paths"); this.send(response, 200, { state: await this.researchCorpus.attach(projectId, body.roots) }); return; }
++		if (operation === "corpus" && (parts[5] === "ingest" || parts[5] === "reindex") && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus ingestion is disabled by the project configuration snapshot"); const result = await this.researchCorpus.ingest(projectId, configuredImportAuthority(projectConfig?.corpus.importAuthorityPolicy)); this.send(response, 200, result); return; }
++		if (operation === "corpus" && parts[5] === "search" && request.method === "GET") { const query = url.searchParams.get("q") ?? ""; this.send(response, 200, { matches: await this.researchCorpus.search(projectId, query, url.searchParams.get("exact") === "true") }); return; }
++		if (operation === "corpus" && parts[5] !== undefined && request.method === "GET") { this.send(response, 200, await this.researchCorpus.read(projectId, parts[5], Number(url.searchParams.get("offset") ?? 0), url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined)); return; }
++		if (operation === "corpus" && request.method === "GET") { this.send(response, 200, { corpus: await this.researchCorpus.list(projectId) }); return; }
++		if (operation === "bootstrap" && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus bootstrap is disabled by the project configuration snapshot"); const bootstrapper = this.createRoles.createAgent === undefined || projectConfig?.roles.corpus_bootstrapper.enabled === false ? undefined : new AgentCorpusBootstrapper((artifactId) => this.createResearchAgent("corpus_bootstrapper", projectId, artifactId)); this.send(response, 200, { report: await this.researchCorpus.bootstrap(projectId, bootstrapper), state: await this.researchStore.read(projectId) }); return; }
++		if ((operation === "start" || operation === "resume") && request.method === "POST") {
++			if (this.activeResearch.has(projectId)) throw new ApiHttpError(409, "Research project is already running"); const body = await readJsonObject(request); const maxCycles = positiveInteger(body.maxCycles) ?? projectConfig?.research.maxCycles ?? 100; const controller = new AbortController();
++			const promise = this.researchRuntime.run(projectId, maxCycles, controller.signal).then(() => undefined).catch(async (error: unknown) => { await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.status = "BLOCKED"; mutable.lastError = errorMessage(error); }); }).finally(() => { this.activeResearch.delete(projectId); });
++			this.activeResearch.set(projectId, { controller, promise }); this.send(response, 202, { projectId, status: operation === "resume" ? "RESUMING" : "RUNNING", links: researchLinks(projectId) }); return;
++		}
++		if (operation === "cancel" && request.method === "POST") { const active = this.activeResearch.get(projectId); if (active === undefined) throw new ApiHttpError(409, "Research project is not active"); active.controller.abort(); this.send(response, 202, { projectId, status: "CANCELLATION_REQUESTED" }); return; }
++		if (operation === "checkpoint" && request.method === "POST") { this.send(response, 201, { state: await this.researchRuntime.createCheckpoint(projectId) }); return; }
++		if (operation === "root-readiness" && request.method === "GET") { this.send(response, 200, await this.rootClosureService(projectId).then((service) => service.readiness(projectId))); return; }
++		if (operation === "synthesis" && request.method === "POST") { this.send(response, 200, { state: await this.runRootSynthesis(projectId) }); return; }
++		if (operation === "bootstrap-report" && request.method === "GET") { this.send(response, 200, { reports: state.bootstrapReports, latest: state.bootstrapReports.at(-1) }); return; }
++		if (operation === "audit" && request.method === "GET") { const invariants = await new ResearchInvariantValidator(this.researchStore).check(projectId); this.send(response, 200, { projectId, schemaVersion: state.schemaVersion, effectiveConfig: state.effectiveConfig, configRevision: state.configRevision, migrationReports: state.migrationReports, executionPlans: state.executionPlans, executionTasks: state.executionTasks, evidenceReceipts: state.toolEvidenceReceipts, trustReceipts: state.trustReceipts, authorityReceipts: state.authorityReceipts, acceptedEffects: state.acceptedEffects, bootstrapReports: state.bootstrapReports, invariants, rootReadiness: rootSynthesisReadiness(state) }); return; }
++		if (operation === "invalidate" && request.method === "POST") { const body = await readJsonObject(request); this.send(response, 200, { state: await this.researchRuntime.reducer.invalidate(projectId, requiredString(body.claimId, "claimId"), requiredString(body.reason, "reason")) }); return; }
++		if (operation === "frontier" && request.method === "GET") { this.send(response, 200, { frontier: researchFrontier(state) }); return; }
++		if (operation === "claims" && parts[5] !== undefined && request.method === "GET") { const revisions = state.claims[parts[5]]; if (revisions === undefined) throw new ApiHttpError(404, "Claim not found"); this.send(response, 200, { claimId: parts[5], revisions, latest: revisions.at(-1), outgoingSupport: state.supportEdges.filter((edge) => edge.fromClaimId === parts[5]), incomingSupport: state.supportEdges.filter((edge) => edge.toClaimId === parts[5]) }); return; }
++		if (operation === "claims" && request.method === "GET") { this.send(response, 200, { claims: state.claims, supportEdges: state.supportEdges }); return; }
++		if (operation === "dependencies" && request.method === "GET") { this.send(response, 200, { dependencies: Object.fromEntries(Object.entries(state.claims).map(([id, revisions]) => [id, revisions.at(-1)?.dependencies ?? []])) }); return; }
++		if (operation === "coverage" && request.method === "GET") { this.send(response, 200, { coverage: state.coverage }); return; }
++		if (operation === "routes" && parts[5] !== undefined && request.method === "GET") { const route = state.routes[parts[5]]; if (route === undefined) throw new ApiHttpError(404, "Route not found"); this.send(response, 200, { route }); return; }
++		if (operation === "routes" && request.method === "GET") { this.send(response, 200, { routes: state.routes }); return; }
++		if (operation === "checkpoints" && request.method === "GET") { this.send(response, 200, { checkpoints: state.checkpoints }); return; }
++		if (operation === "events" && request.method === "GET") { this.send(response, 200, { events: state.events }); return; }
++		if (operation === "artifacts" && parts[5] !== undefined && parts[6] === "metadata" && request.method === "GET") { const artifact = state.artifacts[parts[5]]; if (artifact === undefined) throw new ApiHttpError(404, "Artifact not found"); this.send(response, 200, { artifact }); return; }
++		if (operation === "artifacts" && parts[5] !== undefined && request.method === "GET") { const artifact = state.artifacts[parts[5]]; if (artifact === undefined) throw new ApiHttpError(404, "Artifact not found"); this.send(response, 200, await this.researchStore.resolveArtifact(projectId, artifact)); return; }
++		if (operation === "artifacts" && request.method === "GET") { this.send(response, 200, { artifacts: state.artifacts }); return; }
++		if (operation === "formalization" && request.method === "GET") { this.send(response, 200, { status: state.formalizationStatus ?? "NOT_REQUESTED", enabled: projectConfig?.formalization.enabled ?? false, artifacts: Object.values(state.artifacts).filter((item) => item.artifactType === "LEAN_SOURCE" || item.artifactType === "LEAN_CERTIFICATE" || item.artifactType === "FORMAL_PROOF") }); return; }
++		if (operation === "formalization" && request.method === "POST") { const body = await readJsonObject(request); const mode = optionalString(body.mode) ?? "formalize_existing"; if (mode === "informal_only") { this.send(response, 200, { state, status: state.formalizationStatus ?? "NOT_REQUESTED" }); return; } if (mode !== "formalize_existing" && mode !== "prove_and_formalize") throw new ApiHttpError(400, "formalization mode must be informal_only, formalize_existing, or prove_and_formalize"); this.send(response, 200, await this.runResearchFormalization(projectId, mode, optionalString(body.existingLean))); return; }
++		if (operation === "literature" && parts[5] === "search" && request.method === "POST") { const body = await readJsonObject(request), query = requiredString(body.query, "query"), targetObligationId = requiredString(body.targetObligationId, "targetObligationId"), obligation = state.obligations[targetObligationId]; if (obligation === undefined) throw new ApiHttpError(404, "Target obligation not found"); this.send(response, 200, { results: await this.discoverLiterature(projectId, query, obligation) }); return; }
++		if (operation === "literature" && request.method === "GET") { this.send(response, 200, { artifacts: Object.values(state.artifacts).filter((item) => item.artifactType === "LITERATURE_SOURCE") }); return; }
++		if (operation === "result" && request.method === "GET") { const root = state.rootClaimId === undefined ? undefined : state.claims[state.rootClaimId]?.at(-1); this.send(response, 200, { projectId, status: state.status, root, finalProofArtifact: state.finalProofArtifact, frontier: researchFrontier(state), latestCheckpoint: state.checkpoints.at(-1), lastError: state.lastError }); return; }
++		throw new ApiHttpError(404, "Research API route not found");
++	}
++
++	private async runResearchProof(request: TacticalProofRequest, signal?: AbortSignal): Promise<TacticalResearchResult> {
++		const sessionDirectory = join(request.scratchDirectory, "session"); await mkdir(sessionDirectory, { recursive: true }); const sessionPath = join(sessionDirectory, `${request.attemptId}.jsonl`);
++		let session: Session; try { await access(sessionPath); session = await Session.resume(sessionPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; session = await Session.create({ projectId: request.attemptId, sessionId: request.attemptId, cwd: request.scratchDirectory, directory: sessionDirectory }); }
++		const proofObligation: ProofObligation = { obligationId: request.obligation.obligationId, theorem: request.obligation.statement, context: [`Research project ${request.projectId}.`, `Exact target obligation id: ${request.obligation.obligationId}.`, `Exact target claim id: ${request.targetClaimId}.`, `Context manifest ${request.contextManifest.manifestId} lists available evidence only; search is not read and read is not reliance. Use artifact_read and declare reliedOnArtifactIds.`, `Tactical directive (authoritative strategy intent): ${JSON.stringify(request.directive)}`, `Failed/exhausted route mechanisms: ${JSON.stringify(request.directive.relevantFailedRoutes)}`].join("\n") };
++		const evidenceRecorder = new ResearchEvidenceRecorder(this.researchStore, request.projectId, request.attemptId);
++		const projectState = await this.researchStore.read(request.projectId), config = this.projectConfigSnapshot(projectState), projectBudget = projectState.budget, tools = this.researchTools(request.projectId, request.scratchDirectory, evidenceRecorder, undefined, config);
++		const targetGate = { targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId };
++		const roles = await this.createRoles({ session, sessionId: request.attemptId, runId: request.logicalJobId, obligation: proofObligation, mode: "prove", tools, targetGate, ...(config === undefined ? {} : { config }) });
++		const workflow = new ProofWorkflow({ session, obligation: proofObligation, ...roles, mode: "prove", maxWorkers: config?.proof.maxWorkers ?? this.defaultMaxWorkers, maxSteps: config?.proof.maxSteps ?? this.defaultMaxSteps, historyLimit: config?.proof.historyLimit, workspaceDirectory: join(request.scratchDirectory, "proof-runtime"), runId: request.logicalJobId, tools: [], targetGate, tacticalDirective: request.directive as unknown as Readonly<Record<string, unknown>>, planDependencies: request.contextManifest.artifactRefs, planDependencyValidator: async (plan) => { const current = await this.researchStore.read(request.projectId); for (const ref of plan.dependencyRefs) try { const resolved = await this.researchStore.resolveArtifact(request.projectId, ref); if (resolved.artifact.artifactType === "PROMOTED_PROOF") { const currentAuthority = Object.values(current.authorityReceipts).some((authority) => authority.artifact.artifactId === ref.artifactId && authority.artifact.contentHash === ref.contentHash && current.claims[authority.claimId]?.at(-1)?.revision === authority.claimRevision); if (!currentAuthority) return `Plan dependency invalidated: promoted authority is no longer current for ${ref.artifactId}`; } } catch (error) { return `Plan dependency invalidated: ${ref.artifactId}: ${errorMessage(error)}`; } return undefined; }, evidenceProvider: (role, taskId, classification) => evidenceRecorder.refs(role, taskId, classification), ...(this.researchProofFaultAfterWorkerResults === undefined ? {} : { faultAfterWorkerResults: this.researchProofFaultAfterWorkerResults }), budget: config === undefined ? undefined : { maxPlannerCalls: Math.max(0, config.budgets.plannerCalls - projectBudget.plannerCalls), maxWorkerCalls: Math.max(0, config.budgets.workerCalls - projectBudget.workerCalls), maxVerifierCalls: Math.max(0, config.budgets.verifierCalls - projectBudget.verifierCalls), maxLiteratureSearches: Math.max(0, config.budgets.literatureSearches - projectBudget.literatureCalls), maxToolCalls: Math.max(0, config.budgets.toolCalls - projectBudget.toolCalls), maxWallTimeMs: Math.max(0, config.budgets.wallTimeSeconds * 1000 - (Date.now() - projectBudget.startedAt)) } });
++		const result = await workflow.run(signal), state = workflow.state, candidateArtifacts = new Map<string, import("../research/index.js").ResearchArtifact>();
++		if (this.researchProofFaultAfterWorkerResults !== undefined && result.status === "FAILED" && /Injected fault after worker result/u.test(result.reason ?? "")) { await this.syncExecutionTasks(request, workflow, candidateArtifacts); throw new Error(result.reason); }
++		for (const candidate of state.candidates) candidateArtifacts.set(candidate.candidateId, await this.researchStore.putArtifact(request.projectId, { artifactType: "WORKER_CANDIDATE", body: candidate.content, provenance: `ProofRuntime-worker:${candidate.taskId}`, creationAttemptId: request.attemptId, references: candidate.evidence, metadata: { candidateId: candidate.candidateId, taskId: candidate.taskId, plannerScope: candidate.scope, strategy: candidate.strategy, discoveredEvidence: candidate.discoveredEvidence, bodyReadEvidence: candidate.bodyReadEvidence, reliedOnEvidence: candidate.evidence } }));
++		const contributions: VerifiedResearchContribution[] = [];
++		for (const candidate of state.candidates) { const verification = state.verifications[candidate.candidateId], draft = candidate.contribution, artifact = candidateArtifacts.get(candidate.candidateId); if (verification?.verdict !== "CORRECT" || draft === undefined || artifact === undefined || !verifierCoveredEvidence(candidate.evidence, verification.evidence ?? [])) continue; const receipt = primaryReceipt(request, candidate, artifact, verification, request.contextManifest.artifactRefs, await evidenceRecorder.list()); contributions.push({ contributionId: stableId("contribution", request.logicalJobId, candidate.candidateId, draft.kind), kind: draft.kind, statement: draft.statement, relationshipToTarget: draft.relationshipToTarget, targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, ...(draft.claimId === undefined ? {} : { claimId: draft.claimId }), assumptions: draft.assumptions ?? [], dependencyClaims: draft.dependencyClaims ?? [], evidenceArtifacts: candidate.evidence, candidate: artifact, producer: { role: "worker", identity: "ProofRuntime-worker", taskId: candidate.taskId }, verification: receipt, ...(draft.childClaims === undefined ? {} : { childClaims: draft.childClaims }), ...(draft.coverageScope === undefined ? {} : { coverageScope: draft.coverageScope }), ...(draft.coverageAssertion === undefined ? {} : { coverageAssertion: draft.coverageAssertion }), ...(draft.closedCaseClaimId === undefined ? {} : { closedCaseClaimId: draft.closedCaseClaimId }), ...(draft.closureReason === undefined ? {} : { closureReason: draft.closureReason }), ...(draft.targetScope === undefined ? {} : { targetScope: draft.targetScope }), ...(draft.counterexampleScope === undefined ? {} : { counterexampleScope: draft.counterexampleScope }) }); }
++		let targetSubmission: TacticalResearchResult["targetSubmission"]; const submitted = state.targetSubmission; if (submitted !== undefined) { const candidate = state.candidates.find((item) => item.candidateId === submitted.candidateId), verification = candidate === undefined ? undefined : state.verifications[candidate.candidateId], artifact = candidate === undefined ? undefined : candidateArtifacts.get(candidate.candidateId); if (candidate !== undefined && verification?.verdict === "CORRECT" && artifact !== undefined && candidate.scope === "TARGET" && candidate.targetClaimId === request.targetClaimId && verifierCoveredEvidence(candidate.evidence, verification.evidence ?? [])) targetSubmission = { submissionId: stableId("target-submission", request.logicalJobId, candidate.candidateId), targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, scope: "TARGET", statement: request.obligation.statement, candidate: artifact, assumptions: candidate.assumptions, dependencies: candidate.dependencyClaims, evidenceArtifacts: candidate.evidence, primaryReceipt: primaryReceipt(request, candidate, artifact, verification, request.contextManifest.artifactRefs, await evidenceRecorder.list()) }; }
++		const routeObservations = state.failedRoutes.map((failure) => { const task = state.tasks.find((item) => item.taskId === failure.taskId), candidate = state.candidates.find((item) => item.candidateFingerprint === failure.candidateFingerprint), artifact = candidate === undefined ? undefined : candidateArtifacts.get(candidate.candidateId); return { observationId: stableId("route-observation", request.logicalJobId, failure.routeFingerprint, String(failure.step)), targetObligationId: request.obligation.obligationId, routeFamily: task?.routeKey ?? task?.contributionKind?.toLocaleLowerCase() ?? "tactical", mechanism: task?.routeKey ?? candidate?.strategy ?? "tactical", strategy: candidate?.strategy ?? task?.description ?? "unspecified", status: "FAILED" as const, failureMechanism: failure.reason, evidence: artifact === undefined ? [] : [artifact] }; });
++		await this.syncExecutionTasks(request, workflow, candidateArtifacts); const allEvidence = await evidenceRecorder.list(), attempt = (await this.researchStore.read(request.projectId)).attempts[request.attemptId], failureKind = classifyProofFailure(result);
++		return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: targetSubmission !== undefined ? "TARGET_PROVED" : failureKind === undefined ? "TARGET_UNRESOLVED" : "EXECUTION_FAILED", ...(targetSubmission === undefined ? {} : { targetSubmission }), contributions, routeObservations, executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: Object.values((await this.researchStore.read(request.projectId)).executionTasks).filter((task) => task.logicalJobId === request.logicalJobId).map((task) => task.executionTaskId), evidenceReceiptIds: allEvidence.map((receipt) => receipt.receiptId), ...(failureKind === undefined ? {} : { failureKind }), startedAt: attempt?.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() }, feedback: result.reason ?? `ProofRuntime ended ${result.status}` };
++	}
++
++	private async runLiteratureProof(request: TacticalProofRequest, signal?: AbortSignal): Promise<TacticalResearchResult> {
++		const config = mathAgentConfigOf((await this.researchStore.read(request.projectId)).effectiveConfig);
++		if (config?.literature.enabled === false || config?.roles.literature_researcher.enabled === false) { const now = new Date().toISOString(); return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "EXECUTION_FAILED", contributions: [], routeObservations: [], executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId, "literature-disabled"), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], failureKind: "LITERATURE_ERROR", startedAt: now, completedAt: now }, feedback: "Literature production path is disabled by the project configuration snapshot" }; }
++		let results; try { results = await this.discoverLiterature(request.projectId, request.decision.literatureQuery ?? request.obligation.statement, request.obligation, signal); } catch (error) { const now = new Date().toISOString(); return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "EXECUTION_FAILED", contributions: [], routeObservations: [], executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId, "literature-error"), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], failureKind: signal?.aborted ? "CANCELLED" : "LITERATURE_ERROR", startedAt: now, completedAt: now }, feedback: `Literature production failure: ${errorMessage(error)}` }; } if (!results.some((item) => item.stage === "ACCEPTED_FOR_USE")) { const now = new Date().toISOString(); return { obligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId, targetStatus: "EXECUTION_FAILED", contributions: [], routeObservations: [], executionReceipt: { executionReceiptId: stableId("execution-receipt", request.logicalJobId, request.attemptId, "literature-empty"), logicalJobId: request.logicalJobId, attemptId: request.attemptId, taskIds: [], evidenceReceiptIds: [], failureKind: "LITERATURE_ERROR", startedAt: now, completedAt: now }, feedback: "No acquired literature source passed applicability verification" }; }
++		return this.runResearchProof(request, signal);
++	}
++
++	private async discoverLiterature(projectId: string, query: string, obligation: import("../research/index.js").ResearchObligation, signal?: AbortSignal) {
++		const project = await this.researchStore.read(projectId), config = mathAgentConfigOf(project.effectiveConfig); if (config?.literature.enabled === false || config?.roles.literature_researcher.enabled === false) throw new ApiHttpError(409, "Literature is disabled by the project configuration snapshot"); if (config !== undefined && project.budget.literatureCalls >= config.budgets.literatureSearches) throw new ApiHttpError(409, "Literature search budget exhausted");
++		const assessor = new AgentLiteratureApplicability(() => this.createResearchAgent("literature_researcher", projectId, stableId("literature", projectId, obligation.obligationId, query)));
++		const results = await new LiteratureService(this.researchStore, this.literatureProvider).discover(projectId, query, obligation.obligationId, (candidate, body) => assessor.assess(candidate, body, obligation.statement), signal);
++		await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.budget = { ...draft.budget, literatureCalls: draft.budget.literatureCalls + 1 }; mutable.events = [...draft.events, { eventId: stableId("event", projectId, "literature", obligation.obligationId, query), type: "research/literature_completed", projectId, timestamp: new Date().toISOString(), detail: { query, targetObligationId: obligation.obligationId, acquired: results.filter((item) => item.artifact !== undefined).length, accepted: results.filter((item) => item.stage === "ACCEPTED_FOR_USE").length } }]; }); return results;
++	}
++
++	private async createResearchAgent(role: ProofRole, sessionId: string, runId: string, tools?: readonly RuntimeTool[]): Promise<Agent> {
++		const factory = this.createRoles.createAgent; if (factory === undefined) throw new Error(`Production research role factory is unavailable for ${role}`); let projectState: import("../research/index.js").ResearchProjectState | undefined; try { projectState = await this.researchStore.read(sessionId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; } const config = projectState === undefined ? this.configService?.config : this.projectConfigSnapshot(projectState); if (config?.roles[role].enabled === false) throw new Error(`Research role is disabled: ${role}`); const agent = await factory({ role, sessionId, runId, ...(tools === undefined ? {} : { tools }), ...(config === undefined ? {} : { config }) }); if (projectState !== undefined && config !== undefined) await this.researchStore.transaction(sessionId, (draft) => { const profile = config.roles[role], model = config.models[profile.model], eventId = stableId("event", sessionId, "role-config", runId, role, draft.configRevision); if (draft.events.some((item) => item.eventId === eventId)) return; (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).events = [...draft.events, { eventId, type: "research/role_constructed", projectId: sessionId, timestamp: new Date().toISOString(), detail: { role, provider: model?.provider, model: model?.model, reasoningEffort: model?.reasoningEffort, configRevision: draft.configRevision } }]; }); return agent;
++	}
++
++	private researchTools(projectId: string, scratchDirectory: string, evidenceRecorder: ResearchEvidenceRecorder, defaultRole?: import("../research/index.js").EvidenceRole, projectConfig?: MathAgentConfig): readonly RuntimeTool[] {
++		const config = projectConfig;
++		if (config?.tools.enabled === false) return [];
++		return createResearchTools({ projectId, store: this.researchStore, corpus: this.researchCorpus, retrieval: new ResearchRetrievalService(this.researchStore), evidenceRecorder, ...(defaultRole === undefined ? {} : { defaultRole }), scratchDirectory, ...(config === undefined ? {} : { allowedCapabilities: config.tools.allowedCapabilities, allowedExecutables: configuredExecutables(config.tools.allowedExecutables), executionBoundary: config.tools.executionBoundary }) });
++	}
++
++	private async runResearchFormalization(projectId: string, mode: "formalize_existing" | "prove_and_formalize", existingLean?: string): Promise<Record<string, unknown>> {
++		const project = await this.researchStore.read(projectId), config = mathAgentConfigOf(project.effectiveConfig);
++		if (config?.formalization.enabled !== true || config.roles.formalizer.enabled === false) throw new ApiHttpError(409, "Formalization and the formalizer role must both be enabled");
++		let state = await this.researchStore.read(projectId);
++		if (mode === "prove_and_formalize" && state.finalProofArtifact === undefined) state = await this.runRootSynthesis(projectId);
++		const root = state.rootClaimId === undefined ? undefined : state.claims[state.rootClaimId]?.at(-1), finalRef = state.finalProofArtifact;
++		if (root === undefined || finalRef === undefined) throw new ApiHttpError(409, "A fresh-audited final proof is required before formalization");
++		if (!/\b(?:theorem|lemma|def)\s/iu.test(root.statement)) {
++			state = (await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = "FORMAL_ERROR: root objective is not an exact Lean declaration"; })).state;
++			return { state, status: "BLOCKED_FORMAL", feedback: "The root objective must contain the exact Lean theorem/lemma declaration; refusing to certify an unrelated formal theorem." };
++		}
++		await this.researchStore.transaction(projectId, (draft) => { (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).formalizationStatus = "PENDING"; });
++		const runId = stableId("formalization", projectId, finalRef.contentHash), agent = new AgentFormalizerRole(() => this.createResearchAgent("formalizer", projectId, runId));
++		let draft;
++		try { draft = await agent.formalize({ rootStatement: root.statement, informalProof: (await this.researchStore.resolveArtifact(projectId, finalRef)).body, ...(existingLean === undefined ? {} : { existingLean }) }); }
++		catch (error) { state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = `FORMAL_ERROR: ${errorMessage(error)}`; })).state; return { state, status: "BLOCKED_FORMAL", feedback: errorMessage(error) }; }
++		const source = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_SOURCE", body: draft.lean, provenance: "configured-formalizer-untrusted-draft", references: [finalRef], metadata: { notes: draft.notes, mode } }), formalDirectory = resolve(config.formalization.projectDir ?? join(this.researchStore.projectDirectory(projectId), "formalization")); await mkdir(formalDirectory, { recursive: true });
++		const command = config.formalization.command ?? "lake", verifier = new CommandProofFormalVerifier({ projectDirectory: formalDirectory, command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
++		const checked = await verifier.verify(draft.lean, { runId, step: 1, obligation: { obligationId: stableId("formal-obligation", projectId, root.claimId), theorem: root.statement }, theoremText: root.statement, workDirectory: formalDirectory });
++		const certificate = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_CERTIFICATE", body: `${JSON.stringify(checked, null, 2)}\n`, provenance: "CommandProofFormalVerifier", references: [source] });
++		let formalProof: import("../research/index.js").ResearchArtifact | undefined;
++		if (checked.ok) formalProof = await this.researchStore.putArtifact(projectId, { artifactType: "FORMAL_PROOF", body: draft.lean, provenance: "process-verified-Lean", authority: "FORMAL_CERTIFICATE", references: [source, certificate] });
++		state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = checked.ok ? "VERIFIED" : "BLOCKED_FORMAL"; mutable.lastError = checked.ok ? undefined : `FORMAL_ERROR: ${checked.feedback}`; mutable.events = [...project.events, { eventId: stableId("event", projectId, "formalization", source.contentHash, certificate.contentHash), type: "research/formalization_checked", projectId, timestamp: new Date().toISOString(), detail: { ok: checked.ok, sourceArtifactId: source.artifactId, certificateArtifactId: certificate.artifactId, ...(formalProof === undefined ? {} : { formalProofArtifactId: formalProof.artifactId }) } }]; })).state;
++		return { state, status: state.formalizationStatus, source, certificate, ...(formalProof === undefined ? {} : { formalProof }), feedback: checked.feedback };
++	}
++
++	private async rootClosureService(projectId: string): Promise<RootClosureService> {
++		const project = await this.researchStore.read(projectId), config = this.projectConfigSnapshot(project); if (config?.roles.synthesizer.enabled === false) throw new ApiHttpError(409, "Synthesizer role is disabled");
++		const synthesisId = stableId("synthesis-run", projectId, String(project.cycle + 1));
++		const synthesizer = new AgentSynthesisRole(() => this.createResearchAgent("synthesizer", projectId, synthesisId));
++		const primaryAttempt = `${synthesisId}-primary`, finalAttempt = `${synthesisId}-final`, primaryDirectory = join(this.researchStore.projectDirectory(projectId), "audits", primaryAttempt), finalDirectory = join(this.researchStore.projectDirectory(projectId), "audits", finalAttempt); await mkdir(primaryDirectory, { recursive: true }); await mkdir(finalDirectory, { recursive: true }); const primaryRecorder = new ResearchEvidenceRecorder(this.researchStore, projectId, primaryAttempt), finalRecorder = new ResearchEvidenceRecorder(this.researchStore, projectId, finalAttempt), primaryTools = this.researchTools(projectId, primaryDirectory, primaryRecorder, "verifier", config), finalTools = this.researchTools(projectId, finalDirectory, finalRecorder, "secondary_auditor", config);
++		const primaryRole = new AgentFinalAuditRole(() => this.createResearchAgent("verifier", projectId, primaryAttempt, primaryTools), "configured-synthesis-primary-auditor"), finalRole = new AgentFinalAuditRole(() => this.createResearchAgent("secondary_auditor", projectId, finalAttempt, finalTools), "configured-fresh-final-auditor");
++		const primary = { audit: async (request: Parameters<AgentFinalAuditRole["audit"]>[0], signal?: AbortSignal) => { await this.reserveResearchBudget(projectId, "verifierCalls", config?.budgets.verifierCalls); const result = await primaryRole.audit(request, signal), reads = (await primaryRecorder.list("verifier")).filter((item) => item.operation === "READ"); return { ...result, evidenceInspected: reads.map((item) => item.artifact), toolReceiptIds: reads.map((item) => item.receiptId) }; } }, final = { audit: async (request: Parameters<AgentFinalAuditRole["audit"]>[0], signal?: AbortSignal) => { await this.reserveResearchBudget(projectId, "secondaryAuditorCalls", config?.budgets.secondaryAuditorCalls); const result = await finalRole.audit(request, signal), reads = (await finalRecorder.list("secondary_auditor")).filter((item) => item.operation === "READ"); return { ...result, evidenceInspected: reads.map((item) => item.artifact), toolReceiptIds: reads.map((item) => item.receiptId) }; } };
++		return new RootClosureService(this.researchStore, synthesizer, primary, final);
++	}
++	private async reserveResearchBudget(projectId: string, counter: "verifierCalls" | "secondaryAuditorCalls", limit?: number): Promise<void> { await this.researchStore.transaction(projectId, (draft) => { if (limit !== undefined && draft.budget[counter] >= limit) throw new ApiHttpError(409, `${counter} budget exhausted`); (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).budget = { ...draft.budget, [counter]: draft.budget[counter] + 1 }; }); }
++	private projectConfigSnapshot(project: import("../research/index.js").ResearchProjectState): MathAgentConfig | undefined { const config = mathAgentConfigOf(project.effectiveConfig); if (config === undefined && this.configService !== undefined) throw new Error(`Project ${project.projectId} has no valid effective-config snapshot; refusing to mix the current live configuration into an existing project`); return config; }
++	private async runRootSynthesis(projectId: string, signal?: AbortSignal): Promise<import("../research/index.js").ResearchProjectState> { return (await this.rootClosureService(projectId)).synthesizeAndAudit(projectId, signal); }
++
++	private async syncExecutionTasks(request: TacticalProofRequest, workflow: ProofWorkflow, artifacts: ReadonlyMap<string, import("../research/index.js").ResearchArtifact>): Promise<void> {
++		const now = new Date().toISOString(), proofState = workflow.state;
++		await this.researchStore.transaction(request.projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }, tasks = { ...draft.executionTasks }; let newPlanners = 0, newWorkers = 0, newVerifiers = 0;
++			const executionPlans = { ...draft.executionPlans }; for (const plan of proofState.executionPlans) executionPlans[plan.planId] = { planId: plan.planId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, step: plan.step, inputHash: plan.inputHash, taskIds: plan.taskIds, dependencyRefs: plan.dependencyRefs, status: plan.status, ...(plan.staleReason === undefined ? {} : { staleReason: plan.staleReason }), createdAt: plan.createdAt, ...(plan.completedAt === undefined ? {} : { completedAt: plan.completedAt }) };
++			for (const step of proofState.stepHistory) { const plannerId = stableId("execution-task", request.logicalJobId, "PLANNER", `step-${step.step}`); if (tasks[plannerId] === undefined) newPlanners += 1; tasks[plannerId] = { executionTaskId: plannerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "PLANNER", logicalTaskId: `step-${step.step}`, status: step.status === "interrupted" ? "INTERRUPTED" : step.status === "failed" ? "FAILED_RETRYABLE" : "COMPLETED", inputHash: stableId("input", request.logicalJobId, "planner", String(step.step)), startedAt: now, ...(step.status === "completed" ? { completedAt: now } : {}) }; }
++			for (const task of proofState.tasks) { const workerId = stableId("execution-task", request.logicalJobId, "WORKER", task.taskId), candidate = proofState.candidates.find((item) => item.taskId === task.taskId), workerCompleted = workflow.events.some((event) => event.type === "proof/research_result" && event.taskId === task.taskId); if (tasks[workerId] === undefined && workerCompleted) newWorkers += 1; tasks[workerId] = { executionTaskId: workerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "WORKER", logicalTaskId: task.taskId, status: workerCompleted ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", task.taskId, task.description), ...(candidate === undefined || artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(workerCompleted ? { completedAt: now } : {}) }; if (candidate !== undefined) { const verifierId = stableId("execution-task", request.logicalJobId, "VERIFIER", candidate.candidateId), completed = proofState.verifications[candidate.candidateId] !== undefined; if (tasks[verifierId] === undefined && completed) newVerifiers += 1; tasks[verifierId] = { executionTaskId: verifierId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "VERIFIER", logicalTaskId: candidate.candidateId, status: completed ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", candidate.candidateFingerprint), ...(artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(completed ? { completedAt: now } : {}) }; } }
++			const mergeId = stableId("execution-task", request.logicalJobId, "MERGE", "merge"), mergeCompleted = proofState.executionPlans.length === 0 || proofState.executionPlans.every((plan) => plan.status === "COMPLETED"); tasks[mergeId] = { executionTaskId: mergeId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "MERGE", logicalTaskId: "merge", status: mergeCompleted ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", request.logicalJobId, "merge"), startedAt: tasks[mergeId]?.startedAt ?? now, ...(mergeCompleted ? { completedAt: now } : {}) }; if (proofState.targetSubmission !== undefined) { const targetId = stableId("execution-task", request.logicalJobId, "TARGET_SUBMISSION", proofState.targetSubmission.candidateId); tasks[targetId] = { executionTaskId: targetId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "TARGET_SUBMISSION", logicalTaskId: proofState.targetSubmission.candidateId, status: "COMPLETED", inputHash: stableId("input", proofState.targetSubmission.candidateId), ...(artifacts.get(proofState.targetSubmission.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(proofState.targetSubmission.candidateId) }), startedAt: now, completedAt: now }; }
++			mutable.executionTasks = tasks; mutable.executionPlans = executionPlans; mutable.budget = { ...draft.budget, plannerCalls: draft.budget.plannerCalls + newPlanners, workerCalls: draft.budget.workerCalls + newWorkers, verifierCalls: draft.budget.verifierCalls + newVerifiers };
++		});
++	}
++
+ 	private async handleConfigRoute(parts: readonly string[], request: IncomingMessage, response: ServerResponse): Promise<void> {
+ 		const service = this.configService;
+ 		if (service === undefined) throw new ApiHttpError(404, "Configuration API is not enabled");
+@@ -232,7 +439,7 @@ export class ProofApiServer {
+ 				revision: snapshot.revision,
+ 				models,
+ 				roles: snapshot.roles,
+-				providers: ["mock", "openai", "openai-codex", "anthropic", "google", "openrouter", "deepseek"],
++				providers: ["mock", "openai", "openai-codex", "anthropic", "google", "google-vertex", "openrouter", "deepseek"],
+ 			});
+ 			return;
+ 		}
+@@ -315,8 +522,10 @@ export class ProofApiServer {
+ 			...roles,
+ 			maxWorkers,
+ 			maxSteps,
++			historyLimit: config?.proof.historyLimit,
+ 			workspaceDirectory: join(this.rootDirectory, "proof-runs", sessionId, runId),
+ 			runId,
++			...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId)) } : {}),
+ 			...(config === undefined ? {} : { runConfig: { config: jsonObjectOf(config) } }),
+ 		});
+ 		const run: RunRecord = { runId, workflow, controller: new AbortController(), startedAt: Date.now() };
+@@ -491,8 +700,10 @@ export class ProofApiServer {
+ 				...roles,
+ 				maxWorkers: positiveInteger(runConfig.maxWorkers) ?? this.defaultMaxWorkers,
+ 				maxSteps: positiveInteger(runConfig.maxSteps) ?? this.defaultMaxSteps,
++				historyLimit: config?.proof.historyLimit,
+ 				workspaceDirectory: join(directory, runId),
+ 				runId,
++				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(directory, runId)) } : {}),
+ 				runConfig: jsonObjectOf(runConfig),
+ 			});
+ 			await workflow.hydrate();
+@@ -704,3 +915,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
+ function isMissingFile(error: unknown): boolean {
+ 	return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+ }
++
++function researchLinks(projectId: string): Readonly<Record<string, string>> {
++	const base = `/v1/research/projects/${projectId}`;
++	return { status: base, audit: `${base}/audit`, frontier: `${base}/frontier`, claims: `${base}/claims`, dependencies: `${base}/dependencies`, coverage: `${base}/coverage`, routes: `${base}/routes`, artifacts: `${base}/artifacts`, literature: `${base}/literature`, bootstrapReport: `${base}/bootstrap-report`, checkpoints: `${base}/checkpoints`, events: `${base}/events`, rootReadiness: `${base}/root-readiness`, synthesis: `${base}/synthesis`, formalization: `${base}/formalization`, result: `${base}/result`, resume: `${base}/resume` };
++}
++
++function configuredProofFormalVerifier(config: MathAgentConfig, fallbackDirectory: string): CommandProofFormalVerifier {
++	const command = config.formalization.command ?? "lake";
++	return new CommandProofFormalVerifier({ projectDirectory: resolve(config.formalization.projectDir ?? fallbackDirectory), command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
++}
++
++function configuredImportAuthority(value: string | undefined): import("../research/index.js").ImportAuthority {
++	const allowed: readonly import("../research/index.js").ImportAuthority[] = ["VERIFIED_CURRENT", "VERIFIED_IMPORTED", "PROVISIONAL_IMPORTED", "UNVERIFIED_NOTE", "FAILED_HISTORICAL_ROUTE", "OPEN_HISTORICAL_OBLIGATION", "DEFINITION", "LITERATURE_SOURCE", "COMPUTATIONAL_EVIDENCE", "FORMAL_CERTIFICATE"];
++	return allowed.includes(value as import("../research/index.js").ImportAuthority) ? value as import("../research/index.js").ImportAuthority : "PROVISIONAL_IMPORTED";
++}
++
++function configuredExecutables(names: readonly string[]): Readonly<Record<string, string>> {
++	const supported: Readonly<Record<string, string>> = { node: process.execPath, python: "python", lean: "lean", lake: "lake" };
++	return Object.fromEntries(names.flatMap((name) => supported[name] === undefined ? [] : [[name, supported[name]]]));
++}
++
++function stableResearchAuditId(projectId: string, hash: string): string {
++	return `audit-${projectId}-${hash.slice(0, 16)}`;
++}
++
++function verifierCoveredEvidence(worker: readonly { readonly artifactId: string; readonly contentHash: string }[], verifier: readonly { readonly artifactId: string; readonly contentHash: string }[]): boolean { const inspected = new Set(verifier.map((ref) => `${ref.artifactId}:${ref.contentHash}`)); return worker.every((ref) => inspected.has(`${ref.artifactId}:${ref.contentHash}`)); }
++
++function classifyProofFailure(result: ProofRunResult): import("../research/index.js").ResearchFailureKind | undefined {
++	const reason = result.reason?.toLocaleLowerCase() ?? "";
++	if (result.status === "CANCELLED") return "CANCELLED";
++	if (/\b(?:quota|rate limit|429)\b/u.test(reason)) return "QUOTA_ERROR";
++	if (/\b(?:budget|call limit|wall time)\b/u.test(reason)) return "BUDGET_EXHAUSTED";
++	if (/\b(?:tool error|tool failed|invalid_tool)\b/u.test(reason)) return "TOOL_ERROR";
++	if (/\b(?:protocol|malformed|structured json|schema)\b/u.test(reason)) return "PROTOCOL_ERROR";
++	return result.status === "BLOCKED_PROVIDER" ? "PROVIDER_ERROR" : undefined;
++}
++
++function primaryReceipt(request: TacticalProofRequest, candidate: import("../proof/types.js").ProofCandidate, artifact: import("../research/index.js").ResearchArtifact, verification: import("../proof/types.js").VerificationResult, available: readonly import("../research/index.js").ArtifactRef[], evidenceReceipts: readonly import("../research/index.js").ToolEvidenceReceipt[]): TrustReceipt { const verifierEvidence = (verification.evidence ?? []).map(({ artifactId, contentHash }) => ({ artifactId, contentHash })), workerRead = candidate.bodyReadEvidence.map(({ artifactId, contentHash }) => ({ artifactId, contentHash })), reliedOn = candidate.evidence.map(({ artifactId, contentHash }) => ({ artifactId, contentHash })); return { receiptId: stableId("receipt", artifact.artifactId, "primary", candidate.candidateId), claimId: candidate.targetClaimId ?? request.targetClaimId, candidate: artifact, verifierProfile: "configured-independent-verifier", evidenceInspected: verifierEvidence, availableEvidence: available, workerReadEvidence: workerRead, workerDeclaredEvidence: reliedOn, verifierReadEvidence: verifierEvidence, toolReceiptIds: evidenceReceipts.filter((item) => item.logicalTaskId === candidate.taskId).map((item) => item.receiptId), verdict: verification.verdict === "NEEDS_MINOR_FIXES" ? "MINOR_FIX" : verification.verdict, independentContext: true, stale: false, createdAt: new Date().toISOString() }; }
+diff --git a/backend/src/config.ts b/backend/src/config.ts
+index 44d2069..c1bdc15 100644
+--- a/backend/src/config.ts
++++ b/backend/src/config.ts
+@@ -8,9 +8,12 @@ import type { MockResponse } from "./providers/mock.js";
+ import type { ModelConfig, ProviderId, ReasoningEffort } from "./providers/types.js";
+ 
+ export const PROOF_ROLES = [
++	"research_director",
++	"corpus_bootstrapper",
+ 	"planner",
+ 	"worker",
+ 	"verifier",
++	"secondary_auditor",
+ 	"synthesizer",
+ 	"formalizer",
+ 	"literature_researcher",
+@@ -46,7 +49,6 @@ export type MathAgentConfig = {
+ 		readonly webPort: number;
+ 		readonly proofApiPort: number;
+ 		readonly dataDir: string;
+-		readonly openBrowser: boolean;
+ 	};
+ 	readonly proof: {
+ 		readonly defaultMode: ProofMode;
+@@ -64,6 +66,24 @@ export type MathAgentConfig = {
+ 	readonly literature: {
+ 		readonly enabled: boolean;
+ 	};
++	readonly research: {
++		readonly maxCycles: number;
++		readonly checkpointInterval: number;
++		readonly stallThreshold: number;
++		readonly structuralProbeBudget: number;
++		readonly maxActiveObligations: number;
++	};
++	readonly budgets: {
++		readonly plannerCalls: number;
++		readonly workerCalls: number;
++		readonly verifierCalls: number;
++		readonly secondaryAuditorCalls: number;
++		readonly literatureSearches: number;
++		readonly toolCalls: number;
++		readonly wallTimeSeconds: number;
++	};
++	readonly corpus: { readonly enabled: boolean; readonly roots: readonly string[]; readonly importAuthorityPolicy: string };
++	readonly tools: { readonly enabled: boolean; readonly allowedCapabilities: readonly string[]; readonly allowedExecutables: readonly string[]; readonly executionBoundary: "CONTROLLED_COMMAND_RUNNER" };
+ };
+ 
+ export type PublicModelProfile = ModelProfile & {
+@@ -83,6 +103,10 @@ export type ConfigUpdate = {
+ 	readonly models?: Readonly<Record<string, Partial<ModelProfile>>>;
+ 	readonly roles?: Partial<Record<ProofRole, Partial<RoleProfile>>>;
+ 	readonly literature?: Partial<MathAgentConfig["literature"]>;
++	readonly research?: Partial<MathAgentConfig["research"]>;
++	readonly budgets?: Partial<MathAgentConfig["budgets"]>;
++	readonly corpus?: Partial<MathAgentConfig["corpus"]>;
++	readonly tools?: Partial<MathAgentConfig["tools"]>;
+ };
+ 
+ export const DEFAULT_CONFIG: MathAgentConfig = {
+@@ -92,7 +116,6 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
+ 		webPort: 3080,
+ 		proofApiPort: 4310,
+ 		dataDir: ".math-agent",
+-		openBrowser: false,
+ 	},
+ 	proof: {
+ 		defaultMode: "prove",
+@@ -107,14 +130,21 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
+ 		mock: { provider: "mock", model: "math-proof-offline" },
+ 	},
+ 	roles: {
++		research_director: { model: "mock" },
++		corpus_bootstrapper: { model: "mock" },
+ 		planner: { model: "mock" },
+ 		worker: { model: "mock" },
+ 		verifier: { model: "mock" },
+-		synthesizer: { model: "mock", enabled: false },
++		secondary_auditor: { model: "mock" },
++		synthesizer: { model: "mock", enabled: true },
+ 		formalizer: { model: "mock", enabled: false },
+ 		literature_researcher: { model: "mock", enabled: false },
+ 	},
+ 	literature: { enabled: false },
++	research: { maxCycles: 100, checkpointInterval: 1, stallThreshold: 3, structuralProbeBudget: 2, maxActiveObligations: 8 },
++	budgets: { plannerCalls: 1000, workerCalls: 1000, verifierCalls: 1000, secondaryAuditorCalls: 100, literatureSearches: 100, toolCalls: 5000, wallTimeSeconds: 86400 },
++	corpus: { enabled: true, roots: [], importAuthorityPolicy: "PROVISIONAL_IMPORTED" },
++	tools: { enabled: true, allowedCapabilities: ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], allowedExecutables: ["node", "python", "lean", "lake"], executionBoundary: "CONTROLLED_COMMAND_RUNNER" },
+ };
+ 
+ export class ConfigConflictError extends Error {
+@@ -136,6 +166,7 @@ export class MathAgentConfigService {
+ 	private textValue = "";
+ 	private revisionValue = "";
+ 	private watcher: AsyncIterableIterator<{ readonly eventType: string }> | undefined;
++	private watcherAbort: AbortController | undefined;
+ 	private mutationTail: Promise<void> = Promise.resolve();
+ 
+ 	constructor(readonly path: string) {}
+@@ -178,7 +209,8 @@ export class MathAgentConfigService {
+ 
+ 	async startWatching(onUpdate?: (config: MathAgentConfig) => void | Promise<void>): Promise<void> {
+ 		if (this.watcher !== undefined) return;
+-		const iterator = watchFile(resolve(this.path), { persistent: false }) as AsyncIterableIterator<{ readonly eventType: string }>;
++		this.watcherAbort = new AbortController();
++		const iterator = watchFile(resolve(this.path), { persistent: false, signal: this.watcherAbort.signal }) as AsyncIterableIterator<{ readonly eventType: string }>;
+ 		this.watcher = iterator;
+ 		void (async () => {
+ 			try {
+@@ -200,8 +232,12 @@ export class MathAgentConfigService {
+ 	}
+ 
+ 	async close(): Promise<void> {
+-		await this.watcher?.return?.();
++		this.watcherAbort?.abort();
++		// Aborting the fs watcher is synchronous from the caller's perspective;
++		// awaiting iterator.return() can hang on Windows after the abort.
++		void this.watcher?.return?.();
+ 		this.watcher = undefined;
++		this.watcherAbort = undefined;
+ 	}
+ 
+ 	publicSnapshot(): PublicMathAgentConfig {
+@@ -256,6 +292,10 @@ export class MathAgentConfigService {
+ 				models,
+ 				roles,
+ 				literature: { ...current.literature, ...update.literature },
++				research: { ...current.research, ...update.research },
++				budgets: { ...current.budgets, ...update.budgets },
++				corpus: { ...current.corpus, ...update.corpus },
++				tools: { ...current.tools, ...update.tools },
+ 			});
+ 			await this.persist(stringifyMathAgentConfig(next));
+ 			return this.publicSnapshot();
+@@ -309,19 +349,29 @@ export function modelConfigOf(profile: ModelProfile): ModelConfig {
+ 	};
+ }
+ 
+-export function createMockResponses(role: ProofRole): readonly MockResponse[] {
++export function createMockResponses(role: ProofRole, targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }): readonly MockResponse[] {
+ 	if (role === "planner") {
++		if (targetGate !== undefined) return [
++			textResponse(JSON.stringify({ actions: [{ action: "spawn", tasks: [{ taskId: "mock-target-task", summary: "Prove the exact research target", description: "Give a complete proof of the exact target theorem.", scope: "TARGET", targetClaimId: targetGate.targetClaimId }] }] })),
++			textResponse(JSON.stringify({ actions: [{ action: "submit_target_proof", candidateId: "mock-target-task-candidate", targetObligationId: targetGate.targetObligationId, targetClaimId: targetGate.targetClaimId }] })),
++		];
+ 		return [
+ 			textResponse('{"actions":[{"action":"write_whiteboard","content":"Use ordinary mathematical induction and check the base case."},{"action":"spawn","tasks":[{"taskId":"mock-proof-task","summary":"Construct a complete proof","description":"Give a complete, self-contained proof of the theorem."}]}]}'),
+ 			textResponse('{"actions":[{"action":"submit_proof","candidateId":"mock-proof-task-candidate"}]}'),
+ 		];
+ 	}
+ 	if (role === "worker") {
+-		return [textResponse('{"kind":"candidate","candidate":{"strategy":"induction","content":"For n = 1, the identity is immediate. Assume the identity holds for n. Adding the next odd number gives n^2 + (2n + 1) = (n + 1)^2, so the statement holds for n + 1. By mathematical induction, the identity holds for every n >= 1."}}')];
++		return [textResponse(`{"kind":"candidate","candidate":{"strategy":"induction","scope":"${targetGate === undefined ? "CONTRIBUTION" : "TARGET"}","content":"For n = 1, the identity is immediate. Assume the identity holds for n. Adding the next odd number gives n^2 + (2n + 1) = (n + 1)^2, so the statement holds for n + 1. By mathematical induction, the identity holds for every n >= 1."}}`)];
+ 	}
+ 	if (role === "verifier") {
+-		return [textResponse("The base case and induction step are valid.\nVERDICT: CORRECT")];
++		return [textResponse('{"verdict":"CORRECT","feedback":"The base case and induction step are valid."}')];
+ 	}
++	if (role === "secondary_auditor") return [textResponse('{"verdict":"CORRECT","feedback":"Fresh independent audit found no gap."}')];
++	if (role === "corpus_bootstrapper") return [textResponse('{"proposals":[],"dependencies":[],"warnings":[]}')];
++	if (role === "research_director") return [textResponse('{"action":"ATTACK_OBLIGATION","reason":"offline mock delegates target selection to deterministic validation"}')];
++	if (role === "synthesizer") return [textResponse('{"proof":"The authoritative dependency and coverage manifest yields the stated root conclusion.","usedArtifactIds":[]}')];
++	if (role === "formalizer") return [textResponse('{"lean":"theorem mrr_placeholder : True := by\\n  trivial","notes":"Untrusted offline draft; the process gate remains authoritative."}')];
++	if (role === "literature_researcher") return [textResponse('{"applicable":false,"reason":"offline mock has no source","assumptions":[],"scopeLimitations":[]}')];
+ 	return [];
+ }
+ 
+@@ -334,6 +384,10 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
+ 	const proof = record(value.proof) ?? {};
+ 	const formalization = record(value.formalization) ?? {};
+ 	const literature = record(value.literature) ?? {};
++	const research = record(value.research) ?? {};
++	const budgets = record(value.budgets) ?? {};
++	const corpus = record(value.corpus) ?? {};
++	const tools = record(value.tools) ?? {};
+ 	const modelValues = record(value.models) ?? {};
+ 	const roleValues = record(value.roles) ?? {};
+ 	const models: Record<string, ModelProfile> = {};
+@@ -353,7 +407,6 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
+ 			webPort: boundedInteger(runtime.web_port ?? runtime.webPort, DEFAULT_CONFIG.runtime.webPort),
+ 			proofApiPort: boundedInteger(runtime.proof_api_port ?? runtime.proofApiPort, DEFAULT_CONFIG.runtime.proofApiPort),
+ 			dataDir: stringValue(runtime.data_dir ?? runtime.dataDir, DEFAULT_CONFIG.runtime.dataDir),
+-			openBrowser: booleanValue(runtime.open_browser ?? runtime.openBrowser, DEFAULT_CONFIG.runtime.openBrowser),
+ 		},
+ 		proof: {
+ 			defaultMode: proof.default_mode === "prove_and_formalize" || proof.defaultMode === "prove_and_formalize"
+@@ -371,6 +424,18 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
+ 		models,
+ 		roles,
+ 		literature: { enabled: booleanValue(literature.enabled, DEFAULT_CONFIG.literature.enabled) },
++		research: {
++			maxCycles: boundedInteger(research.max_cycles ?? research.maxCycles, DEFAULT_CONFIG.research.maxCycles),
++			checkpointInterval: boundedInteger(research.checkpoint_interval ?? research.checkpointInterval, DEFAULT_CONFIG.research.checkpointInterval),
++			stallThreshold: boundedInteger(research.stall_threshold ?? research.stallThreshold, DEFAULT_CONFIG.research.stallThreshold),
++			structuralProbeBudget: boundedInteger(research.structural_probe_budget ?? research.structuralProbeBudget, DEFAULT_CONFIG.research.structuralProbeBudget),
++			maxActiveObligations: boundedInteger(research.max_active_obligations ?? research.maxActiveObligations, DEFAULT_CONFIG.research.maxActiveObligations),
++		},
++		budgets: {
++			plannerCalls: boundedInteger(budgets.planner_calls ?? budgets.plannerCalls, DEFAULT_CONFIG.budgets.plannerCalls), workerCalls: boundedInteger(budgets.worker_calls ?? budgets.workerCalls, DEFAULT_CONFIG.budgets.workerCalls), verifierCalls: boundedInteger(budgets.verifier_calls ?? budgets.verifierCalls, DEFAULT_CONFIG.budgets.verifierCalls), secondaryAuditorCalls: boundedInteger(budgets.secondary_auditor_calls ?? budgets.secondaryAuditorCalls, DEFAULT_CONFIG.budgets.secondaryAuditorCalls), literatureSearches: boundedInteger(budgets.literature_searches ?? budgets.literatureSearches, DEFAULT_CONFIG.budgets.literatureSearches), toolCalls: boundedInteger(budgets.tool_calls ?? budgets.toolCalls, DEFAULT_CONFIG.budgets.toolCalls), wallTimeSeconds: boundedInteger(budgets.wall_time_seconds ?? budgets.wallTimeSeconds, DEFAULT_CONFIG.budgets.wallTimeSeconds),
++		},
++		corpus: { enabled: booleanValue(corpus.enabled, DEFAULT_CONFIG.corpus.enabled), roots: Array.isArray(corpus.roots) ? corpus.roots.filter((item): item is string => typeof item === "string") : [], importAuthorityPolicy: configuredImportAuthority(corpus.import_authority_policy ?? corpus.importAuthorityPolicy) },
++		tools: { enabled: booleanValue(tools.enabled, DEFAULT_CONFIG.tools.enabled), allowedCapabilities: configuredCapabilityNames(tools.allowed_capabilities ?? tools.allowedCapabilities), allowedExecutables: configuredExecutableNames(tools.allowed_executables ?? tools.allowedExecutables), executionBoundary: controlledExecutionBoundary(tools.execution_boundary ?? tools.executionBoundary ?? tools.sandbox_policy ?? tools.sandboxPolicy) },
+ 	};
+ }
+ 
+@@ -405,10 +470,14 @@ function normalizeRole(value: Record<string, unknown>): RoleProfile {
+ }
+ 
+ export function stringifyMathAgentConfig(config: MathAgentConfig): string {
+-	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, `open_browser = ${config.runtime.openBrowser}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
++	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
+ 	if (config.formalization.projectDir !== undefined) lines.push(`project_dir = ${quote(config.formalization.projectDir)}`);
+ 	if (config.formalization.command !== undefined) lines.push(`command = ${quote(config.formalization.command)}`);
+ 	lines.push("", "[literature]", `enabled = ${config.literature.enabled}`);
++	lines.push("", "[research]", `max_cycles = ${config.research.maxCycles}`, `checkpoint_interval = ${config.research.checkpointInterval}`, `stall_threshold = ${config.research.stallThreshold}`, `structural_probe_budget = ${config.research.structuralProbeBudget}`, `max_active_obligations = ${config.research.maxActiveObligations}`);
++	lines.push("", "[budgets]", `planner_calls = ${config.budgets.plannerCalls}`, `worker_calls = ${config.budgets.workerCalls}`, `verifier_calls = ${config.budgets.verifierCalls}`, `secondary_auditor_calls = ${config.budgets.secondaryAuditorCalls}`, `literature_searches = ${config.budgets.literatureSearches}`, `tool_calls = ${config.budgets.toolCalls}`, `wall_time_seconds = ${config.budgets.wallTimeSeconds}`);
++	lines.push("", "[corpus]", `enabled = ${config.corpus.enabled}`, `roots = [${config.corpus.roots.map(quote).join(", ")}]`, `import_authority_policy = ${quote(config.corpus.importAuthorityPolicy)}`);
++	lines.push("", "[tools]", `enabled = ${config.tools.enabled}`, `allowed_capabilities = [${config.tools.allowedCapabilities.map(quote).join(", ")}]`, `allowed_executables = [${config.tools.allowedExecutables.map(quote).join(", ")}]`, `execution_boundary = ${quote(config.tools.executionBoundary)}`);
+ 	for (const [name, model] of Object.entries(config.models)) {
+ 		lines.push("", `[models.${tomlKey(name)}]`, `provider = ${quote(model.provider)}`, `model = ${quote(model.model)}`);
+ 		if (model.baseUrl !== undefined) lines.push(`base_url = ${quote(model.baseUrl)}`);
+@@ -606,6 +675,34 @@ function stringValue(value: unknown, fallback: string): string {
+ 	return typeof value === "string" && value.length > 0 ? value : fallback;
+ }
+ 
++function controlledExecutionBoundary(value: unknown): "CONTROLLED_COMMAND_RUNNER" {
++	if (value === undefined || value === "CONTROLLED_COMMAND_RUNNER") return "CONTROLLED_COMMAND_RUNNER";
++	throw new Error("tools.execution_boundary must be CONTROLLED_COMMAND_RUNNER; this runtime does not claim a hardened sandbox");
++}
++
++function configuredImportAuthority(value: unknown): string {
++	if (value === undefined) return DEFAULT_CONFIG.corpus.importAuthorityPolicy;
++	const allowed = ["VERIFIED_CURRENT", "VERIFIED_IMPORTED", "PROVISIONAL_IMPORTED", "UNVERIFIED_NOTE"];
++	if (typeof value === "string" && allowed.includes(value)) return value;
++	throw new Error(`corpus.import_authority_policy must be one of ${allowed.join(", ")}`);
++}
++
++function configuredExecutableNames(value: unknown): readonly string[] {
++	if (value === undefined) return DEFAULT_CONFIG.tools.allowedExecutables;
++	if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("tools.allowed_executables must be an array of executable names");
++	const allowed = ["node", "python", "lean", "lake"], invalid = value.filter((item) => !allowed.includes(item));
++	if (invalid.length > 0) throw new Error(`Unsupported controlled executable(s): ${invalid.join(", ")}`);
++	return [...new Set(value)];
++}
++
++function configuredCapabilityNames(value: unknown): readonly string[] {
++	if (value === undefined) return DEFAULT_CONFIG.tools.allowedCapabilities;
++	if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new Error("tools.allowed_capabilities must be an array of capability names");
++	const allowed = ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], invalid = value.filter((item) => !allowed.includes(item));
++	if (invalid.length > 0) throw new Error(`Unsupported research capability/capabilities: ${invalid.join(", ")}`);
++	return [...new Set(value)];
++}
++
+ function stringValueOrUndefined(value: unknown): string | undefined {
+ 	return typeof value === "string" && value.length > 0 ? value : undefined;
+ }
+diff --git a/backend/src/index.ts b/backend/src/index.ts
+index 893d02b..1e5ac89 100644
+--- a/backend/src/index.ts
++++ b/backend/src/index.ts
+@@ -3,6 +3,7 @@ export * from "./api/index.js";
+ export * from "./models/index.js";
+ export * from "./providers/index.js";
+ export * from "./proof/index.js";
++export * from "./research/index.js";
+ export * from "./session/index.js";
+ export * from "./tools/index.js";
+ export * from "./config.js";
+diff --git a/backend/src/production.ts b/backend/src/production.ts
+index bfb5bac..dc33a96 100644
+--- a/backend/src/production.ts
++++ b/backend/src/production.ts
+@@ -1,6 +1,8 @@
+ import { mkdir, access } from "node:fs/promises";
+ import { join } from "node:path";
+ import { AgentCore } from "./agent/agent.js";
++import type { Agent, AgentEventListener } from "./agent/types.js";
++import type { AgentRunResult, UserMessage } from "./models/index.js";
+ import { createAgentProofRoles, type AgentProofRoles } from "./proof/agent-role.js";
+ import type { ProofApiRoleFactory } from "./api/server.js";
+ import { createProvider } from "./providers/registry.js";
+@@ -23,19 +25,21 @@ export type ConfiguredProofRoleFactoryOptions = {
+  * at run creation, so editing settings never changes a live run halfway through.
+  */
+ export function createConfiguredProofRoleFactory(options: ConfiguredProofRoleFactoryOptions): ProofApiRoleFactory {
+-	return async ({ sessionId, runId, config: snapshot }) => {
++	const factory: ProofApiRoleFactory = async ({ sessionId, runId, config: snapshot, tools, targetGate }) => {
+ 		const config = snapshot ?? (typeof options.config === "function" ? options.config() : options.config.config);
+ 		const rolesDirectory = join(options.rootDirectory, "role-sessions", sessionId, runId);
+ 		await mkdir(rolesDirectory, { recursive: true });
+ 
+-		const planner = await createRoleAgent("planner", config, rolesDirectory);
+-		const worker = await createRoleAgent("worker", config, rolesDirectory);
+-		const verifier = await createRoleAgent("verifier", config, rolesDirectory);
++		const planner = await createRoleAgent("planner", config, rolesDirectory, undefined, targetGate);
++		const worker = await createRoleAgent("worker", config, rolesDirectory, tools, targetGate);
++		const verifier = await createRoleAgent("verifier", config, rolesDirectory, tools, targetGate);
+ 		return createAgentProofRoles({ planner, researcher: worker, verifier });
+ 	};
++	factory.createAgent = async ({ role, sessionId, runId, tools, config: snapshot }) => { const config = snapshot ?? (typeof options.config === "function" ? options.config() : options.config.config); const directory = join(options.rootDirectory, "research-role-sessions", sessionId, runId); await mkdir(directory, { recursive: true }); return createRoleAgent(role, config, directory, tools); };
++	return factory;
+ }
+ 
+-async function createRoleAgent(role: Extract<ProofRole, "planner" | "worker" | "verifier">, config: MathAgentConfig, directory: string): Promise<AgentCore> {
++async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directory: string, tools?: readonly import("./models/tools.js").RuntimeTool[], targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }): Promise<Agent> {
+ 	const profile = config.roles[role];
+ 	const modelProfile = config.models[profile.model];
+ 	if (modelProfile === undefined) throw new Error(`Role ${role} references unknown model ${profile.model}`);
+@@ -43,13 +47,24 @@ async function createRoleAgent(role: Extract<ProofRole, "planner" | "worker" | "
+ 	const sessionDirectory = join(directory, role);
+ 	const session = await openOrCreateSession(sessionId, sessionDirectory, directory);
+ 	const model = modelConfigOf(modelProfile);
+-	const provider = createProvider(model, modelProfile.provider === "mock" ? { mockResponses: createMockResponses(role) } : {});
+-	return new AgentCore({
++	const provider = createProvider(model, modelProfile.provider === "mock" ? { mockResponses: createMockResponses(role, targetGate) } : {});
++	const agent = new AgentCore({
+ 		session,
+ 		model,
+ 		provider,
++		...(tools === undefined ? {} : { tools }),
+ 		maxTurns: profile.maxTurns ?? config.proof.maxSteps,
+ 	});
++	return profile.timeoutSeconds === undefined ? agent : timeoutAgent(agent, profile.timeoutSeconds);
++}
++
++function timeoutAgent(agent: Agent, timeoutSeconds: number): Agent {
++	const timeoutMs = Math.max(1, timeoutSeconds) * 1000;
++	return {
++		get state() { return agent.state; },
++		async prompt(input: UserMessage | string): Promise<AgentRunResult> { let timer: NodeJS.Timeout | undefined; try { return await Promise.race([agent.prompt(input), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { void agent.abort(); reject(new Error(`Configured role timeout exceeded after ${timeoutSeconds}s`)); }, timeoutMs); })]); } finally { if (timer !== undefined) clearTimeout(timer); } },
++		steer(message: UserMessage | string) { agent.steer(message); }, followUp(message: UserMessage | string) { agent.followUp(message); }, abort() { return agent.abort(); }, subscribe(listener: AgentEventListener) { return agent.subscribe(listener); },
++	};
+ }
+ 
+ async function openOrCreateSession(sessionId: string, directory: string, cwd: string): Promise<Session> {
+diff --git a/backend/src/proof/agent-role.ts b/backend/src/proof/agent-role.ts
+index 52d8222..9436bc0 100644
+--- a/backend/src/proof/agent-role.ts
++++ b/backend/src/proof/agent-role.ts
+@@ -1,4 +1,5 @@
+ import type { Agent } from "../agent/types.js";
++import { assertContributionInvariants } from "../research/invariants.js";
+ import type { AgentMessage, AgentRunResult, AssistantMessage } from "../models/index.js";
+ import { isJsonObject, type JsonObject } from "../models/json.js";
+ import type {
+@@ -102,8 +103,10 @@ class AgentProofResearcher implements ProofResearcher {
+ 		const result = await this.agent.prompt(
+ 			[
+ 				"You are one independent mathematical worker in a planner/worker proof workflow.",
+-				"Solve only the focused task below. Do not spawn other agents or perform literature search.",
+-				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
++				"Solve only the focused task below. Do not spawn other agents. Use the available corpus/search/computation/scratch tools when evidence or computation is needed.",
++				"Search results are discovery only. Read every proof-critical artifact body. Declare reliedOnArtifactIds, which must be a subset of artifacts actually read.",
++				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content, assumptions?:string[], dependencyClaims?:string[], reliedOnArtifactIds?:string[]}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
++				"For research contributions return candidate.contribution={kind,statement,relationshipToTarget,claimId?,assumptions,dependencyClaims,childClaims?,coverageScope?,coverageAssertion?,closedCaseClaimId?,closureReason?,targetScope?,counterexampleScope?}. Reductions require >=1 unique non-self child; case splits require >=2 plus explicit scope/exhaustiveness; counterexamples require target and witness scopes. Do not label a lemma or local case as the target.",
+ 				"A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
+ 				`Theorem:\n${context.obligation.theorem}`,
+ 				context.obligation.context === undefined ? "" : `Theorem context:\n${context.obligation.context}`,
+@@ -136,6 +139,8 @@ class AgentProofVerifier implements ProofVerifier {
+ 				`Original theorem:\n${context.obligation.theorem}`,
+ 				`Original task:\n${context.task.description}`,
+ 				`Candidate proof:\n${candidate.content}`,
++				candidate.evidence.length === 0 ? "Candidate evidence receipts: none" : `Candidate evidence receipts (retrieve/check exact ids and hashes):\n${JSON.stringify(candidate.evidence, null, 2)}`,
++				context.referencedMaterials === undefined || context.referencedMaterials.length === 0 ? "" : `Exact referenced repository bodies:\n${context.referencedMaterials}`,
+ 			].join("\n\n"),
+ 		);
+ 		throwIfAborted(signal);
+@@ -204,6 +209,12 @@ function parseResearchResult(text: string, taskId: string): ResearchResult {
+ 				...(typeof candidate.candidateId === "string" ? { candidateId: candidate.candidateId } : {}),
+ 				...(typeof candidate.claim === "string" ? { claim: candidate.claim } : {}),
+ 				...(typeof candidate.claimFingerprint === "string" ? { claimFingerprint: candidate.claimFingerprint } : {}),
++				...(Array.isArray(candidate.evidence) ? { evidence: candidate.evidence.filter((item): item is { artifactId: string; contentHash: string; ranges?: string[] } => isRecord(item) && typeof item.artifactId === "string" && typeof item.contentHash === "string").map((item) => ({ artifactId: item.artifactId, contentHash: item.contentHash, ...(Array.isArray(item.ranges) ? { ranges: item.ranges.filter((range): range is string => typeof range === "string") } : {}) })) } : {}),
++				...(Array.isArray(candidate.reliedOnArtifactIds) ? { reliedOnArtifactIds: candidate.reliedOnArtifactIds.filter((item): item is string => typeof item === "string") } : {}),
++				...(candidate.scope === "TARGET" || candidate.scope === "CONTRIBUTION" ? { scope: candidate.scope } : {}),
++				...(Array.isArray(candidate.assumptions) ? { assumptions: candidate.assumptions.filter((item): item is string => typeof item === "string") } : {}),
++				...(Array.isArray(candidate.dependencyClaims) ? { dependencyClaims: candidate.dependencyClaims.filter((item): item is string => typeof item === "string") } : {}),
++				...(isRecord(candidate.contribution) ? { contribution: parseContribution(candidate.contribution) } : {}),
+ 			},
+ 		};
+ 	}
+@@ -283,6 +294,13 @@ function parseAction(value: unknown): ProofAction {
+ 				...summary,
+ 			};
+ 		}
++		case "submit_target_proof": {
++			const candidateId = value.candidateId ?? value.candidate_id;
++			const targetObligationId = value.targetObligationId ?? value.target_obligation_id;
++			const targetClaimId = value.targetClaimId ?? value.target_claim_id;
++			if (typeof candidateId !== "string" || typeof targetObligationId !== "string" || typeof targetClaimId !== "string") throw new ProofProtocolError("submit_target_proof requires candidateId, targetObligationId, and targetClaimId");
++			return { action: "submit_target_proof", candidateId, targetObligationId, targetClaimId, ...summary };
++		}
+ 		case "submit_lean_proof": {
+ 			const proofSlug = value.proofSlug ?? value.leanProofSlug ?? value.lean_proof_slug;
+ 			if (typeof proofSlug !== "string") {
+@@ -301,14 +319,30 @@ function parseTask(value: unknown): ProofTaskInput {
+ 	if (!isRecord(value) || typeof value.summary !== "string" || typeof value.description !== "string") {
+ 		throw new ProofProtocolError("spawn tasks require summary and description");
+ 	}
++	const contributionKind = value.contributionKind ?? value.contribution_kind;
+ 	return {
+ 		...(typeof value.taskId === "string" ? { taskId: value.taskId } : {}),
+ 		summary: value.summary,
+ 		description: value.description,
+ 		...(typeof value.routeKey === "string" ? { routeKey: value.routeKey } : {}),
++		...(value.scope === "TARGET" || value.scope === "CONTRIBUTION" ? { scope: value.scope } : {}),
++		...(typeof value.targetClaimId === "string" ? { targetClaimId: value.targetClaimId } : typeof value.target_claim_id === "string" ? { targetClaimId: value.target_claim_id } : {}),
++		...(isContributionKind(contributionKind) ? { contributionKind } : {}),
+ 	};
+ }
+ 
++export function createAgentProofVerifier(verifier: Agent): ProofVerifier { return new AgentProofVerifier(verifier); }
++
++function parseContribution(value: Record<string, unknown>): import("./types.js").ProofContributionDraft {
++	if (!isContributionKind(value.kind) || typeof value.statement !== "string" || typeof value.relationshipToTarget !== "string") throw new ProofProtocolError("candidate.contribution requires kind, statement, and relationshipToTarget");
++	const children = Array.isArray(value.childClaims) ? value.childClaims.filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.claimId === "string" && typeof item.statement === "string").map((item) => ({ claimId: item.claimId as string, statement: item.statement as string })) : undefined;
++	const draft: import("./types.js").ProofContributionDraft = { kind: value.kind, statement: value.statement, relationshipToTarget: value.relationshipToTarget, ...(typeof value.claimId === "string" ? { claimId: value.claimId } : {}), assumptions: Array.isArray(value.assumptions) ? value.assumptions.filter((item): item is string => typeof item === "string") : [], dependencyClaims: Array.isArray(value.dependencyClaims) ? value.dependencyClaims.filter((item): item is string => typeof item === "string") : [], ...(children === undefined ? {} : { childClaims: children }), ...(typeof value.coverageScope === "string" ? { coverageScope: value.coverageScope } : {}), ...(typeof value.coverageAssertion === "string" ? { coverageAssertion: value.coverageAssertion } : {}), ...(typeof value.closedCaseClaimId === "string" ? { closedCaseClaimId: value.closedCaseClaimId } : {}), ...(typeof value.closureReason === "string" ? { closureReason: value.closureReason } : {}), ...(typeof value.targetScope === "string" ? { targetScope: value.targetScope } : {}), ...(typeof value.counterexampleScope === "string" ? { counterexampleScope: value.counterexampleScope } : {}) };
++	try { assertContributionInvariants({ ...draft, assumptions: draft.assumptions ?? [], dependencyClaims: draft.dependencyClaims ?? [] }); } catch (error) { throw new ProofProtocolError(String(error)); }
++	return draft;
++}
++
++function isContributionKind(value: unknown): value is import("./types.js").ProofContributionKind { return value === "LEMMA" || value === "REDUCTION" || value === "CASE_SPLIT" || value === "CASE_CLOSURE" || value === "COUNTEREXAMPLE" || value === "CONSTRUCTION" || value === "BOUND" || value === "OBSTRUCTION" || value === "STRUCTURAL_OBSERVATION" || value === "LITERATURE_APPLICATION"; }
++
+ function parseItem(value: unknown): {
+ 	readonly slug: string;
+ 	readonly content?: string;
+@@ -441,6 +475,7 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
+ 		`# STATUS\n\nmode=${context.mode ?? "prove"}\nstatus=${context.status}\nstep=${context.step}`,
+ 		"# REPOSITORY\n\n" + (repository || "(empty)"),
+ 		"# FAILED ROUTES\n\n" + failures,
++		context.tacticalDirective === undefined ? "" : "# TACTICAL DIRECTIVE\n\n" + JSON.stringify(context.tacticalDirective, null, 2),
+ 		"# RECENT WORKER / VERIFIER OUTPUT\n\n" + (history || "(none)"),
+ 		"# COORDINATION RULES\n\nDelegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy. Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. Return one or more actions in JSON or OpenProver TOML format.",
+ 	].filter((part) => part.length > 0).join("\n\n---\n\n");
+@@ -449,7 +484,7 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
+ function plannerSystemPrompt(mode: string): string {
+ 	return [
+ 		"You are the PLANNER in an OpenProver-style proof workflow. Decide what work should happen next; workers do the mathematical reasoning.",
+-	"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_lean_proof, stop.",
++	"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_target_proof, submit_lean_proof, stop.",
+ 	"Keep task descriptions self-contained. Workers only receive the theorem, task, and explicitly referenced repository material. Never silently repair a verifier rejection; create a new route and record the failure.",
+ 	mode === "prove" ? "Goal: accept a verified informal proof." : mode === "formalize_only" ? "Goal: accept only a formally checked Lean proof." : "Goal: accept both a verified informal proof and a formally checked Lean proof.",
+ 	].join("\n\n");
+diff --git a/backend/src/proof/index.ts b/backend/src/proof/index.ts
+index 4e2fc87..11c8be9 100644
+--- a/backend/src/proof/index.ts
++++ b/backend/src/proof/index.ts
+@@ -3,3 +3,4 @@ export * from "./formal.js";
+ export * from "./repository.js";
+ export * from "./runtime.js";
+ export * from "./types.js";
++export * from "./tool-scope.js";
+diff --git a/backend/src/proof/runtime.ts b/backend/src/proof/runtime.ts
+index ecd7998..eed0e0e 100644
+--- a/backend/src/proof/runtime.ts
++++ b/backend/src/proof/runtime.ts
+@@ -5,6 +5,7 @@ import type { JsonObject } from "../models/json.js";
+ import type { Session, SessionCustomEntry } from "../session/index.js";
+ import { ProofProviderError, ProofProtocolError } from "./agent-role.js";
+ import { ProofRepository } from "./repository.js";
++import { withProofToolScope } from "./tool-scope.js";
+ import type {
+ 	FormalVerificationResult,
+ 	ProofAction,
+@@ -13,6 +14,7 @@ import type {
+ 	ProofBudgetState,
+ 	ProofCandidate,
+ 	ProofEvent,
++	ProofExecutionPlan,
+ 	ProofFormalVerifier,
+ 	ProofItemInput,
+ 	ProofLiteratureSearcher,
+@@ -62,12 +64,23 @@ export interface ProofRuntimeOptions {
+ 	readonly budget?: ProofBudgetOptions;
+ 	/** Secret-free launch configuration captured for durable resume. */
+ 	readonly runConfig?: JsonObject;
++	/** Enables the explicit research-target submission gate. Ordinary proof API runs omit this. */
++	readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
++	/** Returns automatically instrumented evidence for one logical tactical task. */
++	readonly evidenceProvider?: (role: "worker" | "verifier", taskId: string, classification?: "BODY_READ" | "DISCOVERED") => Promise<readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[]>;
++	readonly evidenceResolver?: (refs: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[]) => Promise<string>;
++	readonly tacticalDirective?: Readonly<Record<string, unknown>>;
++	readonly planDependencies?: readonly { readonly artifactId: string; readonly contentHash: string }[];
++	readonly planDependencyValidator?: (plan: ProofExecutionPlan) => Promise<string | undefined>;
++	/** Deterministic fault injection used to verify task-granular resume. */
++	readonly faultAfterWorkerResults?: number;
+ }
+ 
+ type ResearchWork = {
+ 	readonly task: ProofTask;
+ 	readonly result: ResearchResult;
+ 	readonly providerBlocked: boolean;
++	readonly persisted: boolean;
+ };
+ 
+ type CandidateWork = {
+@@ -110,6 +123,14 @@ export class ProofRuntime {
+ 	private readonly verifyLeanItems: boolean;
+ 	private readonly runConfigValue: JsonObject;
+ 	private readonly requestedMode?: ProofMode;
++	private readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
++	private readonly evidenceProvider?: ProofRuntimeOptions["evidenceProvider"];
++	private readonly evidenceResolver?: ProofRuntimeOptions["evidenceResolver"];
++	private readonly tacticalDirective?: Readonly<Record<string, unknown>>;
++	private readonly planDependencies: readonly { readonly artifactId: string; readonly contentHash: string }[];
++	private readonly planDependencyValidator?: ProofRuntimeOptions["planDependencyValidator"];
++	private readonly faultAfterWorkerResults?: number;
++	private persistedWorkerResults = 0;
+ 	private stateValue: ProofState;
+ 	private eventList: ProofEvent[] = [];
+ 	private readonly eventListeners = new Set<(event: ProofEvent) => void | Promise<void>>();
+@@ -127,6 +148,13 @@ export class ProofRuntime {
+ 		this.historyLimit = Math.max(1, options.historyLimit ?? 3);
+ 		this.obligation = options.obligation;
+ 		this.requestedMode = options.mode;
++		this.targetGate = options.targetGate;
++		this.evidenceProvider = options.evidenceProvider;
++		this.evidenceResolver = options.evidenceResolver;
++		this.tacticalDirective = options.tacticalDirective;
++		this.planDependencies = options.planDependencies ?? [];
++		this.planDependencyValidator = options.planDependencyValidator;
++		this.faultAfterWorkerResults = options.faultAfterWorkerResults;
+ 		this.runIdValue = selectRunId(options.session, options.obligation, options.runId);
+ 		this.runDirectory = options.workspaceDirectory ?? join(options.session.cwd, ".math-agent", "proof-runs", this.runIdValue);
+ 		this.repositoryValue = options.repository ?? new ProofRepository(join(this.runDirectory, "repo"));
+@@ -150,6 +178,7 @@ export class ProofRuntime {
+ 			rejectedCandidates: [],
+ 			recentOutputs: [],
+ 			stepHistory: [],
++			executionPlans: [],
+ 			budget: createBudget(options.budget),
+ 		};
+ 		this.restoreFromSession();
+@@ -205,7 +234,8 @@ export class ProofRuntime {
+ 				await this.changeStatus("RUNNING", "Resuming a durable proof run");
+ 			}
+ 
+-			const firstStep = this.stateValue.step + 1;
++			const unfinishedPlan = [...this.stateValue.executionPlans].reverse().find((item) => item.status === "RUNNING");
++			const firstStep = unfinishedPlan?.step ?? this.stateValue.step + 1;
+ 			for (let step = firstStep; step <= this.maxSteps; step += 1) {
+ 				this.stateValue = { ...this.stateValue, step };
+ 				const stepDirectory = await this.startStep(step);
+@@ -214,12 +244,19 @@ export class ProofRuntime {
+ 					await this.finishStep(step, stepDirectory, "interrupted", "Proof run was cancelled");
+ 					return this.result("Proof run was cancelled");
+ 				}
+-
+ 				const context = await this.plannerContext();
+ 				await writeJson(join(stepDirectory, "planner_context.json"), context);
+ 				let plan: ProofPlan;
+-				try {
++				let persisted = [...this.stateValue.executionPlans].reverse().find((item) => item.step === step && item.status === "RUNNING");
++				if (persisted !== undefined) {
++					const invalidation = await this.planDependencyValidator?.(persisted);
++					if (invalidation === undefined) plan = persisted.plan;
++					else { await this.markPlanStale(persisted, invalidation); persisted = undefined; plan = { actions: [] }; }
++				} else plan = { actions: [] };
++				if (persisted === undefined) try {
++					if (!this.consumeBudget("plannerCalls")) { await this.changeStatus("PARTIAL", "Planner or wall-time budget exhausted"); await this.finishStep(step, stepDirectory, "interrupted", "Planner or wall-time budget exhausted"); return this.result("Planner or wall-time budget exhausted"); }
+ 					plan = await this.planner.plan(context, signal);
++					validatePlanTaskIdentities(plan);
+ 				} catch (error) {
+ 					const message = errorMessage(error);
+ 					await this.writePlannerFailure(stepDirectory, error);
+@@ -233,7 +270,8 @@ export class ProofRuntime {
+ 					continue;
+ 				}
+ 
+-				await this.writePlannerArtifacts(stepDirectory, plan);
++				if (persisted === undefined) await this.writePlannerArtifacts(stepDirectory, plan);
++				else await writeJson(join(stepDirectory, "planner_plan.json"), plan);
+ 				await this.executePlan(plan, signal, stepDirectory);
+ 				await this.finishStep(step, stepDirectory, "completed", plan.summary ?? `Proof workflow step ${step} completed`);
+ 
+@@ -299,7 +337,8 @@ export class ProofRuntime {
+ 				...saved,
+ 				obligation: this.obligation,
+ 				mode: this.requestedMode ?? saved.mode ?? this.stateValue.mode,
+-				budget: saved.budget ?? this.stateValue.budget,
++				budget: { ...this.stateValue.budget, ...(saved.budget ?? {}), plannerCalls: saved.budget?.plannerCalls ?? 0 },
++				executionPlans: saved.executionPlans ?? [],
+ 			};
+ 			if (saved.submittedCandidateId !== undefined) {
+ 				this.proofPathValue = join(this.runDirectory, "PROOF.md");
+@@ -341,6 +380,7 @@ export class ProofRuntime {
+ 		this.stateValue = {
+ 			...this.stateValue,
+ 			stepHistory: [...this.stateValue.stepHistory.filter((entry) => entry.step !== step), record].sort((a, b) => a.step - b.step),
++			executionPlans: this.stateValue.executionPlans.map((plan) => plan.step === step && plan.status === "RUNNING" && status === "completed" ? { ...plan, status: "COMPLETED", completedAt: new Date().toISOString() } : plan),
+ 		};
+ 		await writeJson(join(directory, "step_status.json"), record);
+ 		await this.emit({
+@@ -358,8 +398,11 @@ export class ProofRuntime {
+ 		if (trace.lastTrace?.prompt !== undefined) await writeFile(join(directory, "planner_prompt.md"), trace.lastTrace.prompt, "utf8");
+ 		if (trace.lastTrace?.response !== undefined) await writeFile(join(directory, "planner_response.txt"), trace.lastTrace.response, "utf8");
+ 		await writeJson(join(directory, "planner_plan.json"), plan);
++		const taskIds = plan.actions.flatMap((action) => action.action === "spawn" ? action.tasks.map((task) => task.taskId).filter((item): item is string => item !== undefined) : []);
++		const executionPlan: ProofExecutionPlan = { planId: fingerprint(`${this.runIdValue}\n${this.stateValue.step}\n${JSON.stringify(plan)}\n${this.stateValue.executionPlans.length}`), step: this.stateValue.step, inputHash: fingerprint(JSON.stringify({ obligation: this.obligation, directive: this.tacticalDirective, dependencies: this.planDependencies })), plan, taskIds, dependencyRefs: this.planDependencies, status: "RUNNING", createdAt: new Date().toISOString() };
+ 		this.stateValue = {
+ 			...this.stateValue,
++			executionPlans: [...this.stateValue.executionPlans, executionPlan],
+ 			stepHistory: this.stateValue.stepHistory.map((record) => record.step === this.stateValue.step ? {
+ 				...record,
+ 				status: "started",
+@@ -370,6 +413,12 @@ export class ProofRuntime {
+ 		await this.persistState();
+ 	}
+ 
++	private async markPlanStale(plan: ProofExecutionPlan, reason: string): Promise<void> {
++		this.stateValue = { ...this.stateValue, executionPlans: this.stateValue.executionPlans.map((item) => item.planId === plan.planId ? { ...item, status: "STALE", staleReason: reason } : item) };
++		await this.persistState();
++		this.addOutput("planner", "Persisted plan invalidated", reason);
++	}
++
+ 	private async writePlannerFailure(directory: string, error: unknown): Promise<void> {
+ 		const trace = this.planner as ProofPlannerWithTrace;
+ 		if (trace.lastTrace?.prompt !== undefined) await writeFile(join(directory, "planner_prompt.md"), trace.lastTrace.prompt, "utf8");
+@@ -411,6 +460,9 @@ export class ProofRuntime {
+ 				case "submit_proof":
+ 					await this.submitProof(action, stepDirectory);
+ 					break;
++				case "submit_target_proof":
++					await this.submitTargetProof(action, stepDirectory);
++					break;
+ 				case "submit_lean_proof":
+ 					await this.submitLeanProof(action, signal, stepDirectory);
+ 					break;
+@@ -489,8 +541,13 @@ export class ProofRuntime {
+ 	}
+ 
+ 	private async dispatchTasks(taskInputs: readonly ProofTaskInput[], signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
+-		const materialized = taskInputs.slice(0, this.maxWorkers).map((input) => this.materializeTask(input));
+-		this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, ...materialized] };
++		// maxWorkers is a concurrency limit, not an admission limit.  The old
++		// slice silently discarded every task beyond the first worker batch.
++		// mapConcurrent below already provides a bounded queue, so materialize
++		// every logical task and let that queue account for all of them.
++		const materialized = taskInputs.map((input, index) => this.materializeTask(input, index));
++		if (new Set(materialized.map((task) => task.taskId)).size !== materialized.length) throw new ProofProtocolError("Planner task ids must be unique inside a persisted plan");
++		this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, ...materialized.filter((task) => !this.stateValue.tasks.some((existing) => existing.taskId === task.taskId))] };
+ 		const accepted: ProofTask[] = [];
+ 		const seenRoutes = new Set<string>();
+ 		for (const task of materialized) {
+@@ -504,13 +561,14 @@ export class ProofRuntime {
+ 				this.addOutput("spawn", task.summary, "Rejected duplicate failed route.");
+ 				continue;
+ 			}
+-			if (!this.consumeBudget("workerCalls")) {
++			const completed = this.persistedResearchResult(task.taskId);
++			if (completed === undefined && !this.consumeBudget("workerCalls")) {
+ 				this.addOutput("spawn", task.summary, "Worker budget exhausted; task was not dispatched.");
+ 				continue;
+ 			}
+ 			seenRoutes.add(task.routeFingerprint);
+ 			accepted.push(task);
+-			await this.emit({
++			if (completed === undefined) await this.emit({
+ 				type: "proof/task_dispatched",
+ 				eventId: randomUUID(),
+ 				runId: this.runIdValue,
+@@ -521,8 +579,10 @@ export class ProofRuntime {
+ 		}
+ 
+ 		const researchWorks = await mapConcurrent(accepted, this.maxWorkers, async (task): Promise<ResearchWork> => {
++			const persisted = this.persistedResearchResult(task.taskId);
++			if (persisted !== undefined) return { task, result: persisted, providerBlocked: false, persisted: true };
+ 			await writeFile(join(stepDirectory, `worker_${slugify(task.taskId)}_task.md`), task.description, "utf8");
+-			if (signal?.aborted) return { task, result: { kind: "blocked", reason: "Proof run was aborted" }, providerBlocked: false };
++			if (signal?.aborted) return { task, result: { kind: "blocked", reason: "Proof run was aborted" }, providerBlocked: false, persisted: false };
+ 			try {
+ 				const referencedMaterials = await this.repositoryValue.resolveWikilinks(task.description);
+ 				const context: ProofResearchContext = {
+@@ -533,39 +593,47 @@ export class ProofRuntime {
+ 					task,
+ 					referencedMaterials,
+ 				};
+-				return { task, result: await this.researcher.research(context, signal), providerBlocked: false };
++				const result = await withProofToolScope({ role: "worker", logicalTaskId: task.taskId }, () => this.researcher.research(context, signal));
++				await writeJson(join(stepDirectory, `worker_${slugify(task.taskId)}_result.json`), result);
++				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
++				this.persistedWorkerResults += 1; if (this.faultAfterWorkerResults === this.persistedWorkerResults) throw new InjectedProofTaskFault(`Injected fault after worker result ${this.persistedWorkerResults}`);
++				return { task, result, providerBlocked: false, persisted: false };
+ 			} catch (error) {
+-				return { task, result: { kind: "blocked", reason: errorMessage(error) }, providerBlocked: isProviderFailure(error) };
++				if (error instanceof InjectedProofTaskFault) throw error;
++				const result: ResearchResult = { kind: "blocked", reason: errorMessage(error) };
++				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
++				return { task, result, providerBlocked: isProviderFailure(error), persisted: false };
+ 			}
+ 		});
+ 
+ 		const candidates: CandidateWork[] = [];
+ 		let providerBlockedResearch = 0;
+ 		for (const work of researchWorks) {
+-			await writeJson(join(stepDirectory, `worker_${slugify(work.task.taskId)}_result.json`), work.result);
++			if (work.persisted) await writeJson(join(stepDirectory, `worker_${slugify(work.task.taskId)}_result.json`), work.result);
+ 			if (work.result.kind === "candidate") {
+ 				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), work.result.candidate.content, "utf8");
+ 			} else {
+ 				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), work.result.kind === "observation" ? work.result.content : work.result.reason, "utf8");
+ 			}
+-			await this.emit({
+-				type: "proof/research_result",
+-				eventId: randomUUID(),
+-				runId: this.runIdValue,
+-				timestamp: Date.now(),
+-				step: this.stateValue.step,
+-				taskId: work.task.taskId,
+-				result: work.result,
+-			});
+ 			if (work.providerBlocked) providerBlockedResearch += 1;
+ 			if (work.result.kind === "candidate") {
+-				const candidate = this.materializeCandidate(work.task, work.result);
+-				const duplicate = this.duplicateCandidateReason(candidate);
++				const materializedCandidate = this.materializeCandidate(work.task, work.result);
++				const bodyReadEvidence = uniqueEvidence(await this.evidenceProvider?.("worker", work.task.taskId, "BODY_READ") ?? []);
++				const discoveredEvidence = uniqueEvidence(await this.evidenceProvider?.("worker", work.task.taskId, "DISCOVERED") ?? []);
++				const declaredIds = materializedCandidate.reliedOnArtifactIds.length > 0 ? materializedCandidate.reliedOnArtifactIds : materializedCandidate.declaredEvidence.map((item) => item.artifactId);
++				const reliedOnIds = declaredIds.length > 0 ? declaredIds : bodyReadEvidence.map((item) => item.artifactId);
++				const bodyReadIds = new Set(bodyReadEvidence.map((item) => item.artifactId));
++				const inaccessible = reliedOnIds.filter((artifactId) => !bodyReadIds.has(artifactId));
++				if (inaccessible.length > 0) throw new ProofProtocolError(`Worker declared reliance on artifacts it did not read: ${inaccessible.join(", ")}`);
++				const reliedOnEvidence = bodyReadEvidence.filter((item) => reliedOnIds.includes(item.artifactId));
++				const restored = this.stateValue.candidates.find((item) => item.candidateId === materializedCandidate.candidateId);
++				const candidate: ProofCandidate = restored ?? { ...materializedCandidate, evidence: reliedOnEvidence, bodyReadEvidence, discoveredEvidence, reliedOnArtifactIds: reliedOnIds };
++				const duplicate = restored === undefined ? this.duplicateCandidateReason(candidate) : undefined;
+ 				if (duplicate !== undefined) {
+ 					await this.rejectCandidate(candidate, work.task, duplicate);
+ 					continue;
+ 				}
+-				this.stateValue = { ...this.stateValue, candidates: [...this.stateValue.candidates, candidate] };
++				if (restored === undefined) this.stateValue = { ...this.stateValue, candidates: [...this.stateValue.candidates, candidate] };
+ 				await this.repositoryValue.writeItem({
+ 					slug: `candidates/${candidate.candidateId}`,
+ 					content: candidate.content,
+@@ -584,18 +652,26 @@ export class ProofRuntime {
+ 		}
+ 
+ 		const verificationWorks = await mapConcurrent(candidates, this.maxWorkers, async (work): Promise<VerificationWork> => {
++			const completed = this.stateValue.verifications[work.candidate.candidateId];
++			if (completed !== undefined) return { ...work, providerBlocked: false, result: completed };
+ 			if (!this.consumeBudget("verifierCalls")) {
+ 				return { ...work, providerBlocked: false, result: { verdict: "UNFINISHED", feedback: "Verifier budget exhausted; candidate was not verified." } };
+ 			}
+ 			if (signal?.aborted) return { ...work, providerBlocked: false, error: "Proof run was aborted" };
+ 			try {
++				const repositoryMaterials = await this.repositoryValue.resolveWikilinks(work.task.description);
++				const evidenceMaterials = await this.evidenceResolver?.(work.candidate.evidence) ?? "";
++				const referencedMaterials = [repositoryMaterials, evidenceMaterials].filter(Boolean).join("\n\n");
+ 				const context: ProofVerifierContext = {
+ 					runId: this.runIdValue,
+ 					step: this.stateValue.step,
+ 					obligation: this.obligation,
+ 					task: work.task,
++					referencedMaterials,
+ 				};
+-				return { ...work, providerBlocked: false, result: await this.verifier.verify(work.candidate, context, signal) };
++				const modelResult = await withProofToolScope({ role: "verifier", logicalTaskId: work.task.taskId }, () => this.verifier.verify(work.candidate, context, signal));
++				const evidence = await this.evidenceProvider?.("verifier", work.task.taskId, "BODY_READ") ?? [];
++				return { ...work, providerBlocked: false, result: { ...modelResult, evidence: uniqueEvidence(evidence) } };
+ 			} catch (error) {
+ 				return { ...work, providerBlocked: isProviderFailure(error), error: errorMessage(error) };
+ 			}
+@@ -609,7 +685,7 @@ export class ProofRuntime {
+ 				this.addOutput("spawn", work.task.summary, `Verifier failed: ${work.error ?? "unknown verifier error"}`);
+ 				continue;
+ 			}
+-			await this.recordVerification(work.task, work.candidate, work.result);
++			if (this.stateValue.verifications[work.candidate.candidateId] === undefined) await this.recordVerification(work.task, work.candidate, work.result);
+ 		}
+ 		this.addOutput("spawn", "Merged Worker + Verifier feedback", mergeWorkerVerifierOutput(researchWorks, verificationWorks));
+ 		if (providerBlockedVerifiers === verificationWorks.length && verificationWorks.length > 0) {
+@@ -745,6 +821,10 @@ export class ProofRuntime {
+ 	}
+ 
+ 	private async submitProof(action: Extract<ProofAction, { action: "submit_proof" }>, stepDirectory: string): Promise<void> {
++		if (this.targetGate !== undefined) {
++			this.addOutput("submit_proof", "Submission rejected", "Research targets require submit_target_proof with exact obligation and claim identity.");
++			return;
++		}
+ 		if (this.stateValue.mode === "formalize_only") {
+ 			this.addOutput("submit_proof", "Submission rejected", "formalize_only requires submit_lean_proof.");
+ 			return;
+@@ -799,6 +879,44 @@ export class ProofRuntime {
+ 		await this.checkCompletion(`PROOF.md written${action.proofSlug === undefined ? "" : ` from [[${action.proofSlug}]]`}.`);
+ 	}
+ 
++	private persistedResearchResult(taskId: string): ResearchResult | undefined {
++		for (let index = this.eventList.length - 1; index >= 0; index -= 1) {
++			const event = this.eventList[index];
++			if (event?.type === "proof/research_result" && event.taskId === taskId) return event.result;
++		}
++		return undefined;
++	}
++
++	private async submitTargetProof(action: Extract<ProofAction, { action: "submit_target_proof" }>, stepDirectory: string): Promise<void> {
++		const gate = this.targetGate;
++		if (gate === undefined || action.targetObligationId !== gate.targetObligationId || action.targetClaimId !== gate.targetClaimId) {
++			this.addOutput("submit_target_proof", "Submission rejected", "Target identity does not match the active research obligation gate.");
++			return;
++		}
++		const candidate = this.stateValue.candidates.find((item) => item.candidateId === action.candidateId);
++		if (candidate === undefined || candidate.scope !== "TARGET" || candidate.targetClaimId !== gate.targetClaimId) {
++			this.addOutput("submit_target_proof", "Submission rejected", "Candidate was not Planner-designated for the exact target claim.");
++			return;
++		}
++		const verification = this.stateValue.verifications[candidate.candidateId];
++		if (verification?.verdict !== "CORRECT") {
++			this.addOutput("submit_target_proof", "Submission rejected", "The target candidate has no independent CORRECT verification.");
++			return;
++		}
++		if (!this.noveltyGate(candidate)) {
++			this.addOutput("submit_target_proof", "Submission rejected", "Candidate novelty gate rejected the target submission.");
++			return;
++		}
++		const proofPath = join(this.runDirectory, "PROOF.md");
++		const proof = [`# Proof: ${this.obligation.theorem}`, "", candidate.content, "", `<!-- target_obligation_id: ${gate.targetObligationId} -->`, `<!-- target_claim_id: ${gate.targetClaimId} -->`, `<!-- candidate_id: ${candidate.candidateId} -->`, ""].join("\n");
++		await writeFile(proofPath, proof, "utf8");
++		await writeFile(join(stepDirectory, "submitted_target_proof.md"), proof, "utf8");
++		this.proofPathValue = proofPath;
++		this.stateValue = { ...this.stateValue, submittedCandidateId: candidate.candidateId, targetSubmission: { candidateId: candidate.candidateId, targetObligationId: gate.targetObligationId, targetClaimId: gate.targetClaimId, scope: "TARGET" } };
++		await this.emit({ type: "proof/submitted", eventId: randomUUID(), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, candidateId: candidate.candidateId, proofPath });
++		await this.checkCompletion("Exact research target submission passed the tactical gate.");
++	}
++
+ 	private async submitLeanProof(action: Extract<ProofAction, { action: "submit_lean_proof" }>, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
+ 		if (this.stateValue.mode === "prove") {
+ 			this.addOutput("submit_lean_proof", "Submission rejected", "The current mode only requests an informal proof.");
+@@ -897,6 +1015,7 @@ export class ProofRuntime {
+ 			stepHistory: [...this.stateValue.stepHistory],
+ 			budget: this.stateValue.budget,
+ 			artifacts: this.artifactStatus(),
++			...(this.tacticalDirective === undefined ? {} : { tacticalDirective: this.tacticalDirective }),
+ 		};
+ 	}
+ 
+@@ -911,21 +1030,28 @@ export class ProofRuntime {
+ 		};
+ 	}
+ 
+-	private materializeTask(input: ProofTaskInput): ProofTask {
+-		const taskId = input.taskId ?? `${this.runIdValue}-task-${this.stateValue.tasks.length + 1}`;
++	private materializeTask(input: ProofTaskInput, index = 0): ProofTask {
++		const taskId = input.taskId ?? `${this.runIdValue}-task-${this.stateValue.tasks.length + index + 1}`;
++		if (this.targetGate !== undefined && input.scope === "TARGET" && input.targetClaimId !== this.targetGate.targetClaimId) throw new ProofProtocolError("Planner TARGET task must carry the exact runtime target claim id");
+ 		const routeKey = input.routeKey ?? input.description;
+ 		return {
+ 			taskId,
+ 			summary: input.summary,
+ 			description: input.description,
+ 			routeFingerprint: fingerprint(`${this.obligation.theorem}\n${routeKey}`),
++			scope: input.scope ?? "CONTRIBUTION",
+ 			...(input.routeKey === undefined ? {} : { routeKey: input.routeKey }),
++			...(input.targetClaimId === undefined ? {} : { targetClaimId: input.targetClaimId }),
++			...(input.contributionKind === undefined ? {} : { contributionKind: input.contributionKind }),
+ 		};
+ 	}
+ 
+ 	private materializeCandidate(task: ProofTask, result: Extract<ResearchResult, { kind: "candidate" }>): ProofCandidate {
+ 		const content = result.candidate.content.trim();
+ 		const claim = result.candidate.claim;
++		const declaredEvidence = result.candidate.evidence ?? [];
++		if (result.candidate.scope !== undefined && result.candidate.scope !== task.scope) throw new ProofProtocolError(`Worker scope ${result.candidate.scope} disagrees with Planner task scope ${task.scope}`);
++		if (task.contributionKind !== undefined && result.candidate.contribution?.kind !== task.contributionKind) throw new ProofProtocolError(`Worker contribution kind disagrees with Planner task kind ${task.contributionKind}`);
+ 		return {
+ 			candidateId: result.candidate.candidateId ?? `${task.taskId}-candidate`,
+ 			taskId: task.taskId,
+@@ -934,6 +1060,16 @@ export class ProofRuntime {
+ 			routeFingerprint: task.routeFingerprint,
+ 			claimFingerprint: result.candidate.claimFingerprint ?? fingerprint(claim ?? this.obligation.theorem),
+ 			candidateFingerprint: fingerprint(`${this.obligation.theorem}\n${content}`),
++			evidence: [],
++			discoveredEvidence: [],
++			bodyReadEvidence: [],
++			declaredEvidence,
++			reliedOnArtifactIds: result.candidate.reliedOnArtifactIds ?? [],
++			scope: task.scope,
++			...(task.targetClaimId === undefined ? {} : { targetClaimId: task.targetClaimId }),
++			assumptions: result.candidate.assumptions ?? result.candidate.contribution?.assumptions ?? [],
++			dependencyClaims: result.candidate.dependencyClaims ?? result.candidate.contribution?.dependencyClaims ?? [],
++			...(result.candidate.contribution === undefined ? {} : { contribution: result.candidate.contribution }),
+ 			...(claim === undefined ? {} : { claim }),
+ 		};
+ 	}
+@@ -956,9 +1092,10 @@ export class ProofRuntime {
+ 		});
+ 	}
+ 
+-	private consumeBudget(counter: "workerCalls" | "verifierCalls" | "literatureSearches" | "toolCalls"): boolean {
++	private consumeBudget(counter: "plannerCalls" | "workerCalls" | "verifierCalls" | "literatureSearches" | "toolCalls"): boolean {
+ 		const budget = this.stateValue.budget;
+ 		const limitKey = {
++			plannerCalls: "maxPlannerCalls",
+ 			workerCalls: "maxWorkerCalls",
+ 			verifierCalls: "maxVerifierCalls",
+ 			literatureSearches: "maxLiteratureSearches",
+@@ -1081,6 +1218,8 @@ export class ProofRuntime {
+ /** Named entry point for callers that want the orchestration concept explicitly. */
+ export class ProofWorkflow extends ProofRuntime {}
+ 
++class InjectedProofTaskFault extends Error { constructor(message: string) { super(message); this.name = "InjectedProofTaskFault"; } }
++
+ async function mapConcurrent<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+ 	const results: R[] = [];
+ 	let cursor = 0;
+@@ -1098,11 +1237,13 @@ async function mapConcurrent<T, R>(items: readonly T[], limit: number, fn: (item
+ 
+ function createBudget(options: ProofBudgetOptions | undefined): ProofBudgetState {
+ 	return {
++		plannerCalls: 0,
+ 		workerCalls: 0,
+ 		verifierCalls: 0,
+ 		literatureSearches: 0,
+ 		toolCalls: 0,
+ 		startedAt: Date.now(),
++		...(options?.maxPlannerCalls === undefined ? {} : { maxPlannerCalls: options.maxPlannerCalls }),
+ 		...(options?.maxWorkerCalls === undefined ? {} : { maxWorkerCalls: options.maxWorkerCalls }),
+ 		...(options?.maxVerifierCalls === undefined ? {} : { maxVerifierCalls: options.maxVerifierCalls }),
+ 		...(options?.maxLiteratureSearches === undefined ? {} : { maxLiteratureSearches: options.maxLiteratureSearches }),
+@@ -1136,6 +1277,7 @@ function snapshotState(state: ProofState): ProofState {
+ 		rejectedCandidates: [...state.rejectedCandidates],
+ 		recentOutputs: [...state.recentOutputs],
+ 		stepHistory: [...state.stepHistory],
++		executionPlans: [...state.executionPlans],
+ 		budget: { ...state.budget },
+ 	};
+ }
+@@ -1186,6 +1328,15 @@ function stringify(value: unknown): string {
+ 	}
+ }
+ 
++function stableEventId(runId: string, phase: string, logicalId: string): string {
++	return `${phase}-${fingerprint(`${runId}:${phase}:${logicalId}`).slice(0, 32)}`;
++}
++
++function uniqueEvidence<T extends { readonly artifactId: string; readonly contentHash: string }>(refs: readonly T[]): T[] {
++	const seen = new Set<string>();
++	return refs.filter((ref) => { const key = `${ref.artifactId}:${ref.contentHash}`; if (seen.has(key)) return false; seen.add(key); return true; });
++}
++
+ function mergeWorkerVerifierOutput(research: readonly ResearchWork[], verifications: readonly VerificationWork[]): string {
+ 	const byTask = new Map(verifications.map((work) => [work.task.taskId, work]));
+ 	return research.map((work, index) => {
+@@ -1233,3 +1384,8 @@ async function writeJson(path: string, value: unknown): Promise<void> {
+ function isRecord(value: unknown): value is Record<string, unknown> {
+ 	return typeof value === "object" && value !== null && !Array.isArray(value);
+ }
++
++function validatePlanTaskIdentities(plan: ProofPlan): void {
++	const ids = plan.actions.flatMap((action) => action.action === "spawn" ? action.tasks.map((task) => task.taskId).filter((item): item is string => item !== undefined) : []);
++	if (new Set(ids).size !== ids.length) throw new ProofProtocolError("Planner task ids must be unique inside a persisted plan");
++}
+diff --git a/backend/src/proof/types.ts b/backend/src/proof/types.ts
+index c34fc4c..75b5ba7 100644
+--- a/backend/src/proof/types.ts
++++ b/backend/src/proof/types.ts
+@@ -37,6 +37,10 @@ export type ProofTaskInput = {
+ 	readonly description: string;
+ 	/** A stable route identity supplied by the planner when wording may vary. */
+ 	readonly routeKey?: string;
++	/** Only a Planner may designate a task as an attempt on the exact research target. */
++	readonly scope?: "TARGET" | "CONTRIBUTION";
++	readonly targetClaimId?: string;
++	readonly contributionKind?: ProofContributionKind;
+ };
+ 
+ export type ProofTask = {
+@@ -45,6 +49,29 @@ export type ProofTask = {
+ 	readonly description: string;
+ 	readonly routeFingerprint: string;
+ 	readonly routeKey?: string;
++	readonly scope: "TARGET" | "CONTRIBUTION";
++	readonly targetClaimId?: string;
++	readonly contributionKind?: ProofContributionKind;
++};
++
++export type ProofContributionKind =
++	| "LEMMA" | "REDUCTION" | "CASE_SPLIT" | "CASE_CLOSURE" | "COUNTEREXAMPLE"
++	| "CONSTRUCTION" | "BOUND" | "OBSTRUCTION" | "STRUCTURAL_OBSERVATION" | "LITERATURE_APPLICATION";
++
++export type ProofContributionDraft = {
++	readonly kind: ProofContributionKind;
++	readonly statement: string;
++	readonly relationshipToTarget: string;
++	readonly claimId?: string;
++	readonly assumptions?: readonly string[];
++	readonly dependencyClaims?: readonly string[];
++	readonly childClaims?: readonly { readonly claimId: string; readonly statement: string }[];
++	readonly coverageScope?: string;
++	readonly coverageAssertion?: string;
++	readonly closedCaseClaimId?: string;
++	readonly closureReason?: string;
++	readonly targetScope?: string;
++	readonly counterexampleScope?: string;
+ };
+ 
+ export type ProofCandidateDraft = {
+@@ -56,6 +83,14 @@ export type ProofCandidateDraft = {
+ 	readonly claim?: string;
+ 	/** Optional precomputed semantic fingerprint supplied by a trusted adapter. */
+ 	readonly claimFingerprint?: string;
++	/** Model-declared evidence is advisory; runtime evidence is attached separately. */
++	readonly evidence?: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
++	/** Exact artifact ids the Worker declares it mathematically relied upon. */
++	readonly reliedOnArtifactIds?: readonly string[];
++	readonly scope?: "TARGET" | "CONTRIBUTION";
++	readonly assumptions?: readonly string[];
++	readonly dependencyClaims?: readonly string[];
++	readonly contribution?: ProofContributionDraft;
+ };
+ 
+ export type ProofCandidate = {
+@@ -67,6 +102,16 @@ export type ProofCandidate = {
+ 	readonly claimFingerprint: string;
+ 	readonly candidateFingerprint: string;
+ 	readonly claim?: string;
++	readonly evidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
++	readonly discoveredEvidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
++	readonly bodyReadEvidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
++	readonly declaredEvidence: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
++	readonly reliedOnArtifactIds: readonly string[];
++	readonly scope: "TARGET" | "CONTRIBUTION";
++	readonly targetClaimId?: string;
++	readonly assumptions: readonly string[];
++	readonly dependencyClaims: readonly string[];
++	readonly contribution?: ProofContributionDraft;
+ };
+ 
+ export type ResearchResult =
+@@ -89,6 +134,8 @@ export type VerificationResult = {
+ 	readonly verdict: ProofVerdict;
+ 	readonly feedback: string;
+ 	readonly checks?: readonly string[];
++	/** Filled by runtime instrumentation, never trusted from model JSON. */
++	readonly evidence?: readonly { readonly artifactId: string; readonly contentHash: string; readonly ranges?: readonly string[] }[];
+ };
+ 
+ export type FormalVerificationResult = {
+@@ -134,6 +181,7 @@ export type ProofOutput = {
+ };
+ 
+ export type ProofBudgetOptions = {
++	readonly maxPlannerCalls?: number;
+ 	readonly maxWorkerCalls?: number;
+ 	readonly maxVerifierCalls?: number;
+ 	readonly maxLiteratureSearches?: number;
+@@ -142,11 +190,13 @@ export type ProofBudgetOptions = {
+ };
+ 
+ export type ProofBudgetState = {
++	readonly plannerCalls: number;
+ 	readonly workerCalls: number;
+ 	readonly verifierCalls: number;
+ 	readonly literatureSearches: number;
+ 	readonly toolCalls: number;
+ 	readonly startedAt: number;
++	readonly maxPlannerCalls?: number;
+ 	readonly maxWorkerCalls?: number;
+ 	readonly maxVerifierCalls?: number;
+ 	readonly maxLiteratureSearches?: number;
+@@ -170,6 +220,7 @@ export type ProofPlannerContext = {
+ 	readonly stepHistory?: readonly ProofStepRecord[];
+ 	readonly budget?: ProofBudgetState;
+ 	readonly artifacts?: ProofArtifactStatus;
++	readonly tacticalDirective?: Readonly<Record<string, unknown>>;
+ };
+ 
+ export type ProofResearchContext = {
+@@ -245,6 +296,13 @@ export type ProofAction =
+ 			readonly proofSlug?: string;
+ 			readonly summary?: string;
+ 		}
++	| {
++			readonly action: "submit_target_proof";
++			readonly candidateId: string;
++			readonly targetObligationId: string;
++			readonly targetClaimId: string;
++			readonly summary?: string;
++		}
+ 	| {
+ 			readonly action: "submit_lean_proof";
+ 			readonly proofSlug?: string;
+@@ -258,6 +316,19 @@ export type ProofPlan = {
+ 	readonly summary?: string;
+ };
+ 
++export type ProofExecutionPlan = {
++	readonly planId: string;
++	readonly step: number;
++	readonly inputHash: string;
++	readonly plan: ProofPlan;
++	readonly taskIds: readonly string[];
++	readonly dependencyRefs: readonly { readonly artifactId: string; readonly contentHash: string }[];
++	readonly status: "RUNNING" | "COMPLETED" | "STALE";
++	readonly staleReason?: string;
++	readonly createdAt: string;
++	readonly completedAt?: string;
++};
++
+ export type ProofRouteFailure = {
+ 	readonly routeFingerprint: string;
+ 	readonly taskId: string;
+@@ -308,9 +379,16 @@ export type ProofState = {
+ 	readonly rejectedCandidates: readonly ProofRejectedCandidate[];
+ 	readonly recentOutputs: readonly ProofOutput[];
+ 	readonly stepHistory: readonly ProofStepRecord[];
++	readonly executionPlans: readonly ProofExecutionPlan[];
+ 	readonly budget: ProofBudgetState;
+ 	readonly submittedCandidateId?: string;
+ 	readonly submittedProofSlug?: string;
++	readonly targetSubmission?: {
++		readonly candidateId: string;
++		readonly targetObligationId: string;
++		readonly targetClaimId: string;
++		readonly scope: "TARGET";
++	};
+ 	readonly proofLeanPath?: string;
+ 	readonly lastError?: string;
+ };
+diff --git a/backend/src/providers/google-common.ts b/backend/src/providers/google-common.ts
+index 15d50d8..5bff4a8 100644
+--- a/backend/src/providers/google-common.ts
++++ b/backend/src/providers/google-common.ts
+@@ -95,19 +95,24 @@ function toGoogleContents(request: ProviderRequest): readonly Record<string, unk
+ 			continue;
+ 		}
+ 		if (message.role === "assistant") {
++			const parts = message.content.map((part) =>
++				part.kind === "text"
++					? { text: part.text }
++					: {
++							functionCall: {
++								name: part.name,
++								args: part.arguments,
++								...(isGemini3Model(request.model.model) ? { id: part.id } : {}),
++							},
++						},
++			);
++			// An interrupted/empty model turn can be retained in the Agent
++			// history. Vertex rejects a content item whose parts array is empty;
++			// omitting that no-op turn preserves the valid conversation state.
++			if (parts.length === 0) continue;
+ 			contents.push({
+ 				role: "model",
+-				parts: message.content.map((part) =>
+-					part.kind === "text"
+-						? { text: part.text }
+-						: {
+-								functionCall: {
+-									name: part.name,
+-									args: part.arguments,
+-									...(isGemini3Model(request.model.model) ? { id: part.id } : {}),
+-								},
+-							},
+-				),
++				parts,
+ 			});
+ 			continue;
+ 		}
+@@ -124,6 +129,9 @@ function toGoogleContents(request: ProviderRequest): readonly Record<string, unk
+ 			],
+ 		});
+ 	}
++	if (contents.length === 0) {
++		contents.push({ role: "user", parts: [{ text: "Continue." }] });
++	}
+ 	return contents;
+ }
+ 
+diff --git a/backend/src/providers/google-vertex.ts b/backend/src/providers/google-vertex.ts
+index f6af9c6..a3753e5 100644
+--- a/backend/src/providers/google-vertex.ts
++++ b/backend/src/providers/google-vertex.ts
+@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
+ import { FetchTransport } from "./http.js";
+ import { asNumber, asRecord, asString } from "./parse.js";
+ import { googleRequestBody, parseGoogleStream } from "./google-common.js";
++import { configureProxyFromEnvironment } from "./network.js";
+ import {
+ 	resolveCredentialFile,
+ 	type ModelConfig,
+@@ -53,6 +54,7 @@ export class GoogleVertexProvider implements ModelProvider {
+ 	private cachedToken: AccessToken | undefined;
+ 
+ 	constructor(options: GoogleVertexProviderOptions = {}) {
++		configureProxyFromEnvironment();
+ 		this.transport = options.transport ?? new FetchTransport();
+ 		this.tokenRequester = options.tokenRequester ?? requestAccessToken;
+ 		this.defaultBaseUrl = options.defaultBaseUrl;
+@@ -135,6 +137,7 @@ async function readServiceAccount(model: ModelConfig): Promise<ServiceAccount> {
+ }
+ 
+ async function requestAccessToken(request: TokenRequest): Promise<TokenResponse> {
++	configureProxyFromEnvironment();
+ 	const now = Math.floor(Date.now() / 1000);
+ 	const header = {
+ 		alg: "RS256",
+diff --git a/backend/src/providers/http.ts b/backend/src/providers/http.ts
+index f1ebb91..f146cae 100644
+--- a/backend/src/providers/http.ts
++++ b/backend/src/providers/http.ts
+@@ -1,4 +1,5 @@
+ import type { ProviderTransport, TransportRequest } from "./types.js";
++import { configureProxyFromEnvironment } from "./network.js";
+ 
+ export class ProviderHttpError extends Error {
+ 	readonly status: number;
+@@ -13,6 +14,10 @@ export class ProviderHttpError extends Error {
+ }
+ 
+ export class FetchTransport implements ProviderTransport {
++	constructor() {
++		configureProxyFromEnvironment();
++	}
++
+ 	async *stream(request: TransportRequest): AsyncIterable<string> {
+ 		const response = await fetch(request.url, {
+ 			method: request.method,
+diff --git a/backend/src/tools/builtin.ts b/backend/src/tools/builtin.ts
+index d72888b..85a5357 100644
+--- a/backend/src/tools/builtin.ts
++++ b/backend/src/tools/builtin.ts
+@@ -275,7 +275,12 @@ function countOccurrences(source: string, fragment: string): number {
+ 
+ function runShellCommand(command: string, cwd: string, timeoutMs: number | undefined, signal: AbortSignal | undefined): Promise<BashDetails> {
+ 	return new Promise<BashDetails>((resolvePromise, reject) => {
+-		const child = spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] });
++		// A direct `program -e 'script'` path keeps the same quoting semantics on
++		// POSIX and Windows (cmd.exe does not treat single quotes as grouping).
++		const directScript = command.match(/^("[^"]+"|\S+)\s+-e\s+'([\s\S]*)'$/u);
++		const child = directScript === null
++			? spawn(command, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] })
++			: spawn((directScript[1] ?? "").replace(/^"|"$/gu, ""), ["-e", directScript[2] ?? ""], { cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+ 		let stdout = "";
+ 		let stderr = "";
+ 		let timedOut = false;
+diff --git a/backend/test/proof-workflow.test.ts b/backend/test/proof-workflow.test.ts
+index 2cd4aaa..566c925 100644
+--- a/backend/test/proof-workflow.test.ts
++++ b/backend/test/proof-workflow.test.ts
+@@ -20,6 +20,8 @@ test("full proof actions persist repository, whiteboard, parallel workers, faile
+ 	let activeResearchers = 0;
+ 	let peakResearchers = 0;
+ 	const researched: string[] = [];
++	let releaseFirstWave: (() => void) | undefined;
++	const firstWaveReady = new Promise<void>((resolve) => { releaseFirstWave = resolve; });
+ 	const planner = {
+ 		async plan(context: { readonly step: number }): Promise<ProofPlan> {
+ 			if (context.step === 1) {
+@@ -59,8 +61,11 @@ test("full proof actions persist repository, whiteboard, parallel workers, faile
+ 	const researcher = {
+ 		async research(context: ProofResearchContext) {
+ 			researched.push(context.task.taskId);
++			const invocation = researched.length;
+ 			activeResearchers += 1;
+ 			peakResearchers = Math.max(peakResearchers, activeResearchers);
++			if (invocation === 2) releaseFirstWave?.();
++			if (invocation <= 2) await Promise.race([firstWaveReady, new Promise<void>((resolve) => setTimeout(resolve, 500))]);
+ 			await new Promise((resolve) => setTimeout(resolve, 15));
+ 			activeResearchers -= 1;
+ 			if (context.task.taskId === "route-a") {
+diff --git a/configs/math-agent.toml b/configs/math-agent.toml
+index 36d4bca..9132438 100644
+--- a/configs/math-agent.toml
++++ b/configs/math-agent.toml
+@@ -5,7 +5,6 @@ host = "127.0.0.1"
+ web_port = 3080
+ proof_api_port = 43100
+ data_dir = ".math-agent"
+-open_browser = false
+ 
+ [proof]
+ default_mode = "prove"
+@@ -19,6 +18,33 @@ enabled = false
+ [literature]
+ enabled = false
+ 
++[research]
++max_cycles = 100
++checkpoint_interval = 1
++stall_threshold = 3
++structural_probe_budget = 2
++max_active_obligations = 8
++
++[budgets]
++planner_calls = 1000
++worker_calls = 1000
++verifier_calls = 1000
++secondary_auditor_calls = 100
++literature_searches = 100
++tool_calls = 5000
++wall_time_seconds = 86400
++
++[corpus]
++enabled = true
++roots = []
++import_authority_policy = "PROVISIONAL_IMPORTED"
++
++[tools]
++enabled = true
++allowed_capabilities = ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"]
++allowed_executables = ["node", "python", "lean", "lake"]
++execution_boundary = "CONTROLLED_COMMAND_RUNNER"
++
+ [models.gemini37]
+ provider = "google-vertex"
+ model = "gemini-3.7-flash"
+@@ -30,15 +56,24 @@ max_tokens = 8192
+ [roles.planner]
+ model = "gemini37"
+ 
++[roles.research_director]
++model = "gemini37"
++
++[roles.corpus_bootstrapper]
++model = "gemini37"
++
+ [roles.worker]
+ model = "gemini37"
+ 
+ [roles.verifier]
+ model = "gemini37"
+ 
++[roles.secondary_auditor]
++model = "gemini37"
++
+ [roles.synthesizer]
+ model = "gemini37"
+-enabled = false
++enabled = true
+ 
+ [roles.formalizer]
+ model = "gemini37"
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 5eab3b6..ff286c3 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -11,6 +11,10 @@ importers:
+   apps/proof-workbench: {}
+ 
+   backend:
++    dependencies:
++      undici:
++        specifier: 6.21.0
++        version: 6.21.0
+     devDependencies:
+       '@types/node':
+         specifier: ^22.19.0
+@@ -32,6 +36,10 @@ packages:
+   undici-types@6.21.0:
+     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+ 
++  undici@6.21.0:
++    resolution: {integrity: sha512-BUgJXc752Kou3oOIuU1i+yZZypyZRqNPW0vqoMPl8VaoalSfeR0D8/t4iAS3yirs79SSMTxTag+ZC86uswv+Cw==}
++    engines: {node: '>=18.17'}
++
+ snapshots:
+ 
+   '@types/node@22.20.1':
+@@ -41,3 +49,5 @@ snapshots:
+   typescript@5.9.3: {}
+ 
+   undici-types@6.21.0: {}
++
++  undici@6.21.0: {}
