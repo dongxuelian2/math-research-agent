@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { archiveReceiptId, CorpusArchiveStore } from "./corpus-archive-store.js";
-import { CorpusArchivePolicy, CorpusNodeResolver } from "./corpus-archive-policy.js";
+import { CorpusArchivePolicy, CorpusNodeResolver, strictPublicationAuthority } from "./corpus-archive-policy.js";
 import { sha256 } from "./ids.js";
 import { ResearchStore } from "./store.js";
 import type { ArchiveReceipt, CorpusArchiveIntent, CorpusArchiveReconcileResult, CorpusArchiveSink, CorpusPublishingConfig, CorpusPushResult, CorpusValidationResult } from "./corpus-archive-types.js";
@@ -15,6 +15,8 @@ export interface ResearchCorpusProjectorOptions {
 	readonly config: CorpusPublishingConfig;
 	readonly nodeResolver?: CorpusNodeResolver;
 	readonly faultPoint?: CorpusProjectionFaultPoint;
+	readonly writerLockPollMs?: number;
+	readonly writerLockStaleMs?: number;
 }
 
 export class CorpusManualReviewError extends Error {
@@ -34,8 +36,14 @@ export class ResearchCorpusProjector {
 		if (receipt !== undefined) return receipt;
 		const storedIntent = state.intents[input.intentId];
 		if (storedIntent === undefined) throw new Error(`Corpus archive intent not found: ${input.intentId}`);
-		let intent: CorpusArchiveIntent = storedIntent;
 		if (!this.options.config.enabled) throw new CorpusManualReviewError("PUBLISHING_DISABLED", "Corpus publishing is disabled");
+		return this.withPublisherLock(() => this.projectLocked(storedIntent));
+	}
+
+	private async projectLocked(storedIntent: CorpusArchiveIntent): Promise<ArchiveReceipt> {
+		const latest = await this.options.archiveStore.read(storedIntent.projectId), completed = latest.receipts[storedIntent.intentId];
+		if (completed !== undefined) return completed;
+		let intent: CorpusArchiveIntent = latest.intents[storedIntent.intentId] ?? storedIntent;
 		if (intent.status === "PENDING" || intent.status === "RETRYABLE_FAILURE") intent = await this.options.archiveStore.updateIntent(intent.projectId, intent.intentId, { status: "CLAIMED", claimedAt: new Date().toISOString(), statusCode: "CLAIMED", statusDetail: "Projection worker claimed intent" });
 		if (intent.status === "CLAIMED") intent = await this.options.archiveStore.updateIntent(intent.projectId, intent.intentId, { status: "PROJECTING", statusCode: "PROJECTING", statusDetail: "Git projection started" });
 		if (intent.status === "MANUAL_REVIEW" || intent.status === "PERMANENT_FAILURE") throw new CorpusManualReviewError(intent.statusCode ?? intent.status, intent.statusDetail ?? `Intent is ${intent.status}`);
@@ -83,16 +91,18 @@ export class ResearchCorpusProjector {
 	private async finishCommitted(intent: CorpusArchiveIntent, checkout: string, commit: string, knownPath?: string, knownBase?: string, knownValidation?: CorpusValidationResult, knownMove?: { readonly from: string; readonly to: string }): Promise<ArchiveReceipt> {
 		let current = (await this.options.archiveStore.read(intent.projectId)).intents[intent.intentId] ?? intent;
 		if (current.status === "PROJECTING" || current.status === "CLAIMED" || current.status === "RETRYABLE_FAILURE") current = await this.options.archiveStore.updateIntent(current.projectId, current.intentId, { status: "COMMITTED_LOCAL", localCommit: commit, statusCode: "RECOVERED_LOCAL_COMMIT", statusDetail: "Recovered existing archive commit" });
+		const aligned = await this.alignWithRemote(checkout, commit); commit = aligned.commit;
+		if (aligned.rebased) { knownValidation = undefined; knownBase = undefined; current = await this.options.archiveStore.updateIntent(current.projectId, current.intentId, { status: "COMMITTED_LOCAL", localCommit: commit, statusCode: "REBASED_LOCAL_COMMIT", statusDetail: "Rebased archive commit onto the advanced remote without force push" }); }
 		const markers = await findCorpusMarkers(checkout), marker = knownPath === undefined ? markers.find((item) => item.intentId === current.intentId) : markers.find((item) => item.relativePath === knownPath && item.intentId === current.intentId);
 		if (marker === undefined) throw new CorpusManualReviewError("COMMIT_MARKER_MISSING", `Archive commit lacks intent marker: ${current.intentId}`);
 		const rawChanged = await commitChanges(checkout, commit), moved = knownMove === undefined || rawChanged.moved.some((item) => item.from === knownMove.from && item.to === knownMove.to) ? rawChanged.moved : [...rawChanged.moved, knownMove], movedTargets = new Set(moved.map((item) => item.to)), changed = { created: rawChanged.created.filter((path) => !movedTargets.has(path)), updated: rawChanged.updated, moved }, touched = uniqueStrings([...changed.created, ...changed.updated, ...changed.moved.flatMap((move) => [move.from, move.to])]);
 		let validation = knownValidation;
 		if (validation === undefined) { const beforeIndex = await gitDiff(checkout); await this.runIndex(checkout); const afterFirst = await gitDiff(checkout); await this.runIndex(checkout); const afterSecond = await gitDiff(checkout); if (afterFirst !== afterSecond || afterFirst !== beforeIndex) throw new CorpusManualReviewError("RECOVERED_INDEX_STALE", "Recovered archive commit does not contain a current idempotent generated index"); validation = await this.validate(current, checkout, marker.relativePath, touched, true); }
 		if (!validation.ok) throw new CorpusManualReviewError("RECOVERED_COMMIT_INVALID", validation.errors.join("; "));
-		const pushResult = await this.pushOrRecover(checkout, commit);
+		const pushResult = await this.pushAligned(checkout, commit, aligned.alreadyPresent);
 		if (current.status !== "PUSHED" && pushResult.status !== "SKIPPED") current = await this.options.archiveStore.updateIntent(current.projectId, current.intentId, { status: "PUSHED", localCommit: commit, statusCode: pushResult.status, statusDetail: `Commit is present on ${pushResult.remote ?? "configured remote"}` });
 		const contentHashes: Record<string, string> = {};
-		for (const path of uniqueStrings([...changed.created, ...changed.updated, ...changed.moved.map((move) => move.to)])) { const absolute = resolve(checkout, ...path.split("/")); if (await fileExists(absolute)) contentHashes[path] = sha256(await readFile(absolute, "utf8")); }
+		for (const path of uniqueStrings([...changed.created, ...changed.updated, ...changed.moved.map((move) => move.to)])) contentHashes[path] = sha256(await committedBlob(checkout, commit, path));
 		const baseCommit = knownBase ?? await git(checkout, ["rev-parse", `${commit}^`]), receipt: ArchiveReceipt = { schemaVersion: 1, receiptId: archiveReceiptId(current.intentId, commit), intentId: current.intentId, ...(current.sourceEffectId === undefined ? {} : { sourceEffectId: current.sourceEffectId }), ...(current.finalProofAuthorityId === undefined ? {} : { finalProofAuthorityId: current.finalProofAuthorityId }), corpusRepository: this.options.config.repositoryUrl || checkout, corpusBaseCommit: baseCommit, corpusResultCommit: commit, classification: current.classificationHint, nodePath: nodePathFromArtifact(marker.relativePath), filesCreated: changed.created, filesUpdated: changed.updated, filesMoved: changed.moved, indexRegenerated: this.options.config.indexCommand.length > 0, validationResult: validation, pushResult, contentHashes, completedAt: new Date().toISOString() };
 		return this.options.archiveStore.complete(current.projectId, receipt);
 	}
@@ -137,7 +147,32 @@ export class ResearchCorpusProjector {
 	private async assertStrictAuthority(intent: CorpusArchiveIntent): Promise<void> {
 		if (!intent.semantic.strictResult) return;
 		const state = await this.options.researchStore.read(intent.projectId), authority = state.currentFinalProofAuthority;
-		if (intent.finalProofAuthorityId === undefined || authority?.status !== "ACTIVE" || authority.finalProofAuthorityId !== intent.finalProofAuthorityId || authority.artifact.artifactId !== intent.semantic.authoritativeArtifact?.artifactId || authority.artifact.contentHash !== intent.semantic.authoritativeArtifact?.contentHash) throw new CorpusManualReviewError("STRICT_AUTHORITY_STALE", "Strict corpus result is not backed by current active final proof authority");
+		if (intent.finalProofAuthorityId === undefined || authority?.finalProofAuthorityId !== intent.finalProofAuthorityId || authority.artifact.artifactId !== intent.semantic.authoritativeArtifact?.artifactId || authority.artifact.contentHash !== intent.semantic.authoritativeArtifact?.contentHash || strictPublicationAuthority(state, authority) === undefined) throw new CorpusManualReviewError("STRICT_AUTHORITY_STALE", "Strict corpus result is not backed by the current final-proof/root/audit authority chain");
+		await this.options.researchStore.resolveArtifact(intent.projectId, authority.artifact);
+	}
+
+	private async withPublisherLock<T>(operation: () => Promise<T>): Promise<T> {
+		const configured = this.options.config.localCheckout.trim();
+		if (configured.length === 0) return operation();
+		const checkout = resolve(configured), lockPath = publisherLockPath(checkout), token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`, pollMs = this.options.writerLockPollMs ?? 25, staleMs = this.options.writerLockStaleMs ?? 30_000;
+		await mkdir(dirname(checkout), { recursive: true });
+		for (;;) {
+			try {
+				await mkdir(lockPath); await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, token, acquiredAt: new Date().toISOString() })}\n`, { encoding: "utf8", flag: "wx" });
+				break;
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException | undefined)?.code !== "EEXIST") throw error;
+				if (await publisherLockIsOrphaned(lockPath, staleMs)) {
+					const stalePath = `${lockPath}.stale-${token}`;
+					try { await rename(lockPath, stalePath); await rm(stalePath, { recursive: true, force: true }); } catch (renameError) { if ((renameError as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") await delay(pollMs); }
+					continue;
+				}
+				await delay(pollMs);
+			}
+		}
+		try { return await operation(); } finally {
+			try { const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) as { token?: string }; if (owner.token === token) await rm(lockPath, { recursive: true, force: true }); } catch (error) { if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") throw error; }
+		}
 	}
 
 	private async ensureCheckout(): Promise<string> {
@@ -162,12 +197,31 @@ export class ResearchCorpusProjector {
 	private async runIndex(checkout: string): Promise<void> { const [executable, ...args] = this.options.config.indexCommand; if (executable === undefined || executable.trim().length === 0) throw new CorpusManualReviewError("INDEX_COMMAND_MISSING", "Corpus index command is empty"); await command(executable, args, checkout); }
 	private async findIntentCommit(checkout: string, intentId: string): Promise<string | undefined> { return gitOptional(checkout, ["log", "--all", "-1", "--format=%H", "--fixed-strings", `--grep=Archive-Intent: ${intentId}`]); }
 
-	private async pushOrRecover(checkout: string, commit: string): Promise<CorpusPushResult> {
+	private async alignWithRemote(checkout: string, commit: string): Promise<{ readonly commit: string; readonly alreadyPresent: boolean; readonly rebased: boolean }> {
+		if (!this.options.config.autoPush) return { commit, alreadyPresent: false, rebased: false };
+		await git(checkout, ["fetch", "origin", this.options.config.branch]); const remote = await gitOptional(checkout, ["rev-parse", `origin/${this.options.config.branch}`]);
+		if (remote === undefined) throw new CorpusManualReviewError("REMOTE_MISSING", "autoPush requires the configured remote branch");
+		if (await gitQuiet(checkout, ["merge-base", "--is-ancestor", commit, remote])) return { commit, alreadyPresent: true, rebased: false };
+		if (await gitQuiet(checkout, ["merge-base", "--is-ancestor", remote, commit])) return { commit, alreadyPresent: false, rebased: false };
+		if (await git(checkout, ["rev-parse", "HEAD"]) !== commit || (await changedPaths(checkout)).length > 0) throw new Error("REMOTE_ADVANCED_RETRY: local archive commit is not a clean branch tip");
+		try { await git(checkout, ["rebase", `origin/${this.options.config.branch}`]); } catch (error) { await gitOptional(checkout, ["rebase", "--abort"]); throw new Error(`REMOTE_ADVANCED_RETRY: safe rebase requires reconciliation: ${errorMessage(error)}`); }
+		let rebasedCommit = await git(checkout, ["rev-parse", "HEAD"]), beforeIndex = await gitDiff(checkout); await this.runIndex(checkout); const afterFirst = await gitDiff(checkout); await this.runIndex(checkout); const afterSecond = await gitDiff(checkout);
+		if (afterFirst !== afterSecond) throw new CorpusManualReviewError("INDEX_NOT_IDEMPOTENT", "Remote reconciliation made the index generator non-idempotent");
+		if (afterFirst !== beforeIndex) {
+			const changed = await changedPaths(checkout), unexpected = changed.filter((path) => path !== "TREE.md" && path !== "INDEX.md");
+			if (unexpected.length > 0) throw new CorpusManualReviewError("REMOTE_REBASE_UNEXPECTED_DIFF", `Remote reconciliation changed unowned files: ${unexpected.join(", ")}`);
+			await git(checkout, ["add", "--", ...changed]); await git(checkout, ["commit", "--amend", "--no-edit"]); rebasedCommit = await git(checkout, ["rev-parse", "HEAD"]);
+		}
+		return { commit: rebasedCommit, alreadyPresent: false, rebased: true };
+	}
+
+	private async pushAligned(checkout: string, commit: string, alreadyPresent: boolean): Promise<CorpusPushResult> {
 		if (!this.options.config.autoPush) return { status: "SKIPPED", branch: this.options.config.branch };
+		if (alreadyPresent) return { status: "ALREADY_PRESENT", remote: "origin", branch: this.options.config.branch };
 		await git(checkout, ["fetch", "origin", this.options.config.branch]); const remote = await gitOptional(checkout, ["rev-parse", `origin/${this.options.config.branch}`]);
 		if (remote !== undefined && await gitQuiet(checkout, ["merge-base", "--is-ancestor", commit, remote])) return { status: "ALREADY_PRESENT", remote: "origin", branch: this.options.config.branch };
-		if (remote !== undefined && !await gitQuiet(checkout, ["merge-base", "--is-ancestor", remote, commit])) throw new CorpusManualReviewError("REMOTE_DIVERGED", "Corpus branch advanced incompatibly after the local archive commit; manual reconciliation is required");
-		await git(checkout, ["push", "origin", `HEAD:${this.options.config.branch}`]); this.inject("AFTER_PUSH");
+		if (remote !== undefined && !await gitQuiet(checkout, ["merge-base", "--is-ancestor", remote, commit])) throw new Error("REMOTE_ADVANCED_RETRY: remote advanced after validation; retry will rebase without force push");
+		await git(checkout, ["push", "--porcelain", "origin", `HEAD:${this.options.config.branch}`]); this.inject("AFTER_PUSH");
 		return { status: "PUSHED", remote: "origin", branch: this.options.config.branch };
 	}
 
@@ -259,6 +313,7 @@ function assertCanonicalArtifactPath(path: string, slug: string): void {
 
 async function changedPaths(checkout: string): Promise<string[]> { const tracked = splitNull(await gitRaw(checkout, ["diff", "--name-only", "-z"])), staged = splitNull(await gitRaw(checkout, ["diff", "--cached", "--name-only", "-z"])), untracked = splitNull(await gitRaw(checkout, ["ls-files", "--others", "--exclude-standard", "-z"])); return uniqueStrings([...tracked, ...staged, ...untracked]); }
 async function gitDiff(checkout: string): Promise<string> { return gitRaw(checkout, ["diff", "--binary", "--no-ext-diff"]); }
+async function committedBlob(checkout: string, commit: string, path: string): Promise<Buffer> { return commandBuffer("git", ["show", `${commit}:${path}`], checkout); }
 
 async function commitChanges(checkout: string, commit: string): Promise<{ readonly created: string[]; readonly updated: string[]; readonly moved: { readonly from: string; readonly to: string }[] }> {
 	const raw = await gitRaw(checkout, ["diff-tree", "--no-commit-id", "--name-status", "-r", "-M1%", commit]), created: string[] = [], updated: string[] = [], moved: { readonly from: string; readonly to: string }[] = [];
@@ -281,10 +336,21 @@ async function gitRaw(checkout: string, args: readonly string[]): Promise<string
 async function gitOptional(checkout: string, args: readonly string[]): Promise<string | undefined> { try { const value = await git(checkout, args); return value.length === 0 ? undefined : value; } catch { return undefined; } }
 async function gitQuiet(checkout: string, args: readonly string[]): Promise<boolean> { try { await command("git", args, checkout); return true; } catch { return false; } }
 async function command(executable: string, args: readonly string[], cwd: string): Promise<string> { return new Promise((resolvePromise, reject) => { const child = spawn(executable, [...args], { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }); let stdout = "", stderr = ""; child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); }); child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); }); child.once("error", reject); child.once("close", (code) => { if (code === 0) resolvePromise(stdout); else reject(new Error(`${executable} ${args.join(" ")} failed (${String(code)}): ${stderr.trim() || stdout.trim()}`)); }); }); }
+async function commandBuffer(executable: string, args: readonly string[], cwd: string): Promise<Buffer> { return new Promise((resolvePromise, reject) => { const child = spawn(executable, [...args], { cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] }), stdout: Buffer[] = []; let stderr = ""; child.stdout.on("data", (chunk: Buffer) => { stdout.push(chunk); }); child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); }); child.once("error", reject); child.once("close", (code) => { if (code === 0) resolvePromise(Buffer.concat(stdout)); else reject(new Error(`${executable} ${args.join(" ")} failed (${String(code)}): ${stderr.trim()}`)); }); }); }
 
 function normalizeRepository(value: string): string { return value.trim().replaceAll("\\", "/").replace(/\.git$/u, "").replace(/\/$/u, "").toLocaleLowerCase(); }
 function uniqueStrings(values: readonly string[]): string[] { return [...new Set(values.filter((value) => value.length > 0))].sort(); }
 function splitNull(value: string): string[] { return value.split("\0").filter(Boolean).map((path) => path.replaceAll("\\", "/")); }
+function publisherLockPath(checkout: string): string { return resolve(dirname(checkout), `.${basename(checkout)}.corpus-archive-publisher.lock`); }
+async function publisherLockIsOrphaned(lockPath: string, staleMs: number): Promise<boolean> {
+	try {
+		const owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8")) as { pid?: unknown };
+		if (typeof owner.pid === "number" && Number.isInteger(owner.pid) && owner.pid > 0) return !processIsAlive(owner.pid);
+	} catch (error) { if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
+	try { return Date.now() - (await stat(lockPath)).mtimeMs >= staleMs; } catch (error) { if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return false; throw error; }
+}
+function processIsAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException | undefined)?.code === "EPERM"; } }
+async function delay(ms: number): Promise<void> { await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, ms)); }
 async function fileExists(path: string): Promise<boolean> { try { return (await stat(path)).isFile() || (await stat(path)).isDirectory(); } catch (error) { if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") return false; throw error; } }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

@@ -1,6 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { sha256, stableId } from "./ids.js";
+import { activeAuthorityForClaim } from "./invariants.js";
 import type { AcceptedEffect, ArtifactRef, ArtifactType, AuthorityReceipt, ClaimSnapshot, FinalProofAuthority, ResearchOutcome, ResearchProjectState } from "./types.js";
 import type { CorpusArchiveClass, CorpusArchiveDisposition, CorpusArchiveEffectSource, CorpusArchiveIntent, CorpusArchiveSemanticSnapshot, CorpusNodeResolution, CorpusNodeResolutionRequest, CorpusPublishingConfig } from "./corpus-archive-types.js";
 
@@ -53,9 +54,9 @@ export class CorpusArchivePolicy {
 	}
 
 	classifyPromotionClosure(committed: ResearchProjectState, authority: FinalProofAuthority, config: CorpusPublishingConfig): CorpusArchiveDisposition {
-		if (authority.status !== "ACTIVE" || committed.currentFinalProofAuthority?.finalProofAuthorityId !== authority.finalProofAuthorityId) return noArchive("Final proof authority is not current and active");
-		const root = committed.claims[authority.rootClaimId]?.find((claim) => claim.revision === authority.rootClaimRevision), rootAuthority = committed.authorityReceipts[authority.rootAuthorityReceiptId];
-		if (root === undefined || root.status !== "PROVED" || rootAuthority === undefined || committed.authorityValidation[rootAuthority.authorityReceiptId]?.status !== "ACTIVE") return noArchive("Strict result lacks current root claim and authority receipt");
+		const strict = strictPublicationAuthority(committed, authority);
+		if (strict === undefined) return noArchive("Strict result lacks current final-proof, root-claim, and fresh-audit authority");
+		const { root, rootAuthority } = strict;
 		const semantic: CorpusArchiveSemanticSnapshot = { title: root.statement, statement: root.statement, scope: rootAuthority.scope ?? "root theorem", sourceOutcomeType: "FINAL_PROOF_AUTHORITY", authoritativeArtifact: authority.artifact, claimStatus: root.status, strictResult: true }, sourceId = authority.finalProofAuthorityId, now = new Date().toISOString(), canonicalKey = stableId("corpus-canonical", committed.projectId, root.claimId);
 		const intent: CorpusArchiveIntent = { schemaVersion: 1, intentId: stableId("corpus-archive-intent", committed.projectId, sourceId), projectId: committed.projectId, sourceId, finalProofAuthorityId: authority.finalProofAuthorityId, theoremId: root.claimId, claimSnapshotHash: sha256(JSON.stringify(root)), researchMapId: committed.projectId, researchMapVersion: committed.events.length, classificationHint: "RESULT", semanticSummaryRef: authority.artifact, evidenceRefs: uniqueRefs([authority.artifact, rootAuthority.artifact, ...rootAuthority.evidenceRefs, ...root.auditRefs]), createdFromAuthoritativeState: true, canonicalKey, artifactSlug: slugify(root.statement), ...(config.nodePath === undefined ? {} : { requestedNodePath: config.nodePath }), semantic, status: "PENDING", createdAt: now, updatedAt: now };
 		return disposition("RESULT", "Active final proof authority closes the strict publication gate", intent);
@@ -67,6 +68,20 @@ export class CorpusArchivePolicy {
 		const semantic: CorpusArchiveSemanticSnapshot = { title: claim.statement, statement: claim.statement, scope: authority.scope ?? "scoped result", sourceOutcomeType: source.outcome.type, authoritativeArtifact: authority.artifact, claimStatus: claim.status, strictResult: false };
 		return disposition(classification, reason, intentFrom({ source, effect, committed, config, classification, semantic, sourceId: effect.effectId, theoremId: claimId, evidenceRefs: uniqueRefs([authority.artifact, ...authority.evidenceRefs]), semanticSummaryRef: authority.artifact, canonicalIdentity: claimId, claim }));
 	}
+}
+
+/** Exact durable authority chain required for strict corpus publication. */
+export function strictPublicationAuthority(state: ResearchProjectState, authority: FinalProofAuthority): { readonly root: ClaimSnapshot; readonly rootAuthority: AuthorityReceipt } | undefined {
+	if (authority.status !== "ACTIVE" || state.status !== "PROVED" || state.rootClaimId !== authority.rootClaimId || state.currentFinalProofAuthority?.finalProofAuthorityId !== authority.finalProofAuthorityId) return undefined;
+	if (!state.finalProofHistory.some((item) => item.status === "ACTIVE" && item.finalProofAuthorityId === authority.finalProofAuthorityId)) return undefined;
+	const root = state.claims[authority.rootClaimId]?.at(-1), rootAuthority = root === undefined ? undefined : activeAuthorityForClaim(state, root.claimId, root.revision), contract = state.rootObjectiveContract;
+	if (root === undefined || root.status !== "PROVED" || root.revision !== authority.rootClaimRevision || rootAuthority?.authorityReceiptId !== authority.rootAuthorityReceiptId) return undefined;
+	if (contract?.status !== "VALID" || contract.rootClaimId !== root.claimId || normalizeMath(contract.statement) !== normalizeMath(root.statement)) return undefined;
+	const finalArtifact = state.artifacts[authority.artifact.artifactId];
+	if (finalArtifact?.artifactType !== "FINAL_PROOF" || finalArtifact.contentHash !== authority.artifact.contentHash || state.finalProofArtifact?.artifactId !== authority.artifact.artifactId || state.finalProofArtifact.contentHash !== authority.artifact.contentHash) return undefined;
+	if (rootAuthority.effectKind !== "PROVED_CLAIM" || rootAuthority.sourceArtifact.artifactId !== authority.artifact.artifactId || rootAuthority.sourceArtifact.contentHash !== authority.artifact.contentHash || rootAuthority.artifact.contentHash !== authority.artifact.contentHash) return undefined;
+	if (rootAuthority.trustReceiptIds.length < 2 || rootAuthority.trustReceiptIds.some((id) => { const receipt = state.trustReceipts[id]; return receipt === undefined || receipt.verdict !== "CORRECT" || !receipt.independentContext || receipt.stale || receipt.candidate.artifactId !== rootAuthority.artifact.artifactId || receipt.candidate.contentHash !== rootAuthority.artifact.contentHash; })) return undefined;
+	return { root, rootAuthority };
 }
 
 interface IntentInput {
@@ -127,9 +142,9 @@ function noArchive(reason: string): CorpusArchiveDisposition { return { classifi
 function disposition(classification: Exclude<CorpusArchiveClass, "NO_ARCHIVE">, reason: string, intent: CorpusArchiveIntent): CorpusArchiveDisposition { return { classification, reason, intent }; }
 function blocked(reason: string): CorpusNodeResolution { return { status: "BLOCKED_PLACEMENT", reason }; }
 function slugify(value: string): string { const slug = value.normalize("NFKD").toLocaleLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-+|-+$/gu, "").replace(/-{2,}/gu, "-").slice(0, 72).replace(/-+$/u, ""); return slug.length === 0 ? "research-knowledge" : slug; }
+function normalizeMath(value: string): string { return value.trim().replace(/\s+/gu, " "); }
 function uniqueStrings(values: readonly (string | undefined)[]): string[] { return [...new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim()))]; }
 function uniqueRefs(values: readonly ArtifactRef[]): ArtifactRef[] { const seen = new Set<string>(); return values.filter((value) => { const key = `${value.artifactId}:${value.contentHash}`; if (seen.has(key)) return false; seen.add(key); return true; }); }
 async function isDirectory(path: string): Promise<boolean> { try { return (await stat(path)).isDirectory(); } catch (error) { if (isMissing(error)) return false; throw error; } }
 function isMissing(error: unknown): boolean { return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT"; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-
