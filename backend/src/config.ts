@@ -451,7 +451,7 @@ function normalizeModel(value: Record<string, unknown>, fallbackName = "model"):
 		...(stringValueOrUndefined(value.base_url ?? value.baseUrl) === undefined ? {} : { baseUrl: stringValueOrUndefined(value.base_url ?? value.baseUrl) }),
 		...(stringValueOrUndefined(value.api_key_env ?? value.apiKeyEnv) === undefined ? {} : { apiKeyEnv: stringValueOrUndefined(value.api_key_env ?? value.apiKeyEnv) }),
 		...(stringValueOrUndefined(value.service_account_file_env ?? value.serviceAccountFileEnv) === undefined ? {} : { serviceAccountFileEnv: stringValueOrUndefined(value.service_account_file_env ?? value.serviceAccountFileEnv) }),
-		...(effort === "low" || effort === "medium" || effort === "high" ? { reasoningEffort: effort } : {}),
+		...(effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh" || effort === "max" ? { reasoningEffort: effort } : {}),
 		...(numberValue(value.context_window ?? value.contextWindow) === undefined ? {} : { contextWindow: numberValue(value.context_window ?? value.contextWindow) }),
 		...(numberValue(value.max_tokens ?? value.maxTokens) === undefined ? {} : { maxTokens: numberValue(value.max_tokens ?? value.maxTokens) }),
 		...(record(value.request_headers ?? value.requestHeaders) === undefined ? {} : { requestHeaders: stringRecord(record(value.request_headers ?? value.requestHeaders) as Record<string, unknown>) }),
