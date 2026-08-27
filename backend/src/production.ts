@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { AgentCore } from "./agent/agent.js";
 import type { Agent, AgentEventListener } from "./agent/types.js";
 import type { AgentRunResult, UserMessage } from "./models/index.js";
-import { createAgentProofResearcher, createAgentProofRoles, type AgentProofRoles } from "./proof/agent-role.js";
+import { createAgentProofResearcher, createAgentProofRoles, createAgentProofVerifier, type AgentProofRoles } from "./proof/agent-role.js";
+import { createCandidateVerifierPool } from "./proof/verifier-pool.js";
 import type { ProofAgentFactory, ProofResearcher } from "./proof/types.js";
 import type { ProofApiRoleFactory } from "./api/server.js";
 import { createProvider } from "./providers/registry.js";
@@ -33,6 +34,9 @@ export function createConfiguredProofRoleFactory(options: ConfiguredProofRoleFac
 
 		const planner = await createRoleAgent("planner", config, rolesDirectory, undefined, targetGate);
 		const worker = await createRoleAgent("worker", config, rolesDirectory, tools, targetGate);
+		// Keep one fallback verifier for legacy/single-verifier callers. The role
+		// object returned below replaces it with a candidate-keyed verifier pool
+		// for the proof runtime so concurrent audits never share an AgentCore.
 		const verifier = await createRoleAgent("verifier", config, rolesDirectory, tools, targetGate);
 		const dynamicResearchers = new Map<string, Promise<ProofResearcher>>();
 		const agentFactory: ProofAgentFactory = (spec) => {
@@ -42,7 +46,11 @@ export function createConfiguredProofRoleFactory(options: ConfiguredProofRoleFac
 			dynamicResearchers.set(spec.agentId, created);
 			return created;
 		};
-		return createAgentProofRoles({ planner, researcher: worker, verifier, agentFactory });
+		const baseRoles = createAgentProofRoles({ planner, researcher: worker, verifier, agentFactory });
+		const isolatedVerifier = createCandidateVerifierPool((candidateId) =>
+			createRoleAgent("verifier", config, rolesDirectory, tools, targetGate, `candidate-${candidateId}`).then(createAgentProofVerifier),
+		);
+		return { ...baseRoles, verifier: isolatedVerifier };
 	};
 	factory.createAgent = async ({ role, sessionId, runId, tools, config: snapshot }) => { const config = snapshot ?? (typeof options.config === "function" ? options.config() : options.config.config); const directory = join(options.rootDirectory, "research-role-sessions", sessionId, runId); await mkdir(directory, { recursive: true }); return createRoleAgent(role, config, directory, tools); };
 	return factory;
