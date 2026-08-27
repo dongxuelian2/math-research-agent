@@ -8,6 +8,8 @@ A controller may emit one `spawn` action containing a dependency graph. Before t
 
 The controller is still called again after the compiled plan finishes, so mathematical failures, verifier feedback, new evidence, or exhausted frontiers can trigger a fresh plan. The design therefore keeps adaptive research while removing Planner calls that existed only to cross an already-known dependency barrier.
 
+An incomplete Worker result is also durable workflow state. In dynamic mode, if a `PARTIAL` or retryable Worker task has no model-authored continuation, the runtime creates a stable continuation from that task's description, success criteria, dependencies, and logical agent identity. This is a provider/protocol safety net rather than a theorem-specific decomposition; the controller remains free to choose the actual task boundaries and strategy.
+
 ## Dependency dataflow
 
 `dependsOn` now carries data as well as control. Before a dependent Worker or Verifier runs, the runtime reads the latest durable `proof/research_result` for each predecessor and appends the exact predecessor output under `Runtime dependency dataflow` in `referencedMaterials`.

@@ -276,6 +276,7 @@ export class ProofRuntime {
 				if (persisted === undefined) try {
 					if (!this.consumeBudget("plannerCalls")) { await this.changeStatus("PARTIAL", "Planner or wall-time budget exhausted"); await this.finishStep(step, stepDirectory, "interrupted", "Planner or wall-time budget exhausted"); return this.result("Planner or wall-time budget exhausted"); }
 					plan = await this.planner.plan(context, signal);
+					plan = this.ensureDynamicContinuations(plan);
 					validatePlanTaskIdentities(plan);
 				} catch (error) {
 					const message = errorMessage(error);
@@ -435,6 +436,58 @@ export class ProofRuntime {
 		};
 		await this.persistState();
 		return executionPlan;
+	}
+
+	/**
+	 * Keep the controller model-driven while making an incomplete worker result
+	 * impossible to lose between rounds. The planner still owns task boundaries,
+	 * descriptions, dependencies, and agent selection. This is only a durable
+	 * safety net for a planner response that forgets to continue an unresolved
+	 * task after a provider truncation or retryable worker failure.
+	 */
+	private ensureDynamicContinuations(plan: ProofPlan): ProofPlan {
+		if (this.workflowMode !== "dynamic") return plan;
+
+		const plannedTaskIds = new Set(plan.actions.flatMap((action) => action.action === "spawn"
+			? action.tasks.map((task) => task.taskId).filter((taskId): taskId is string => taskId !== undefined)
+			: []));
+		const plannedContinuations = new Set(plan.actions.flatMap((action) => action.action === "spawn"
+			? action.tasks.map((task) => task.continuationOf).filter((taskId): taskId is string => taskId !== undefined)
+			: []));
+		const incomplete = this.stateValue.tasks.filter((task) =>
+			(task.status === "PARTIAL" || task.status === "FAILED_RETRYABLE")
+			&& !this.stateValue.tasks.some((child) => child.continuationOf === task.taskId),
+		);
+		const continuations = incomplete
+			.filter((task) => !plannedContinuations.has(task.taskId))
+			.map((task) => createContinuationTask(task, this.eventList, this.stateValue.tasks, plannedTaskIds));
+		if (continuations.length === 0) return plan;
+
+		const continuationAction: ProofAction = {
+			action: "spawn",
+			tasks: continuations,
+			summary: "Continue incomplete worker tasks",
+		};
+		const actions = [...plan.actions];
+		const spawnIndex = actions.findIndex((action) => action.action === "spawn");
+		if (spawnIndex >= 0) {
+			const spawn = actions[spawnIndex];
+			if (spawn?.action === "spawn") actions[spawnIndex] = { ...spawn, tasks: [...continuations, ...spawn.tasks] };
+		} else {
+			actions.unshift(continuationAction);
+		}
+
+		// A model-issued stop is a valid terminal choice only after unresolved
+		// worker output has either been continued or deliberately represented by a
+		// different route. Do not let a stale stop strand a provider partial.
+		const hadStop = actions.some((action) => action.action === "stop");
+		const normalizedActions = hadStop ? actions.filter((action) => action.action !== "stop") : actions;
+		this.addOutput(
+			"planner",
+			"Runtime scheduled continuations",
+			`${continuations.map((task) => `${task.taskId} ← ${task.continuationOf}`).join(", ")} are required to preserve incomplete worker output.${hadStop ? " The planner stop was deferred until the continuation is handled." : ""}`,
+		);
+		return { ...plan, actions: normalizedActions };
 	}
 
 	private async markPlanStale(plan: ProofExecutionPlan, reason: string): Promise<void> {
@@ -1524,6 +1577,55 @@ function formatContinuationMaterials(taskId: string, result: ResearchResult | un
 				? result.content
 				: result.reason;
 	return `Previous result from task ${taskId} (${result.kind}); preserve valid work and repair only the missing part:\n${content}`;
+}
+
+function createContinuationTask(
+	task: ProofTask,
+	events: readonly ProofEvent[],
+	existingTasks: readonly ProofTask[],
+	occupiedIds: Set<string>,
+): ProofTaskInput {
+	const taskId = nextContinuationTaskId(task.taskId, existingTasks, occupiedIds);
+	occupiedIds.add(taskId);
+	const result = latestResearchResult(events, task.taskId);
+	const suggestedNext = result?.kind === "partial" ? result.suggestedNext : undefined;
+	return {
+		taskId,
+		summary: `Continue incomplete task: ${task.summary}`,
+		description: [
+			`Continue the incomplete task ${task.taskId} from its preserved worker result.`,
+			`Original task description:\n${task.description}`,
+			task.successCriteria === undefined ? "" : `Original success criteria:\n${task.successCriteria}`,
+			suggestedNext === undefined ? "" : `Worker continuation hint:\n${suggestedNext}`,
+			"Return a complete candidate or a clearly delimited contribution. Preserve valid work from the previous result and finish the missing portion.",
+		].filter((part) => part.length > 0).join("\n\n"),
+		routeKey: `${task.routeKey ?? task.description}\ncontinuationOf=${task.taskId}`,
+		scope: task.scope,
+		...(task.targetClaimId === undefined ? {} : { targetClaimId: task.targetClaimId }),
+		...(task.contributionKind === undefined ? {} : { contributionKind: task.contributionKind }),
+		dependsOn: task.dependsOn,
+		// Reuse the same logical identity when the original task relied on the
+		// runtime's implicit agent. Explicit model-selected agents are preserved.
+		agent: task.agent ?? { agentId: task.taskId, purpose: task.summary },
+		...(task.successCriteria === undefined ? {} : { successCriteria: task.successCriteria }),
+		continuationOf: task.taskId,
+	};
+}
+
+function nextContinuationTaskId(taskId: string, existingTasks: readonly ProofTask[], occupiedIds: ReadonlySet<string>): string {
+	const knownIds = new Set([...existingTasks.map((task) => task.taskId), ...occupiedIds]);
+	for (let attempt = 1; ; attempt += 1) {
+		const candidate = `${taskId}:continuation-${attempt}`;
+		if (!knownIds.has(candidate)) return candidate;
+	}
+}
+
+function latestResearchResult(events: readonly ProofEvent[], taskId: string): ResearchResult | undefined {
+	for (let index = events.length - 1; index >= 0; index -= 1) {
+		const event = events[index];
+		if (event?.type === "proof/research_result" && event.taskId === taskId) return event.result;
+	}
+	return undefined;
 }
 
 function taskDependencyReason(task: ProofTask, tasks: readonly ProofTask[]): { readonly reason: string; readonly terminal: boolean } | undefined {

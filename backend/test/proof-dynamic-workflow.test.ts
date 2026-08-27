@@ -150,6 +150,92 @@ test("dynamic workflow executes a ready frontier and lets the controller continu
 	assert.ok(runtime.events.some((event) => event.type === "proof/task_status_changed" && event.status === "PARTIAL") === false);
 });
 
+test("dynamic runtime preserves and resumes a partial task when the controller omits continuationOf", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "math-agent-proof-continuation-"));
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const session = await Session.create({ projectId: "dynamic-continuation", cwd: directory, directory });
+	let plannerCalls = 0;
+	const workerTaskIds: string[] = [];
+	const factoryAgentIds: string[] = [];
+	const planner = {
+		async plan(context: { readonly step: number; readonly tasks: readonly ProofTask[] }): Promise<ProofPlan> {
+			plannerCalls += 1;
+			if (context.step === 1) {
+				return {
+					actions: [{
+						action: "spawn",
+						tasks: [{
+							taskId: "long-task",
+							summary: "Complete the proof obligation",
+							description: "Produce a complete, self-contained proof of the active obligation.",
+							successCriteria: "Every stated obligation is discharged and the result can be independently verified.",
+						}],
+					}],
+				};
+			}
+			if (context.step === 2) {
+				assert.equal(context.tasks.find((item) => item.taskId === "long-task")?.status, "PARTIAL");
+				assert.equal(context.tasks.some((item) => item.continuationOf === "long-task"), false);
+				return { actions: [{ action: "stop", reason: "The controller did not add another task." }] };
+			}
+			const continuation = context.tasks.find((item) => item.continuationOf === "long-task");
+			assert.equal(continuation?.status, "COMPLETED");
+			return { actions: [{ action: "submit_proof", candidateId: `${continuation?.taskId}-candidate` }] };
+		},
+	};
+	const researcher: ProofResearcher = {
+		async research(context) {
+			workerTaskIds.push(context.task.taskId);
+			if (context.task.continuationOf === undefined) {
+				return {
+					kind: "partial",
+					content: "The first part of the argument is complete; the final justification is still missing.",
+					reason: "The worker turn ended before the complete result was returned.",
+					suggestedNext: "Finish the final justification using the preserved argument.",
+				};
+			}
+			return {
+				kind: "candidate",
+				candidate: {
+					taskId: context.task.taskId,
+					strategy: "continue-preserved-argument",
+					content: "The preserved argument is completed by the missing final justification.",
+				},
+			};
+		},
+	};
+	const verifier = {
+		async verify(_candidate: { readonly content: string }, _context: ProofVerifierContext) {
+			return { verdict: "CORRECT" as const, feedback: "The continued proof is complete." };
+		},
+	};
+	const runtime = new ProofRuntime({
+		session,
+		obligation: { obligationId: "continuation", theorem: "A complete proof must be returned." },
+		planner,
+		researcher,
+		verifier,
+		agentFactory: async (spec) => {
+			factoryAgentIds.push(spec.agentId);
+			return researcher;
+		},
+		maxSteps: 3,
+		maxWorkers: 1,
+	});
+
+	const result = await runtime.run();
+
+	assert.equal(result.status, "PROVED");
+	assert.equal(plannerCalls, 3);
+	assert.deepEqual(workerTaskIds, ["long-task", "long-task:continuation-1"]);
+	assert.deepEqual(factoryAgentIds, ["long-task", "long-task"]);
+	assert.equal(runtime.state.tasks.find((item) => item.taskId === "long-task")?.status, "PARTIAL");
+	assert.equal(runtime.state.tasks.find((item) => item.continuationOf === "long-task")?.status, "COMPLETED");
+	const continuationPlan = runtime.state.executionPlans[1]?.plan.actions[0];
+	assert.equal(continuationPlan?.action, "spawn");
+	if (continuationPlan?.action === "spawn") assert.equal(continuationPlan.tasks[0]?.continuationOf, "long-task");
+});
+
 test("model output truncation becomes a resumable partial result instead of a candidate", async () => {
 	const researcher = createAgentProofResearcher(fakeAgent(assistantResult('{"kind":"candidate","candidate":{"content":"unfinished proof', "length")));
 	const context: ProofResearchContext = {

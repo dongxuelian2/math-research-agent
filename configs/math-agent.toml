@@ -9,9 +9,9 @@ data_dir = ".math-agent"
 [proof]
 default_mode = "prove"
 workflow_mode = "dynamic"
-max_workers = 2
-max_steps = 8
-history_limit = 8
+max_workers = 8
+max_steps = 64
+history_limit = 64
 
 [formalization]
 enabled = false
@@ -20,20 +20,20 @@ enabled = false
 enabled = true
 
 [research]
-max_cycles = 100
-checkpoint_interval = 1
-stall_threshold = 3
-structural_probe_budget = 2
-max_active_obligations = 8
+max_cycles = 1000
+checkpoint_interval = 10
+stall_threshold = 30
+structural_probe_budget = 20
+max_active_obligations = 80
 
 [budgets]
-planner_calls = 1000
-worker_calls = 1000
-verifier_calls = 1000
-secondary_auditor_calls = 100
-literature_searches = 100
-tool_calls = 5000
-wall_time_seconds = 86400
+planner_calls = 10000
+worker_calls = 10000
+verifier_calls = 10000
+secondary_auditor_calls = 1000
+literature_searches = 1000
+tool_calls = 50000
+wall_time_seconds = 3600
 
 [corpus]
 enabled = true

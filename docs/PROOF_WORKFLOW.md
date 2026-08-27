@@ -31,7 +31,7 @@ Workflow-controller action protocol
 
 `ProofWorkflow`/`ProofRuntime` 是唯一拥有证明状态和提交门禁的执行内核。默认的 `dynamic` 模式由模型在每轮自行决定是直接求解还是拆出多少个逻辑 agent；它可以声明 `dependsOn`、`successCriteria` 和 `continuationOf`，运行时只执行依赖已完成的 ready frontier，并把任务状态反馈给下一轮控制器。agent 元数据只描述目的和能力，不授予工具权限；实际模型/profile 由受信任的 factory 解析。`legacy` 模式保留旧的固定 Planner/Worker/Verifier 提示词以便对照回退。
 
-因此，模型负责“这次工作应该如何组织”，运行时负责“哪些动作被允许、如何持久化、何时并行、如何恢复以及什么证据可以提交”。这不是一次性让模型生成不可检查的 DAG：每轮都会重新规划，部分输出会成为可续跑的状态，独立 Verifier 和 formal gate 仍然是提交前的硬门槛。
+因此，模型负责“这次工作应该如何组织”，运行时负责“哪些动作被允许、如何持久化、何时并行、如何恢复以及什么证据可以提交”。这不是一次性让模型生成不可检查的 DAG：每轮都会重新规划，部分输出会成为可续跑的状态，独立 Verifier 和 formal gate 仍然是提交前的硬门槛。若模型忘记为 `PARTIAL` 或 `FAILED_RETRYABLE` 任务发出 `continuationOf`，动态运行时会依据原任务元数据生成一个稳定的通用续接任务；它不推断或硬编码命题的具体分块。
 
 ## 与 OpenProver 的对应关系
 

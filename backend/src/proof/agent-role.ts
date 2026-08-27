@@ -584,12 +584,23 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 	const history = context.recentOutputs.map((output) => `### ${output.action} — ${output.summary}\n${output.content}`).join("\n\n");
 	const tasks = context.tasks.length === 0
 		? "none"
-		: context.tasks.map((task) => `- ${task.taskId} [${task.status}]${task.dependsOn.length === 0 ? "" : ` dependsOn=${task.dependsOn.join(",")}`} — ${task.summary}${task.agent === undefined ? "" : ` (agent=${task.agent.agentId}: ${task.agent.purpose})`}${task.lastError === undefined ? "" : `; lastError=${task.lastError}`}`).join("\n");
+		: context.tasks.map((task) => [
+			`- ${task.taskId} [${task.status}, attempt=${task.attempt}]${task.dependsOn.length === 0 ? "" : ` dependsOn=${task.dependsOn.join(",")}`}${task.continuationOf === undefined ? "" : ` continuationOf=${task.continuationOf}`} — ${task.summary}`,
+			`  task description: ${task.description}`,
+			task.successCriteria === undefined ? "" : `  success criteria: ${task.successCriteria}`,
+			task.agent === undefined ? "" : `  logical agent: ${task.agent.agentId} (${task.agent.purpose})`,
+			task.lastError === undefined ? "" : `  last error: ${task.lastError}`,
+		].filter((part) => part.length > 0).join("\n")).join("\n");
 	const failures = context.failedRoutes.length === 0
 		? "none"
 		: context.failedRoutes.map((failure) => `- ${failure.routeFingerprint.slice(0, 12)}: ${failure.reason}`).join("\n");
+	const unresolved = context.tasks
+		.filter((task) => task.status === "PARTIAL" || task.status === "FAILED_RETRYABLE")
+		.filter((task) => !context.tasks.some((child) => child.continuationOf === task.taskId))
+		.map((task) => `- ${task.taskId} [${task.status}] requires a continuation or an explicitly different route`)
+		.join("\n");
 	const coordination = context.workflowMode === "dynamic"
-		? "You are the workflow controller. Decide the decomposition for this round yourself: solve directly when appropriate by spawning one focused worker, or spawn multiple logical agents only when that materially helps. Use stable task ids, explicit dependsOn edges, successCriteria, and continuationOf when a previous task is partial. The runtime executes only the ready frontier and will return pending/partial tasks in the next round. Do not assume a fixed number or fixed set of agent roles. A worker task must return one complete proof or a clearly delimited contribution; do not use write_items as a substitute for a candidate. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\",\"successCriteria\":\"exact completion condition\"}]}; do not use a singular task field."
+		? "You are the workflow controller. Decide the decomposition for this round from the theorem, evidence, and current task graph. Use one worker only when its success criteria describe one independently verifiable result that fits one worker turn; otherwise split the work into self-contained tasks with explicit dependsOn edges. The number of tasks, boundaries, roles, and strategy must come from the problem, not a fixed template. Use stable task ids, successCriteria, and continuationOf for partial work. The runtime executes the ready frontier and will preserve incomplete results for the next round. A partial or retryable task that you do not explicitly continue will receive a generic runtime continuation automatically. Do not assume a fixed number or fixed set of agent roles. A worker task must return one complete proof or a clearly delimited contribution; do not use write_items as a substitute for a candidate. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\",\"successCriteria\":\"exact completion condition\"}]}; do not use a singular task field."
 		: "Delegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy.";
 	const targetGate = targetGateInstruction(context.tacticalDirective);
 	return [
@@ -598,6 +609,7 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 		context.obligation.context === undefined ? "" : "# THEOREM CONTEXT\n\n" + context.obligation.context,
 		`# STATUS\n\nmode=${context.mode ?? "prove"}\nworkflowMode=${context.workflowMode}\nstatus=${context.status}\nstep=${context.step}`,
 		"# TASK GRAPH\n\n" + tasks,
+		unresolved.length === 0 ? "" : "# UNRESOLVED WORK\n\n" + unresolved,
 		"# REPOSITORY\n\n" + (repository || "(empty)"),
 		"# FAILED ROUTES\n\n" + failures,
 		context.tacticalDirective === undefined ? "" : "# TACTICAL DIRECTIVE\n\n" + JSON.stringify(context.tacticalDirective, null, 2),

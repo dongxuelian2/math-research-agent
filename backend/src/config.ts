@@ -121,9 +121,9 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 	proof: {
 		defaultMode: "prove",
 		workflowMode: "dynamic",
-		maxWorkers: 2,
-		maxSteps: 8,
-		historyLimit: 8,
+		maxWorkers: 8,
+		maxSteps: 64,
+		historyLimit: 64,
 	},
 	formalization: {
 		enabled: false,
@@ -143,8 +143,8 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 		literature_researcher: { model: "mock", enabled: false },
 	},
 	literature: { enabled: false },
-	research: { maxCycles: 100, checkpointInterval: 1, stallThreshold: 3, structuralProbeBudget: 2, maxActiveObligations: 8 },
-	budgets: { plannerCalls: 1000, workerCalls: 1000, verifierCalls: 1000, secondaryAuditorCalls: 100, literatureSearches: 100, toolCalls: 5000, wallTimeSeconds: 86400 },
+	research: { maxCycles: 1000, checkpointInterval: 10, stallThreshold: 30, structuralProbeBudget: 20, maxActiveObligations: 80 },
+	budgets: { plannerCalls: 10000, workerCalls: 10000, verifierCalls: 10000, secondaryAuditorCalls: 1000, literatureSearches: 1000, toolCalls: 50000, wallTimeSeconds: 3600 },
 	corpus: { enabled: true, roots: [], importAuthorityPolicy: "PROVISIONAL_IMPORTED" },
 	tools: { enabled: true, allowedCapabilities: ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], allowedExecutables: ["node", "python", "lean", "lake"], executionBoundary: "CONTROLLED_COMMAND_RUNNER" },
 };
