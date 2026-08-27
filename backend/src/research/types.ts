@@ -337,6 +337,13 @@ export interface BootstrapRangeWorkRecord {
 	readonly durationMs?: number; readonly completedAt?: string;
 }
 
+export interface BootstrapProvisionalImportResult {
+	readonly createdClaimIds: readonly string[]; readonly createdObligationIds: readonly string[]; readonly createdRouteIds: readonly string[];
+	readonly reconstructedReductions: readonly { readonly parentClaimId: string; readonly childClaimIds: readonly string[]; readonly provisional: true }[];
+	readonly reconstructedCoverage: readonly { readonly parentClaimId: string; readonly childClaimIds: readonly string[]; readonly coverageId: string; readonly provisional: true }[];
+	readonly warnings: readonly string[]; readonly completedAt: string;
+}
+
 export interface BootstrapRunState {
 	readonly bootstrapRunId: string; readonly projectId: string; readonly configRevision: string; readonly corpusManifestHash: string;
 	readonly schemaVersion: string; readonly modelDirected: boolean; readonly status: "RUNNING" | "COMPLETED" | "STALE";
@@ -344,6 +351,6 @@ export interface BootstrapRunState {
 	readonly rangeWork: Readonly<Record<string, BootstrapRangeWorkRecord>>;
 	readonly mergeStatus: "PENDING" | "COMPLETED"; readonly dependencyReconstructionStatus: "PENDING" | "COMPLETED";
 	readonly routeReconstructionStatus: "PENDING" | "COMPLETED"; readonly consistencyReviewStatus: "PENDING" | "COMPLETED" | "FAILED";
-	readonly provisionalImportStatus: "PENDING" | "COMPLETED"; readonly reportCreatedAt?: string;
+	readonly provisionalImportStatus: "PENDING" | "COMPLETED"; readonly provisionalImportResult?: BootstrapProvisionalImportResult; readonly reportCreatedAt?: string;
 	readonly createdAt: string; readonly updatedAt: string;
 }
