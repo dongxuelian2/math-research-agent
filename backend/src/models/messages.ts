@@ -6,6 +6,8 @@ export type UserMessage = {
 	readonly id: string;
 	readonly content: string;
 	readonly timestamp: number;
+	/** Optional machine contract for the next model response. */
+	readonly responseSchema?: JsonObject;
 };
 
 export type AssistantTextContent = {
@@ -72,12 +74,13 @@ export type AgentStopReason =
 	| "max_turns"
 	| "session_error";
 
-export function createUserMessage(content: string): UserMessage {
+export function createUserMessage(content: string, responseSchema?: JsonObject): UserMessage {
 	return {
 		role: "user",
 		id: randomUUID(),
 		content,
 		timestamp: Date.now(),
+		...(responseSchema === undefined ? {} : { responseSchema }),
 	};
 }
 

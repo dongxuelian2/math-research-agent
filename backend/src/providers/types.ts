@@ -1,5 +1,5 @@
 import type { AgentMessage, ModelStopReason, Usage } from "../models/messages.js";
-import type { JsonValue } from "../models/json.js";
+import type { JsonObject, JsonValue } from "../models/json.js";
 import type { ToolDefinition } from "../models/tools.js";
 
 export type ProviderId =
@@ -12,7 +12,7 @@ export type ProviderId =
 	| "openrouter"
 	| "deepseek";
 
-export type ReasoningEffort = "low" | "medium" | "high";
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export type CredentialResolver = () => string | undefined | Promise<string | undefined>;
 
@@ -34,6 +34,7 @@ export type ProviderRequest = {
 	readonly messages: readonly AgentMessage[];
 	readonly tools: readonly ToolDefinition[];
 	readonly signal?: AbortSignal;
+	readonly responseSchema?: JsonObject;
 };
 
 export type ModelTextDelta = {

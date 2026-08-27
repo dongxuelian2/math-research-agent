@@ -242,6 +242,7 @@ export class AgentCore implements Agent {
 			messages: [...this.contextMessages],
 			tools: this.tools.map(toolDefinition),
 			signal,
+			...([...this.contextMessages].reverse().find((message): message is UserMessage => message.role === "user")?.responseSchema === undefined ? {} : { responseSchema: [...this.contextMessages].reverse().find((message): message is UserMessage => message.role === "user")?.responseSchema }),
 		};
 
 		try {

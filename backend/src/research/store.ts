@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { stableId, sha256 } from "./ids.js";
 import { inspectResearchState } from "./invariants.js";
@@ -11,12 +11,15 @@ export class ArtifactAuthorityError extends Error {
 	}
 }
 
+export type StateWriteFaultPhase = "AFTER_TMP_WRITE" | "BEFORE_REPLACE" | "AFTER_REPLACE";
+export interface ResearchStoreOptions { readonly stateWriteFaultInjector?: (phase: StateWriteFaultPhase, attempt: number, canonicalPath: string, temporaryPath: string) => void | Promise<void>; }
+
 export function emptyProject(projectId: string, name: string, now = new Date().toISOString(), effectiveConfig: Readonly<Record<string, unknown>> = {}): ResearchProjectState {
 	return {
 		schemaVersion: 4, projectId, name, createdAt: now, updatedAt: now, status: "CREATED",
 		corpusRoots: [], corpus: {}, artifacts: {}, claims: {}, obligations: {}, coverage: {}, routes: {}, supportEdges: [],
 		jobs: {}, attempts: {}, executionTasks: {}, executionPlans: {}, acceptedEffects: {}, authorityReceipts: {}, authorityValidation: {}, trustReceipts: {}, toolEvidenceReceipts: {},
-		contextManifests: {}, decisions: [], events: [], checkpoints: [], bootstrapReports: [], cycle: 0,
+		contextManifests: {}, decisions: [], events: [], checkpoints: [], bootstrapReports: [], bootstrapRuns: {}, cycle: 0,
 		cyclesSinceStructuralProgress: 0,
 		budget: { cycles: 0, plannerCalls: 0, workerCalls: 0, verifierCalls: 0, secondaryAuditorCalls: 0, literatureCalls: 0, toolCalls: 0, startedAt: Date.now() },
 		effectiveConfig: structuredClone(effectiveConfig), configRevision: stableId("effective-config", projectId, JSON.stringify(effectiveConfig)), migrationReports: [], finalProofHistory: [],
@@ -28,9 +31,9 @@ export function emptyProject(projectId: string, name: string, now = new Date().t
  * snapshot using write+rename; model and tool code never receives this object.
  */
 export class ResearchStore {
-	private mutationTail: Promise<void> = Promise.resolve();
+	private static readonly mutationTails = new Map<string, Promise<void>>();
 
-	constructor(readonly rootDirectory: string) {}
+	constructor(readonly rootDirectory: string, private readonly options: ResearchStoreOptions = {}) {}
 
 	projectDirectory(projectId: string): string {
 		assertSafeId(projectId);
@@ -54,7 +57,7 @@ export class ResearchStore {
 
 	async create(projectId: string, name: string, effectiveConfig: Readonly<Record<string, unknown>> = {}): Promise<ResearchProjectState> {
 		assertSafeId(projectId);
-		return this.serialized(async () => {
+		return this.serialized(projectId, async () => {
 			const directory = this.projectDirectory(projectId);
 			await mkdir(join(directory, "artifacts"), { recursive: true });
 			await mkdir(join(directory, "scratch"), { recursive: true });
@@ -74,12 +77,12 @@ export class ResearchStore {
 	}
 
 	async transaction<T>(projectId: string, mutate: (draft: ResearchProjectState) => T | Promise<T>): Promise<{ readonly state: ResearchProjectState; readonly result: T }> {
-		return this.serialized(async () => {
+		return this.serialized(projectId, async () => {
 			const before = await this.read(projectId);
 			const draft = structuredClone(before);
 			const result = await mutate(draft);
 			const state = { ...draft, updatedAt: new Date().toISOString() };
-			await atomicJson(join(this.projectDirectory(projectId), "state.json"), state);
+			await atomicJson(join(this.projectDirectory(projectId), "state.json"), state, this.options.stateWriteFaultInjector);
 			return { state, result };
 		});
 	}
@@ -160,12 +163,12 @@ export class ResearchStore {
 		return target;
 	}
 
-	private async serialized<T>(operation: () => Promise<T>): Promise<T> {
-		const previous = this.mutationTail;
+	private async serialized<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+		const key = join(this.projectDirectory(projectId), "state.json").toLocaleLowerCase(), previous = ResearchStore.mutationTails.get(key) ?? Promise.resolve();
 		let release!: () => void;
-		this.mutationTail = new Promise<void>((resolvePromise) => { release = resolvePromise; });
+		const current = new Promise<void>((resolvePromise) => { release = resolvePromise; }); ResearchStore.mutationTails.set(key, current);
 		await previous;
-		try { return await operation(); } finally { release(); }
+		try { return await operation(); } finally { release(); if (ResearchStore.mutationTails.get(key) === current) ResearchStore.mutationTails.delete(key); }
 	}
 }
 
@@ -238,7 +241,7 @@ function migrateProject(value: Record<string, unknown>): ResearchProjectState {
 		...(rootObjectiveContract === undefined ? {} : { rootObjectiveContract }),
 		executionTasks: source.executionTasks ?? {}, executionPlans, authorityReceipts, authorityValidation,
 		acceptedEffects: source.acceptedEffects ?? {}, trustReceipts: source.trustReceipts ?? {}, toolEvidenceReceipts: source.toolEvidenceReceipts ?? {}, supportEdges: source.supportEdges ?? [],
-		bootstrapReports: source.bootstrapReports ?? [], migrationReports, effectiveConfig, configRevision: source.configRevision ?? stableId("effective-config", source.projectId as string, JSON.stringify(effectiveConfig)), finalProofHistory,
+		bootstrapReports: source.bootstrapReports ?? [], bootstrapRuns: source.bootstrapRuns ?? {}, migrationReports, effectiveConfig, configRevision: source.configRevision ?? stableId("effective-config", source.projectId as string, JSON.stringify(effectiveConfig)), finalProofHistory,
 		...(currentFinalProofAuthority === undefined ? {} : { currentFinalProofAuthority }),
 		budget: { cycles: source.cycle ?? 0, plannerCalls: 0, workerCalls: 0, verifierCalls: 0, secondaryAuditorCalls: 0, literatureCalls: 0, toolCalls: 0, startedAt: now, ...(source.budget ?? {}) },
 	} as ResearchProjectState;
@@ -264,15 +267,17 @@ function normalizeClaims(input: ResearchProjectState["claims"]): Record<string, 
 
 type MutableState = { -readonly [K in keyof ResearchProjectState]: ResearchProjectState[K] };
 
-async function atomicJson(path: string, value: unknown): Promise<void> {
+async function atomicJson(path: string, value: unknown, faultInjector?: ResearchStoreOptions["stateWriteFaultInjector"]): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
 	const temporary = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-	await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+	const handle = await open(temporary, "wx");
+	try { await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8"); await handle.sync(); } finally { await handle.close(); }
+	await faultInjector?.("AFTER_TMP_WRITE", 0, path, temporary);
 	for (let attempt = 1; ; attempt += 1) {
-		try { await rename(temporary, path); return; } catch (error) {
+		try { await faultInjector?.("BEFORE_REPLACE", attempt, path, temporary); await rename(temporary, path); await faultInjector?.("AFTER_REPLACE", attempt, path, temporary); return; } catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if ((code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") || attempt >= 8) throw error;
-			await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, attempt * 10));
+			await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, Math.min(250, attempt * attempt * 10)));
 		}
 	}
 }
