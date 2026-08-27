@@ -661,9 +661,16 @@ export class ProofRuntime {
 					task,
 					referencedMaterials: [referencedMaterials, continuation].filter((item) => item.length > 0).join("\n\n"),
 				};
-				const researcher = task.agent === undefined || this.agentFactory === undefined
-					? this.researcher
-					: await this.agentFactory(task.agent, context);
+				// A dynamic plan may omit agent metadata for a simple task. It still
+				// needs an isolated logical worker: the shared fallback AgentCore is
+				// not safe to run concurrently and would make the model-generated
+				// workflow less reliable than the old serial path.
+				const selectedAgent = task.agent ?? { agentId: task.taskId, purpose: task.summary };
+				const researcher = this.workflowMode === "dynamic" && this.agentFactory !== undefined
+					? await this.agentFactory(selectedAgent, context)
+					: task.agent === undefined || this.agentFactory === undefined
+						? this.researcher
+						: await this.agentFactory(task.agent, context);
 				const result = await withProofToolScope({ role: "worker", logicalTaskId: task.taskId }, () => researcher.research(context, signal));
 				await writeJson(join(stepDirectory, `worker_${slugify(task.taskId)}_result.json`), result);
 				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });

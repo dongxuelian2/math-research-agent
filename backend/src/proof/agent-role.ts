@@ -112,6 +112,7 @@ class AgentProofResearcher implements ProofResearcher {
 				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content, assumptions?:string[], dependencyClaims?:string[], reliedOnArtifactIds?:string[]}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
 				"For research contributions return candidate.contribution={kind,statement,relationshipToTarget,claimId?,assumptions,dependencyClaims,childClaims?,coverageScope?,coverageAssertion?,closedCaseClaimId?,closureReason?,targetScope?,counterexampleScope?}. Reductions require >=1 unique non-self child; case splits require >=2 plus explicit scope/exhaustiveness; counterexamples require target and witness scopes. Do not label a lemma or local case as the target.",
 				"A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
+				context.task.scope === "TARGET" ? "This task is TARGET-scoped: return a complete proof of the exact theorem, mark candidate.scope as TARGET, and omit candidate.contribution unless you can use one of the declared contribution kinds exactly." : "This task is CONTRIBUTION-scoped: do not claim that a lemma or local observation proves the whole target.",
 				context.task.agent === undefined ? "Logical agent: the default mathematical worker." : `Logical agent: ${context.task.agent.agentId}\nPurpose: ${context.task.agent.purpose}${context.task.agent.capabilities === undefined ? "" : `\nCapabilities: ${context.task.agent.capabilities.join(", ")}`}`,
 				context.task.successCriteria === undefined ? "" : `Success criteria:\n${context.task.successCriteria}`,
 				context.task.continuationOf === undefined ? "" : `This is a continuation of partial task ${context.task.continuationOf}. Preserve valid work and complete the missing portion; do not restart without explaining why.`,
@@ -151,6 +152,7 @@ class AgentProofVerifier implements ProofVerifier {
 		const result = await this.agent.prompt(
 			[
 				"You are an independent verifier. You see the original task and the candidate output, not the researcher's hidden reasoning.",
+				"The runtime has already parsed the worker's response envelope. Treat candidate.content below as the proof body; do not reject a mathematically complete candidate merely because the worker did not include JSON/TOML wrapper syntax.",
 				"Check the mathematical argument, every non-trivial inference, edge cases, and whether the requested task was actually completed.",
 				"Do not repair the candidate silently. Explain the first decisive gap and end with exactly one verdict marker:",
 				"VERDICT: CORRECT | VERDICT: CRITICALLY FLAWED - reason | VERDICT: NEEDS MINOR FIXES - reason | VERDICT: UNFINISHED - reason",
@@ -245,7 +247,7 @@ function parseResearchResult(text: string, taskId: string): ResearchResult {
 				...(candidate.scope === "TARGET" || candidate.scope === "CONTRIBUTION" ? { scope: candidate.scope } : {}),
 				...(Array.isArray(candidate.assumptions) ? { assumptions: candidate.assumptions.filter((item): item is string => typeof item === "string") } : {}),
 				...(Array.isArray(candidate.dependencyClaims) ? { dependencyClaims: candidate.dependencyClaims.filter((item): item is string => typeof item === "string") } : {}),
-				...(isRecord(candidate.contribution) ? { contribution: parseContribution(candidate.contribution) } : {}),
+				...(isRecord(candidate.contribution) ? optionalContribution(candidate.contribution) : {}),
 			},
 		};
 	}
@@ -378,9 +380,9 @@ function parseTask(value: unknown): ProofTaskInput {
 		summary,
 		description,
 		...(typeof value.routeKey === "string" ? { routeKey: value.routeKey } : {}),
-		...(value.scope === "TARGET" || value.scope === "CONTRIBUTION" ? { scope: value.scope } : {}),
+		...(scopeOf(value.scope) === undefined ? {} : { scope: scopeOf(value.scope) }),
 		...(typeof value.targetClaimId === "string" ? { targetClaimId: value.targetClaimId } : typeof value.target_claim_id === "string" ? { targetClaimId: value.target_claim_id } : {}),
-		...(isContributionKind(contributionKind) ? { contributionKind } : {}),
+		...(normalizeContributionKind(contributionKind) === undefined ? {} : { contributionKind: normalizeContributionKind(contributionKind) }),
 		...(dependsOn === undefined ? {} : { dependsOn }),
 		...(agent === undefined ? {} : { agent }),
 		...(typeof successCriteria === "string" ? { successCriteria } : {}),
@@ -425,14 +427,38 @@ function parseWorkflowSpec(value: unknown): import("./types.js").ProofWorkflowSp
 }
 
 function parseContribution(value: Record<string, unknown>): import("./types.js").ProofContributionDraft {
-	if (!isContributionKind(value.kind) || typeof value.statement !== "string" || typeof value.relationshipToTarget !== "string") throw new ProofProtocolError("candidate.contribution requires kind, statement, and relationshipToTarget");
+	const kind = normalizeContributionKind(value.kind);
+	if (kind === undefined || typeof value.statement !== "string" || typeof value.relationshipToTarget !== "string") throw new ProofProtocolError("candidate.contribution requires kind, statement, and relationshipToTarget");
 	const children = Array.isArray(value.childClaims) ? value.childClaims.filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.claimId === "string" && typeof item.statement === "string").map((item) => ({ claimId: item.claimId as string, statement: item.statement as string })) : undefined;
-	const draft: import("./types.js").ProofContributionDraft = { kind: value.kind, statement: value.statement, relationshipToTarget: value.relationshipToTarget, ...(typeof value.claimId === "string" ? { claimId: value.claimId } : {}), assumptions: Array.isArray(value.assumptions) ? value.assumptions.filter((item): item is string => typeof item === "string") : [], dependencyClaims: Array.isArray(value.dependencyClaims) ? value.dependencyClaims.filter((item): item is string => typeof item === "string") : [], ...(children === undefined ? {} : { childClaims: children }), ...(typeof value.coverageScope === "string" ? { coverageScope: value.coverageScope } : {}), ...(typeof value.coverageAssertion === "string" ? { coverageAssertion: value.coverageAssertion } : {}), ...(typeof value.closedCaseClaimId === "string" ? { closedCaseClaimId: value.closedCaseClaimId } : {}), ...(typeof value.closureReason === "string" ? { closureReason: value.closureReason } : {}), ...(typeof value.targetScope === "string" ? { targetScope: value.targetScope } : {}), ...(typeof value.counterexampleScope === "string" ? { counterexampleScope: value.counterexampleScope } : {}) };
+	const draft: import("./types.js").ProofContributionDraft = { kind, statement: value.statement, relationshipToTarget: value.relationshipToTarget, ...(typeof value.claimId === "string" ? { claimId: value.claimId } : {}), assumptions: Array.isArray(value.assumptions) ? value.assumptions.filter((item): item is string => typeof item === "string") : [], dependencyClaims: Array.isArray(value.dependencyClaims) ? value.dependencyClaims.filter((item): item is string => typeof item === "string") : [], ...(children === undefined ? {} : { childClaims: children }), ...(typeof value.coverageScope === "string" ? { coverageScope: value.coverageScope } : {}), ...(typeof value.coverageAssertion === "string" ? { coverageAssertion: value.coverageAssertion } : {}), ...(typeof value.closedCaseClaimId === "string" ? { closedCaseClaimId: value.closedCaseClaimId } : {}), ...(typeof value.closureReason === "string" ? { closureReason: value.closureReason } : {}), ...(typeof value.targetScope === "string" ? { targetScope: value.targetScope } : {}), ...(typeof value.counterexampleScope === "string" ? { counterexampleScope: value.counterexampleScope } : {}) };
 	try { assertContributionInvariants({ ...draft, assumptions: draft.assumptions ?? [], dependencyClaims: draft.dependencyClaims ?? [] }); } catch (error) { throw new ProofProtocolError(String(error)); }
 	return draft;
 }
 
-function isContributionKind(value: unknown): value is import("./types.js").ProofContributionKind { return value === "LEMMA" || value === "REDUCTION" || value === "CASE_SPLIT" || value === "CASE_CLOSURE" || value === "COUNTEREXAMPLE" || value === "CONSTRUCTION" || value === "BOUND" || value === "OBSTRUCTION" || value === "STRUCTURAL_OBSERVATION" || value === "LITERATURE_APPLICATION"; }
+function optionalContribution(value: Record<string, unknown>): { readonly contribution?: import("./types.js").ProofContributionDraft } {
+	try {
+		return { contribution: parseContribution(value) };
+	} catch {
+		// Contribution metadata is optional decoration on a candidate. Preserve a
+		// complete target proof while refusing to promote an unknown/malformed
+		// contribution into the research graph.
+		return {};
+	}
+}
+
+function normalizeContributionKind(value: unknown): import("./types.js").ProofContributionKind | undefined {
+	if (typeof value !== "string") return undefined;
+	const normalized = value.trim().toUpperCase().replace(/[\s-]+/gu, "_");
+	return normalized === "LEMMA" || normalized === "REDUCTION" || normalized === "CASE_SPLIT" || normalized === "CASE_CLOSURE" || normalized === "COUNTEREXAMPLE" || normalized === "CONSTRUCTION" || normalized === "BOUND" || normalized === "OBSTRUCTION" || normalized === "STRUCTURAL_OBSERVATION" || normalized === "LITERATURE_APPLICATION"
+		? normalized
+		: undefined;
+}
+
+function scopeOf(value: unknown): "TARGET" | "CONTRIBUTION" | undefined {
+	if (typeof value !== "string") return undefined;
+	const normalized = value.trim().toUpperCase();
+	return normalized === "TARGET" || normalized === "CONTRIBUTION" ? normalized : undefined;
+}
 
 function parseItem(value: unknown): {
 	readonly slug: string;
@@ -563,8 +589,9 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 		? "none"
 		: context.failedRoutes.map((failure) => `- ${failure.routeFingerprint.slice(0, 12)}: ${failure.reason}`).join("\n");
 	const coordination = context.workflowMode === "dynamic"
-		? "You are the workflow controller. Decide the decomposition for this round yourself: solve directly when appropriate, or spawn any number of logical agents with focused tasks. Use stable task ids, explicit dependsOn edges, successCriteria, and continuationOf when a previous task is partial. The runtime executes only the ready frontier and will return pending/partial tasks in the next round. Do not assume a fixed number or fixed set of agent roles. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\"}]}; do not use a singular task field."
+		? "You are the workflow controller. Decide the decomposition for this round yourself: solve directly when appropriate by spawning one focused worker, or spawn multiple logical agents only when that materially helps. Use stable task ids, explicit dependsOn edges, successCriteria, and continuationOf when a previous task is partial. The runtime executes only the ready frontier and will return pending/partial tasks in the next round. Do not assume a fixed number or fixed set of agent roles. A worker task must return one complete proof or a clearly delimited contribution; do not use write_items as a substitute for a candidate. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\",\"successCriteria\":\"exact completion condition\"}]}; do not use a singular task field."
 		: "Delegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy.";
+	const targetGate = targetGateInstruction(context.tacticalDirective);
 	return [
 		"# WHITEBOARD\n\n" + (context.whiteboard || "(empty — initialize Goal / Plan / Failed / Backlog / Status)"),
 		"# THEOREM\n\n" + context.obligation.theorem,
@@ -574,8 +601,9 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 		"# REPOSITORY\n\n" + (repository || "(empty)"),
 		"# FAILED ROUTES\n\n" + failures,
 		context.tacticalDirective === undefined ? "" : "# TACTICAL DIRECTIVE\n\n" + JSON.stringify(context.tacticalDirective, null, 2),
+		targetGate,
 		"# RECENT WORKER / VERIFIER OUTPUT\n\n" + (history || "(none)"),
-		`# COORDINATION RULES\n\n${coordination} Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. Return one or more actions in JSON or OpenProver TOML format. In JSON, an optional top-level workflow object may describe strategy, rationale, and successCriteria.`,
+		`# COORDINATION RULES\n\n${coordination} Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. When a task is PARTIAL or FAILED_RETRYABLE, create a new task id and set continuationOf to the old task id; preserve the old output instead of silently discarding it. Use these JSON shapes: {\"action\":\"write_items\",\"items\":[{\"slug\":\"notes/name\",\"content\":\"...\",\"format\":\"text\"}]}, {\"action\":\"submit_proof\",\"candidateId\":\"<taskId>-candidate\"}. Return one or more actions in JSON or OpenProver TOML format. In JSON, an optional top-level workflow object may describe strategy, rationale, and successCriteria.`,
 	].filter((part) => part.length > 0).join("\n\n---\n\n");
 }
 
@@ -590,6 +618,13 @@ function plannerSystemPrompt(mode: string, workflowMode: "dynamic" | "legacy"): 
 			: "Keep task descriptions self-contained. Workers only receive the theorem, task, and explicitly referenced repository material. Never silently repair a verifier rejection; create a new route and record the failure.",
 		mode === "prove" ? "Goal: accept a verified informal proof." : mode === "formalize_only" ? "Goal: accept only a formally checked Lean proof." : "Goal: accept both a verified informal proof and a formally checked Lean proof.",
 	].join("\n\n");
+}
+
+function targetGateInstruction(directive: Readonly<Record<string, unknown>> | undefined): string {
+	const targetObligationId = typeof directive?.targetObligationId === "string" ? directive.targetObligationId : undefined;
+	const targetClaimId = typeof directive?.targetClaimId === "string" ? directive.targetClaimId : undefined;
+	if (targetObligationId === undefined || targetClaimId === undefined) return "";
+	return `# EXACT TARGET GATE\n\nThis run has an exact research-target gate. To prove the target, spawn a task with scope=\"TARGET\" and targetClaimId=\"${targetClaimId}\"; its worker must return the complete target proof. Use scope=\"CONTRIBUTION\" only for a lemma, reduction, case, or observation that does not itself close the target. After a TARGET candidate receives VERDICT: CORRECT, submit it with {\"action\":\"submit_target_proof\",\"candidateId\":\"<taskId>-candidate\",\"targetObligationId\":\"${targetObligationId}\",\"targetClaimId\":\"${targetClaimId}\"}. Do not submit a local lemma as the target.`;
 }
 
 function formatPlannerRetry(original: string, raw: string, error: string, attempt: number): string {

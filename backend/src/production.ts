@@ -63,7 +63,10 @@ async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directo
 		model,
 		provider,
 		...(tools === undefined ? {} : { tools }),
-		maxTurns: profile.maxTurns ?? config.proof.maxSteps,
+		// proof.max_steps bounds controller rounds, not the number of model/tool
+		// turns inside one logical agent. Keep the agent default aligned with the
+		// AgentCore default unless a role explicitly configures max_turns.
+		maxTurns: profile.maxTurns ?? 32,
 	});
 	return profile.timeoutSeconds === undefined ? agent : timeoutAgent(agent, profile.timeoutSeconds);
 }

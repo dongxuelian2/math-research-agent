@@ -52,7 +52,7 @@ model = "gemini-3.7-flash"
 service_account_file_env = "GOOGLE_APPLICATION_CREDENTIALS"
 reasoning_effort = "high"
 context_window = 1048576
-max_tokens = 8192
+max_tokens = 16384
 
 [roles.planner]
 model = "gemini37"

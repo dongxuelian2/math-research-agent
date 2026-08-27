@@ -134,7 +134,7 @@ test("dynamic workflow executes a ready frontier and lets the controller continu
 		verifier,
 		agentFactory: async (spec) => {
 			factoryAgents.push(`${spec.agentId}:${spec.purpose}`);
-			return synthesisResearcher;
+			return spec.agentId === "synthesizer" ? synthesisResearcher : researcher;
 		},
 		maxSteps: 3,
 		maxWorkers: 2,
@@ -143,7 +143,7 @@ test("dynamic workflow executes a ready frontier and lets the controller continu
 
 	assert.equal(result.status, "PROVED");
 	assert.equal(plannerCalls, 3);
-	assert.deepEqual(factoryAgents, ["synthesizer:Assemble the final argument"]);
+	assert.deepEqual(factoryAgents, ["foundation:Derive foundation", "synthesizer:Assemble the final argument"]);
 	assert.equal(runtime.state.tasks.find((item) => item.taskId === "foundation")?.status, "COMPLETED");
 	assert.equal(runtime.state.tasks.find((item) => item.taskId === "synthesis")?.status, "COMPLETED");
 	assert.equal(runtime.state.executionPlans[0]?.plan.workflow?.strategy, "derive a local fact, then synthesize the target");
@@ -189,4 +189,35 @@ test("planner parser accepts a single JSON action emitted without the actions wr
 	const plan = parsePlannerPlan(`{"action":"spawn","tasks":[{"taskId":"direct","description":"derive the local identity"}]}`);
 	assert.equal(plan.actions.length, 1);
 	assert.equal(plan.actions[0]?.action, "spawn");
+});
+
+test("planner parser normalizes model-friendly lowercase contribution kinds and scopes", () => {
+	const plan = parsePlannerPlan(`{"actions":[{"action":"spawn","tasks":[{"taskId":"target","summary":"close target","description":"prove target","scope":"target","targetClaimId":"claim","contributionKind":"lemma"}]}]}`);
+	const action = plan.actions[0];
+	assert.equal(action?.action, "spawn");
+	if (action?.action === "spawn") {
+		assert.equal(action.tasks[0]?.scope, "TARGET");
+		assert.equal(action.tasks[0]?.contributionKind, "LEMMA");
+	}
+});
+
+test("unknown optional contribution metadata does not discard a complete target candidate", async () => {
+	const researcher = createAgentProofResearcher(fakeAgent(assistantResult(JSON.stringify({
+		kind: "candidate",
+		candidate: {
+			content: "The additive identity axiom gives n + 0 = n for every integer n.",
+			scope: "TARGET",
+			contribution: { kind: "THEORETICAL_RESULT", statement: "n + 0 = n", relationshipToTarget: "target" },
+		},
+	}))));
+	const result = await researcher.research({
+		runId: "run",
+		step: 1,
+		obligation: { obligationId: "o", theorem: "For every integer n, n + 0 = n." },
+		whiteboard: "",
+		task: task("target", "close target", { scope: "TARGET" }),
+		referencedMaterials: "",
+	});
+	assert.equal(result.kind, "candidate");
+	if (result.kind === "candidate") assert.equal(result.candidate.contribution, undefined);
 });
