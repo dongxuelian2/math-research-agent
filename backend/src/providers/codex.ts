@@ -1,4 +1,9 @@
 import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { JsonObject } from "../models/json.js";
+import type { ReasoningEffort } from "./types.js";
 import { asRecord, asString, parseJson } from "./parse.js";
 import {
 	errorMessage,
@@ -11,6 +16,8 @@ export interface CodexCliRequest {
 	readonly model: string;
 	readonly prompt: string;
 	readonly signal?: AbortSignal;
+	readonly responseSchema?: JsonObject;
+	readonly reasoningEffort?: ReasoningEffort;
 }
 
 export interface CodexCliRunner {
@@ -19,6 +26,7 @@ export interface CodexCliRunner {
 
 export interface CodexCliProviderOptions {
 	readonly command?: string;
+	readonly commandArgs?: readonly string[];
 	readonly runner?: CodexCliRunner;
 }
 
@@ -27,7 +35,7 @@ export class CodexCliProvider implements ModelProvider {
 	private readonly runner: CodexCliRunner;
 
 	constructor(options: CodexCliProviderOptions = {}) {
-		this.runner = options.runner ?? new NodeCodexCliRunner(options.command ?? "codex");
+		this.runner = options.runner ?? new NodeCodexCliRunner(options.command ?? "codex", options.commandArgs ?? []);
 	}
 
 	async *stream(request: ProviderRequest): AsyncIterable<ModelStreamEvent> {
@@ -37,6 +45,8 @@ export class CodexCliProvider implements ModelProvider {
 				model: request.model.model,
 				prompt: renderPrompt(request),
 				signal: request.signal,
+				...(request.responseSchema === undefined ? {} : { responseSchema: request.responseSchema }),
+				...(request.model.reasoningEffort === undefined ? {} : { reasoningEffort: request.model.reasoningEffort }),
 			})) {
 				const payload = parseJson(line);
 				if (payload === undefined) {
@@ -89,18 +99,27 @@ export class CodexCliProvider implements ModelProvider {
 
 class NodeCodexCliRunner implements CodexCliRunner {
 	private readonly command: string;
+	private readonly commandArgs: readonly string[];
 
-	constructor(command: string) {
+	constructor(command: string, commandArgs: readonly string[]) {
 		this.command = command;
+		this.commandArgs = commandArgs;
 	}
 
 	async *run(request: CodexCliRequest): AsyncIterable<string> {
-		const child = spawn(this.command, ["exec", "--json", "--model", request.model, request.prompt], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
+		const schemaDirectory = request.responseSchema === undefined ? undefined : await mkdtemp(join(tmpdir(), "mrr-codex-schema-"));
+		const schemaPath = schemaDirectory === undefined ? undefined : join(schemaDirectory, "response-schema.json");
+		if (schemaPath !== undefined) await writeFile(schemaPath, `${JSON.stringify(request.responseSchema)}\n`, "utf8");
+		const args = [...this.commandArgs, ...codexCliArguments(request.model, schemaPath, request.reasoningEffort)];
+		const child = spawn(this.command, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
 		if (child.stdout === null) {
 			throw new Error("Codex CLI did not expose stdout");
 		}
+		if (child.stdin === null) throw new Error("Codex CLI did not expose stdin");
+		// A process that exits before consuming input reports EPIPE/EOF here; the
+		// authoritative failure is still its captured exit status/stderr below.
+		child.stdin.on("error", () => undefined);
+		child.stdin.end(request.prompt, "utf8");
 
 		let stderr = "";
 		child.stderr?.on("data", (chunk: Buffer) => {
@@ -133,8 +152,13 @@ class NodeCodexCliRunner implements CodexCliRunner {
 			}
 		} finally {
 			request.signal?.removeEventListener("abort", abort);
+			if (schemaDirectory !== undefined) await rm(schemaDirectory, { recursive: true, force: true });
 		}
 	}
+}
+
+export function codexCliArguments(model: string, schemaPath?: string, reasoningEffort?: ReasoningEffort): readonly string[] {
+	return ["exec", "--json", "--model", model, ...(reasoningEffort === undefined ? [] : ["-c", `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`]), ...(schemaPath === undefined ? [] : ["--output-schema", schemaPath]), "-"];
 }
 
 function renderPrompt(request: ProviderRequest): string {

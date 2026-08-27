@@ -1,10 +1,13 @@
 import type { Agent } from "../agent/types.js";
 import type { AgentRunResult, AssistantMessage } from "../models/index.js";
+import { createUserMessage } from "../models/messages.js";
+import type { JsonObject } from "../models/json.js";
 import type { FinalAuditor, SynthesisAgent, SynthesisManifest } from "./closure.js";
 import type { CorpusBootstrapper, SemanticFileAnalysis } from "./corpus.js";
 import type { DirectorProjectSnapshot, DirectorProposal, ModelResearchDirector } from "./runtime.js";
 import type { BootstrapDependencyProposal, BootstrapProposal, TrustReceipt } from "./types.js";
 import type { LiteratureCandidate } from "./literature.js";
+import { BOOTSTRAP_ANALYSIS_SCHEMA, BOOTSTRAP_REVIEW_SCHEMA, BootstrapSchemaValidationError, BootstrapStructuredOutputParseError, bootstrapSchemaInstructions, parseBootstrapAnalysisText } from "./bootstrap-schema.js";
 
 export class ResearchRoleProtocolError extends Error {
 	readonly kind = "protocol" as const;
@@ -41,24 +44,22 @@ export class AgentCorpusBootstrapper implements CorpusBootstrapper {
 	constructor(private readonly agentFactory: (artifactId: string) => Promise<Agent>) {}
 	async analyzeFile(request: Parameters<CorpusBootstrapper["analyzeFile"]>[0]): Promise<SemanticFileAnalysis> {
 		const agent = await this.agentFactory(request.record.artifactId);
+		let modelRun: AgentRunResult | undefined;
 		const text = await prompt(agent, [
 			"You are the semantic corpus bootstrapper. Analyze only this bounded source. Historical prose is not automatically current truth.",
-			"Return JSON: {proposals:[{entityKey,kind,statement,dependencyHints,targetHint?,routeFamily?,mechanism?,failureMechanism?,cases?}],dependencies:[{fromEntity,toEntity,confidence}],warnings?:[]}.",
+			bootstrapSchemaInstructions(),
 			"Kinds: DEFINITION, CLAIM, OPEN_PROBLEM, FAILED_ROUTE, REDUCTION, CASE_SPLIT, COMPUTATIONAL_EVIDENCE. A failed strategy must be FAILED_ROUTE, never a claim to prove.",
+			"Dependency direction is fromEntity (the proposal that relies on something) -> toEntity (the relied-on proposal). confidence is the EXPLICIT|INFERRED provenance enum; a numeric score, if useful, belongs only in confidenceScore.",
 			`Source metadata: ${JSON.stringify(request.record)}`,
 			`Exact bounded line range: ${request.range.startLine}-${request.range.endLine}`,
 			`Exact source body:\n${request.body}`,
-		].join("\n\n"), "corpus_bootstrapper");
-		const value = json(text);
-		if (!Array.isArray(value.proposals) || !Array.isArray(value.dependencies)) throw new ResearchRoleProtocolError("CorpusBootstrapAnalysis requires proposals and dependencies arrays");
-		return {
-			proposals: value.proposals.map(parseBootstrapProposal), dependencies: value.dependencies.map(parseDependency),
-			...(Array.isArray(value.warnings) ? { warnings: value.warnings.filter((item): item is string => typeof item === "string") } : {}),
-		};
+		].join("\n\n"), "corpus_bootstrapper", BOOTSTRAP_ANALYSIS_SCHEMA, (result) => { modelRun = result; });
+		const assistant = [...(modelRun?.messages ?? [])].reverse().find((message): message is AssistantMessage => message.role === "assistant"), metadata = { sessionId: modelRun?.runId ?? "unknown", ...(assistant?.provider === undefined ? {} : { provider: assistant.provider }), ...(assistant?.model === undefined ? {} : { model: assistant.model }) };
+		try { return { ...parseBootstrapAnalysisText(text), modelMetadata: { ...metadata, rawResponse: text } }; } catch (error) { if (error instanceof BootstrapSchemaValidationError || error instanceof BootstrapStructuredOutputParseError) error.attachModelMetadata(metadata); throw error; }
 	}
 	async review(request: Parameters<NonNullable<CorpusBootstrapper["review"]>>[0]): Promise<{ readonly frontierEntityKeys?: readonly string[]; readonly warnings?: readonly string[] }> {
 		const agent = await this.agentFactory("consistency-review");
-		const text = await prompt(agent, `Review this merged bootstrap map for identity conflicts, dependency direction, failed-route classification, and current frontier. Return JSON {frontierEntityKeys:string[],warnings:string[]}\n\n${JSON.stringify(request, null, 2)}`, "corpus_bootstrapper");
+		const text = await prompt(agent, `Review this merged bootstrap map for identity conflicts, dependency direction, failed-route classification, and current frontier. ${bootstrapSchemaInstructions(BOOTSTRAP_REVIEW_SCHEMA)}\n\n${JSON.stringify(request, null, 2)}`, "corpus_bootstrapper", BOOTSTRAP_REVIEW_SCHEMA);
 		const value = json(text);
 		if (!Array.isArray(value.frontierEntityKeys) || !Array.isArray(value.warnings)) throw new ResearchRoleProtocolError("Bootstrap review schema invalid");
 		return { frontierEntityKeys: value.frontierEntityKeys.filter((item): item is string => typeof item === "string"), warnings: value.warnings.filter((item): item is string => typeof item === "string") };
@@ -120,22 +121,9 @@ export class AgentFormalizerRole {
 	}
 }
 
-function parseBootstrapProposal(value: unknown): Omit<BootstrapProposal, "source" | "authority"> {
-	if (!record(value) || typeof value.entityKey !== "string" || !bootstrapKind(value.kind) || typeof value.statement !== "string" || !Array.isArray(value.dependencyHints)) throw new ResearchRoleProtocolError("Invalid bootstrap proposal");
-	return {
-		entityKey: value.entityKey, kind: value.kind, statement: value.statement,
-		dependencyHints: value.dependencyHints.filter((item): item is string => typeof item === "string"),
-		...optionalStringField(value, "targetHint"), ...optionalStringField(value, "routeFamily"),
-		...optionalStringField(value, "mechanism"), ...optionalStringField(value, "failureMechanism"),
-		...(Array.isArray(value.cases) ? { cases: value.cases.filter((item): item is string => typeof item === "string") } : {}),
-	};
-}
-function parseDependency(value: unknown): BootstrapDependencyProposal {
-	if (!record(value) || typeof value.fromEntity !== "string" || typeof value.toEntity !== "string" || (value.confidence !== "EXPLICIT" && value.confidence !== "INFERRED")) throw new ResearchRoleProtocolError("Invalid bootstrap dependency");
-	return { fromEntity: value.fromEntity, toEntity: value.toEntity, confidence: value.confidence };
-}
-async function prompt(agent: Agent, input: string, role: string): Promise<string> {
-	const result = await agent.prompt(input);
+async function prompt(agent: Agent, input: string, role: string, responseSchema?: JsonObject, capture?: (result: AgentRunResult) => void): Promise<string> {
+	const result = await agent.prompt(responseSchema === undefined ? input : createUserMessage(input, responseSchema));
+	capture?.(result);
 	if (result.error !== undefined || result.stopReason === "model_error" || result.stopReason === "session_error") throw new ResearchRoleProviderError(`${role} provider failed: ${result.error?.message ?? result.stopReason}`);
 	return assistantText(result).trim();
 }
@@ -150,5 +138,4 @@ function json(text: string): Record<string, unknown> {
 }
 function optionalStringField<K extends string>(value: Record<string, unknown>, key: K): Partial<Record<K, string>> { return typeof value[key] === "string" ? { [key]: value[key] } as Partial<Record<K, string>> : {}; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-function bootstrapKind(value: unknown): value is BootstrapProposal["kind"] { return value === "DEFINITION" || value === "CLAIM" || value === "OPEN_PROBLEM" || value === "FAILED_ROUTE" || value === "REDUCTION" || value === "CASE_SPLIT" || value === "COMPUTATIONAL_EVIDENCE"; }
 function isVerdict(value: unknown): value is TrustReceipt["verdict"] { return value === "CORRECT" || value === "MINOR_FIX" || value === "UNFINISHED" || value === "CRITICALLY_FLAWED" || value === "INCORRECT" || value === "INCONCLUSIVE"; }

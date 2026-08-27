@@ -62,6 +62,9 @@ export class OpenAICompatibleProvider implements ModelProvider {
 			if (request.model.reasoningEffort !== undefined) {
 				body.reasoning_effort = request.model.reasoningEffort;
 			}
+			if (request.responseSchema !== undefined) {
+				body.response_format = { type: "json_schema", json_schema: { name: "mrr_structured_response", strict: true, schema: request.responseSchema } };
+			}
 
 			const transportRequest: TransportRequest = {
 				url: `${(request.model.baseUrl ?? this.defaultBaseUrl).replace(/\/$/, "")}/chat/completions`,

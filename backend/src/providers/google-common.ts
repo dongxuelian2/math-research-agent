@@ -20,9 +20,10 @@ export function googleRequestBody(request: ProviderRequest): Record<string, unkn
 	}
 
 	const configuredGeneration = asRecord(request.model.requestParameters?.generationConfig);
-	if (request.model.maxTokens !== undefined || request.model.reasoningEffort !== undefined) {
+	if (request.model.maxTokens !== undefined || request.model.reasoningEffort !== undefined || request.responseSchema !== undefined) {
 		body.generationConfig = {
 			...configuredGeneration,
+			...(request.responseSchema === undefined ? {} : { responseMimeType: "application/json", responseJsonSchema: request.responseSchema }),
 			...(request.model.maxTokens === undefined ? {} : { maxOutputTokens: request.model.maxTokens }),
 			...(request.model.reasoningEffort === undefined
 				? {}
