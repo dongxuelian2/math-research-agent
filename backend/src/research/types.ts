@@ -97,6 +97,7 @@ export interface Attempt {
 	readonly attemptId: string; readonly logicalJobId: string; readonly ordinal: number; readonly scratchPath: string;
 	readonly status: "RUNNING" | "COMPLETED" | "INTERRUPTED" | "FAILED"; readonly artifactRefs: readonly ArtifactRef[];
 	readonly startedAt: string; readonly completedAt?: string;
+	readonly executorInstanceId?: string; readonly processInstanceId?: number; readonly acquiredAt?: string; readonly heartbeatAt?: string;
 }
 
 export type ExecutionTaskKind = "PLANNER" | "WORKER" | "VERIFIER" | "MERGE" | "TARGET_SUBMISSION" | "RESULT_CONVERSION";
@@ -105,6 +106,7 @@ export interface ExecutionTask {
 	readonly executionTaskId: string; readonly logicalJobId: string; readonly attemptId: string; readonly kind: ExecutionTaskKind;
 	readonly logicalTaskId: string; readonly status: ExecutionTaskStatus; readonly inputHash: string; readonly resultArtifact?: ArtifactRef;
 	readonly errorKind?: ResearchFailureKind; readonly error?: string; readonly startedAt: string; readonly completedAt?: string;
+	readonly executorInstanceId?: string; readonly processInstanceId?: number; readonly acquiredAt?: string; readonly heartbeatAt?: string;
 }
 
 export interface AcceptedEffect {
@@ -289,13 +291,14 @@ export interface ResearchProjectState {
 	readonly trustReceipts: Readonly<Record<string, TrustReceipt>>; readonly toolEvidenceReceipts: Readonly<Record<string, ToolEvidenceReceipt>>;
 	readonly contextManifests: Readonly<Record<string, ContextManifest>>; readonly decisions: readonly DecisionBasis[];
 	readonly events: readonly ResearchEvent[]; readonly checkpoints: readonly ResearchCheckpoint[]; readonly bootstrapReports: readonly BootstrapReport[];
+	readonly bootstrapRuns: Readonly<Record<string, BootstrapRunState>>;
 	readonly cycle: number; readonly cyclesSinceStructuralProgress: number; readonly activeCycleId?: string; readonly budget: ResearchBudgetState;
 	readonly effectiveConfig: Readonly<Record<string, unknown>>; readonly configRevision: string; readonly migrationReports: readonly StateMigrationReport[]; readonly finalProofArtifact?: ArtifactRef;
 	readonly finalProofHistory: readonly FinalProofAuthority[]; readonly currentFinalProofAuthority?: FinalProofAuthority;
 	readonly formalizationStatus?: "NOT_REQUESTED" | "PENDING" | "VERIFIED" | "BLOCKED_FORMAL" | "FAILED"; readonly lastError?: string;
 }
 
-export interface BootstrapDependencyProposal { readonly fromEntity: string; readonly toEntity: string; readonly confidence: "EXPLICIT" | "INFERRED"; }
+export interface BootstrapDependencyProposal { readonly fromEntity: string; readonly toEntity: string; readonly confidence: "EXPLICIT" | "INFERRED"; readonly confidenceScore?: number; }
 export interface BootstrapProposal {
 	readonly entityKey: string; readonly source: ArtifactRef;
 	readonly kind: "DEFINITION" | "CLAIM" | "OPEN_PROBLEM" | "FAILED_ROUTE" | "REDUCTION" | "CASE_SPLIT" | "COMPUTATIONAL_EVIDENCE";
@@ -304,6 +307,7 @@ export interface BootstrapProposal {
 	readonly sourceRange?: { readonly startLine: number; readonly endLine: number };
 }
 export interface BootstrapReport {
+	readonly bootstrapRunId?: string;
 	readonly projectId: string; readonly stages: readonly string[]; readonly inspectedArtifactIds: readonly string[];
 	readonly proposals: readonly BootstrapProposal[]; readonly dependencies: readonly BootstrapDependencyProposal[];
 	readonly createdClaimIds: readonly string[]; readonly createdObligationIds: readonly string[]; readonly createdRouteIds: readonly string[];
@@ -312,4 +316,34 @@ export interface BootstrapReport {
 	readonly reconstructedReductions: readonly { readonly parentClaimId: string; readonly childClaimIds: readonly string[]; readonly provisional: true }[];
 	readonly reconstructedCoverage: readonly { readonly parentClaimId: string; readonly childClaimIds: readonly string[]; readonly coverageId: string; readonly provisional: true }[];
 	readonly createdAt: string;
+}
+
+export type BootstrapFailureType =
+	| "STRUCTURED_OUTPUT_PARSE_FAILURE" | "SCHEMA_VALIDATION_FAILURE" | "EMPTY_RESPONSE" | "NO_ENTITY_RESPONSE"
+	| "PROVIDER_FAILURE" | "TIMEOUT" | "CONTEXT_LIMIT" | "SEMANTIC_REJECTION" | "CONSISTENCY_REVIEW_FAILURE"
+	| "TRANSPORT_FAILURE" | "OTHER";
+
+export interface BootstrapRangeFailure {
+	readonly type: BootstrapFailureType; readonly message: string; readonly fallbackOccurred: boolean;
+}
+
+export interface BootstrapRangeWorkRecord {
+	readonly rangeId: string; readonly sourceArtifactId: string; readonly sourceContentHash: string;
+	readonly startLine: number; readonly endLine: number; readonly status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED_RETRYABLE" | "STALE";
+	readonly executorInstanceId?: string; readonly processInstanceId?: number; readonly acquiredAt?: string; readonly heartbeatAt?: string;
+	readonly modelSessionId?: string; readonly attemptId?: string; readonly provider?: string; readonly model?: string;
+	readonly parsedResult?: { readonly proposals: readonly Omit<BootstrapProposal, "source" | "authority">[]; readonly dependencies: readonly BootstrapDependencyProposal[]; readonly warnings?: readonly string[] };
+	readonly rawResponse?: string; readonly failure?: BootstrapRangeFailure; readonly fallbackResult?: { readonly proposals: readonly Omit<BootstrapProposal, "source" | "authority">[]; readonly dependencies: readonly BootstrapDependencyProposal[]; readonly warnings?: readonly string[] };
+	readonly durationMs?: number; readonly completedAt?: string;
+}
+
+export interface BootstrapRunState {
+	readonly bootstrapRunId: string; readonly projectId: string; readonly configRevision: string; readonly corpusManifestHash: string;
+	readonly schemaVersion: string; readonly modelDirected: boolean; readonly status: "RUNNING" | "COMPLETED" | "STALE";
+	readonly currentStage: "PER_FILE_SEMANTIC_ANALYSIS" | "ENTITY_MERGE" | "DEPENDENCY_RECONSTRUCTION" | "ROUTE_RECONSTRUCTION" | "CONSISTENCY_REVIEW" | "PROVISIONAL_IMPORT" | "COMPLETED";
+	readonly rangeWork: Readonly<Record<string, BootstrapRangeWorkRecord>>;
+	readonly mergeStatus: "PENDING" | "COMPLETED"; readonly dependencyReconstructionStatus: "PENDING" | "COMPLETED";
+	readonly routeReconstructionStatus: "PENDING" | "COMPLETED"; readonly consistencyReviewStatus: "PENDING" | "COMPLETED" | "FAILED";
+	readonly provisionalImportStatus: "PENDING" | "COMPLETED"; readonly reportCreatedAt?: string;
+	readonly createdAt: string; readonly updatedAt: string;
 }

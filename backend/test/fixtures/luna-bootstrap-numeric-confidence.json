@@ -1,0 +1,27 @@
+{
+  "source": "LUNAMAX_SHORT_AB_AUDIT corpus-003395a955a35aef37c95eff lines 1-46 (representative exact objects, credentials omitted)",
+  "response": {
+    "proposals": [
+      {
+        "entityKey": "notation.concat",
+        "kind": "DEFINITION",
+        "statement": "concat(u,v,w) denotes ordinary decimal concatenation of u, v, and w without leading zeroes.",
+        "dependencyHints": []
+      },
+      {
+        "entityKey": "notation.concatenated_integers",
+        "kind": "DEFINITION",
+        "statement": "A=concat(a_1,a_2,a_3) and B=concat(b_1,b_2,b_3).",
+        "dependencyHints": ["notation.concat"]
+      }
+    ],
+    "dependencies": [
+      {
+        "fromEntity": "notation.concatenated_integers",
+        "toEntity": "notation.concat",
+        "confidence": 1.0
+      }
+    ],
+    "warnings": []
+  }
+}
