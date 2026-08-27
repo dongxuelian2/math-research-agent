@@ -7,7 +7,7 @@ import type { CorpusBootstrapper, SemanticFileAnalysis } from "./corpus.js";
 import type { DirectorProjectSnapshot, DirectorProposal, ModelResearchDirector } from "./runtime.js";
 import type { BootstrapDependencyProposal, BootstrapProposal, TrustReceipt } from "./types.js";
 import type { LiteratureCandidate } from "./literature.js";
-import { BOOTSTRAP_ANALYSIS_SCHEMA, BOOTSTRAP_REVIEW_SCHEMA, BootstrapSchemaValidationError, BootstrapStructuredOutputParseError, bootstrapSchemaInstructions, parseBootstrapAnalysisText } from "./bootstrap-schema.js";
+import { BOOTSTRAP_ANALYSIS_SCHEMA, BOOTSTRAP_REVIEW_SCHEMA, BOOTSTRAP_SCHEMA_VERSION, BootstrapSchemaValidationError, BootstrapStructuredOutputParseError, bootstrapSchemaInstructions, parseBootstrapAnalysisText } from "./bootstrap-schema.js";
 
 export class ResearchRoleProtocolError extends Error {
 	readonly kind = "protocol" as const;
@@ -47,6 +47,7 @@ export class AgentCorpusBootstrapper implements CorpusBootstrapper {
 		let modelRun: AgentRunResult | undefined;
 		const text = await prompt(agent, [
 			"You are the semantic corpus bootstrapper. Analyze only this bounded source. Historical prose is not automatically current truth.",
+			`Bootstrap protocol version: ${BOOTSTRAP_SCHEMA_VERSION}`,
 			bootstrapSchemaInstructions(),
 			"Kinds: DEFINITION, CLAIM, OPEN_PROBLEM, FAILED_ROUTE, REDUCTION, CASE_SPLIT, COMPUTATIONAL_EVIDENCE. A failed strategy must be FAILED_ROUTE, never a claim to prove.",
 			"Dependency direction is fromEntity (the proposal that relies on something) -> toEntity (the relied-on proposal). confidence is the EXPLICIT|INFERRED provenance enum; a numeric score, if useful, belongs only in confidenceScore.",
