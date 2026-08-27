@@ -6,6 +6,7 @@ import type { JsonValue } from "./models/json.js";
 import { createProvider } from "./providers/registry.js";
 import type { MockResponse } from "./providers/mock.js";
 import type { ModelConfig, ProviderId, ReasoningEffort } from "./providers/types.js";
+import type { CorpusPublishingConfig } from "./research/corpus-archive-types.js";
 
 export const PROOF_ROLES = [
 	"research_director",
@@ -82,7 +83,11 @@ export type MathAgentConfig = {
 		readonly toolCalls: number;
 		readonly wallTimeSeconds: number;
 	};
-	readonly corpus: { readonly enabled: boolean; readonly roots: readonly string[]; readonly importAuthorityPolicy: string };
+	readonly corpus: {
+		readonly enabled: boolean; readonly roots: readonly string[]; readonly importAuthorityPolicy: string;
+		readonly publishingEnabled: boolean; readonly repositoryUrl: string; readonly localCheckout: string; readonly branch: string;
+		readonly autoPush: boolean; readonly indexCommand: readonly string[]; readonly nodePath?: string;
+	};
 	readonly tools: { readonly enabled: boolean; readonly allowedCapabilities: readonly string[]; readonly allowedExecutables: readonly string[]; readonly executionBoundary: "CONTROLLED_COMMAND_RUNNER" };
 };
 
@@ -143,9 +148,14 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 	literature: { enabled: false },
 	research: { maxCycles: 100, checkpointInterval: 1, stallThreshold: 3, structuralProbeBudget: 2, maxActiveObligations: 8 },
 	budgets: { plannerCalls: 1000, workerCalls: 1000, verifierCalls: 1000, secondaryAuditorCalls: 100, literatureSearches: 100, toolCalls: 5000, wallTimeSeconds: 86400 },
-	corpus: { enabled: true, roots: [], importAuthorityPolicy: "PROVISIONAL_IMPORTED" },
+	corpus: { enabled: true, roots: [], importAuthorityPolicy: "PROVISIONAL_IMPORTED", publishingEnabled: false, repositoryUrl: "https://github.com/dongxuelian2/three-term-decimal-concatenation-square-sum.git", localCheckout: "", branch: "main", autoPush: false, indexCommand: ["python", "tools/update-research-index.py"] },
 	tools: { enabled: true, allowedCapabilities: ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], allowedExecutables: ["node", "python", "lean", "lake"], executionBoundary: "CONTROLLED_COMMAND_RUNNER" },
 };
+
+export function corpusPublishingConfigOf(config: MathAgentConfig | undefined): CorpusPublishingConfig {
+	const corpus = config?.corpus;
+	return { enabled: corpus?.publishingEnabled ?? false, repositoryUrl: corpus?.repositoryUrl ?? DEFAULT_CONFIG.corpus.repositoryUrl, localCheckout: corpus?.localCheckout ?? "", branch: corpus?.branch ?? DEFAULT_CONFIG.corpus.branch, autoPush: corpus?.autoPush ?? false, indexCommand: corpus?.indexCommand ?? DEFAULT_CONFIG.corpus.indexCommand, ...(corpus?.nodePath === undefined ? {} : { nodePath: corpus.nodePath }) };
+}
 
 export class ConfigConflictError extends Error {
 	readonly code = "CONFIG_CONFLICT" as const;
@@ -387,6 +397,7 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 	const research = record(value.research) ?? {};
 	const budgets = record(value.budgets) ?? {};
 	const corpus = record(value.corpus) ?? {};
+	const corpusIndexCommand = corpus.index_command ?? corpus.indexCommand;
 	const tools = record(value.tools) ?? {};
 	const modelValues = record(value.models) ?? {};
 	const roleValues = record(value.roles) ?? {};
@@ -434,7 +445,10 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 		budgets: {
 			plannerCalls: boundedInteger(budgets.planner_calls ?? budgets.plannerCalls, DEFAULT_CONFIG.budgets.plannerCalls), workerCalls: boundedInteger(budgets.worker_calls ?? budgets.workerCalls, DEFAULT_CONFIG.budgets.workerCalls), verifierCalls: boundedInteger(budgets.verifier_calls ?? budgets.verifierCalls, DEFAULT_CONFIG.budgets.verifierCalls), secondaryAuditorCalls: boundedInteger(budgets.secondary_auditor_calls ?? budgets.secondaryAuditorCalls, DEFAULT_CONFIG.budgets.secondaryAuditorCalls), literatureSearches: boundedInteger(budgets.literature_searches ?? budgets.literatureSearches, DEFAULT_CONFIG.budgets.literatureSearches), toolCalls: boundedInteger(budgets.tool_calls ?? budgets.toolCalls, DEFAULT_CONFIG.budgets.toolCalls), wallTimeSeconds: boundedInteger(budgets.wall_time_seconds ?? budgets.wallTimeSeconds, DEFAULT_CONFIG.budgets.wallTimeSeconds),
 		},
-		corpus: { enabled: booleanValue(corpus.enabled, DEFAULT_CONFIG.corpus.enabled), roots: Array.isArray(corpus.roots) ? corpus.roots.filter((item): item is string => typeof item === "string") : [], importAuthorityPolicy: configuredImportAuthority(corpus.import_authority_policy ?? corpus.importAuthorityPolicy) },
+		corpus: {
+			enabled: booleanValue(corpus.enabled, DEFAULT_CONFIG.corpus.enabled), roots: Array.isArray(corpus.roots) ? corpus.roots.filter((item): item is string => typeof item === "string") : [], importAuthorityPolicy: configuredImportAuthority(corpus.import_authority_policy ?? corpus.importAuthorityPolicy),
+			publishingEnabled: booleanValue(corpus.publishing_enabled ?? corpus.publishingEnabled, DEFAULT_CONFIG.corpus.publishingEnabled), repositoryUrl: stringValue(corpus.repository_url ?? corpus.repositoryUrl, DEFAULT_CONFIG.corpus.repositoryUrl), localCheckout: stringValue(corpus.local_checkout ?? corpus.localCheckout, DEFAULT_CONFIG.corpus.localCheckout), branch: stringValue(corpus.branch, DEFAULT_CONFIG.corpus.branch), autoPush: booleanValue(corpus.auto_push ?? corpus.autoPush, DEFAULT_CONFIG.corpus.autoPush), indexCommand: Array.isArray(corpusIndexCommand) ? corpusIndexCommand.filter((item): item is string => typeof item === "string") : DEFAULT_CONFIG.corpus.indexCommand, ...(stringValueOrUndefined(corpus.node_path ?? corpus.nodePath) === undefined ? {} : { nodePath: stringValueOrUndefined(corpus.node_path ?? corpus.nodePath) }),
+		},
 		tools: { enabled: booleanValue(tools.enabled, DEFAULT_CONFIG.tools.enabled), allowedCapabilities: configuredCapabilityNames(tools.allowed_capabilities ?? tools.allowedCapabilities), allowedExecutables: configuredExecutableNames(tools.allowed_executables ?? tools.allowedExecutables), executionBoundary: controlledExecutionBoundary(tools.execution_boundary ?? tools.executionBoundary ?? tools.sandbox_policy ?? tools.sandboxPolicy) },
 	};
 }
@@ -476,7 +490,8 @@ export function stringifyMathAgentConfig(config: MathAgentConfig): string {
 	lines.push("", "[literature]", `enabled = ${config.literature.enabled}`);
 	lines.push("", "[research]", `max_cycles = ${config.research.maxCycles}`, `checkpoint_interval = ${config.research.checkpointInterval}`, `stall_threshold = ${config.research.stallThreshold}`, `structural_probe_budget = ${config.research.structuralProbeBudget}`, `max_active_obligations = ${config.research.maxActiveObligations}`);
 	lines.push("", "[budgets]", `planner_calls = ${config.budgets.plannerCalls}`, `worker_calls = ${config.budgets.workerCalls}`, `verifier_calls = ${config.budgets.verifierCalls}`, `secondary_auditor_calls = ${config.budgets.secondaryAuditorCalls}`, `literature_searches = ${config.budgets.literatureSearches}`, `tool_calls = ${config.budgets.toolCalls}`, `wall_time_seconds = ${config.budgets.wallTimeSeconds}`);
-	lines.push("", "[corpus]", `enabled = ${config.corpus.enabled}`, `roots = [${config.corpus.roots.map(quote).join(", ")}]`, `import_authority_policy = ${quote(config.corpus.importAuthorityPolicy)}`);
+	lines.push("", "[corpus]", `enabled = ${config.corpus.enabled}`, `roots = [${config.corpus.roots.map(quote).join(", ")}]`, `import_authority_policy = ${quote(config.corpus.importAuthorityPolicy)}`, `publishing_enabled = ${config.corpus.publishingEnabled}`, `repository_url = ${quote(config.corpus.repositoryUrl)}`, `local_checkout = ${quote(config.corpus.localCheckout)}`, `branch = ${quote(config.corpus.branch)}`, `auto_push = ${config.corpus.autoPush}`, `index_command = [${config.corpus.indexCommand.map(quote).join(", ")}]`);
+	if (config.corpus.nodePath !== undefined) lines.push(`node_path = ${quote(config.corpus.nodePath)}`);
 	lines.push("", "[tools]", `enabled = ${config.tools.enabled}`, `allowed_capabilities = [${config.tools.allowedCapabilities.map(quote).join(", ")}]`, `allowed_executables = [${config.tools.allowedExecutables.map(quote).join(", ")}]`, `execution_boundary = ${quote(config.tools.executionBoundary)}`);
 	for (const [name, model] of Object.entries(config.models)) {
 		lines.push("", `[models.${tomlKey(name)}]`, `provider = ${quote(model.provider)}`, `model = ${quote(model.model)}`);

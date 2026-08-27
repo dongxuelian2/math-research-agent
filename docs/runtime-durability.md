@@ -23,3 +23,26 @@ The filesystem's rename/replace primitive is the commit boundary. A crash after 
 `RUNNING` attempts, tactical tasks, and bootstrap ranges carry executor/process ownership and timestamps. A new runtime instance deterministically reclaims work owned by an absent instance, retains completed work, and makes unfinished work retryable. Same-process hung-executor detection is limited to the surrounding abort/timeout policy; this implementation does not provide a distributed lease service.
 
 Canonical mathematical effects remain exactly-once by stable `AcceptedEffect` identity even though provider calls are at-least-once.
+
+## Research corpus projection
+
+Long-term corpus delivery has a separate, domain-owned outbox at
+`projects/<project>/corpus-archive/state.json`. It is not part of
+`ResearchProjectState` and cannot grant mathematical authority. The outbox uses
+the same temp-write, file flush, and atomic replacement commit model as the
+ResearchStore, and malformed archive state fails closed without migrating or
+changing research truth.
+
+An ordinary intent is enqueued only after the `AcceptedEffect` transaction has
+returned. A strict intent is enqueued only after active `FinalProofAuthority`
+has been committed. Callback, checkout, validation, commit, or push failure is
+caught outside those truth transactions.
+
+Activation bounds automatic recovery. A project whose frozen configuration
+enabled publishing uses project creation as its lower bound; legacy/default-
+disabled projects never activate, so a new installation does not republish old
+history. Stable source identities, embedded corpus markers,
+Git commit trailers, and remote containment checks recover crashes before a
+commit, after a local commit, and after push but before receipt. Delivery is
+exactly once at the semantic-source level under the existing single-machine
+runtime assumption; no distributed consensus claim is made.

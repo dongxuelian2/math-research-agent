@@ -13,6 +13,7 @@
     "build:gui": "pnpm --filter @math-research-agent/proof-workbench run check",
     "typecheck": "pnpm --filter @math-research-agent/backend run typecheck",
     "test:proof": "pnpm --filter @math-research-agent/backend run test",
+    "corpus": "pnpm --filter @math-research-agent/backend run corpus",
     "start": "pnpm --dir apps/proof-workbench run serve",
     "start:api": "pnpm --dir apps/proof-workbench run serve -- --api-only"
   }

@@ -8,6 +8,7 @@ import type {
 	AcceptedEffect, ArtifactRef, AssumptionDischargeDependency, AssumptionDischargeWitness, AuthorityReceipt, AuthorityValidationState, ClaimSnapshot, ResearchArtifact, ResearchEvent, ResearchObligation,
 	ResearchOutcome, ResearchProjectState, ResearchRoute, TacticalResearchResult, TrustReceipt, VerifiedResearchContribution,
 } from "./types.js";
+import type { CorpusArchiveSink } from "./corpus-archive-types.js";
 
 export interface ApplyOutcomeRequest {
 	readonly projectId: string;
@@ -18,10 +19,11 @@ export interface ApplyOutcomeRequest {
 }
 
 export type AuthorityFaultPoint = "after_validation" | "after_prepare" | "after_claim_transition" | "after_accepted_effect" | "after_authority_receipt" | "after_event";
+export interface ResearchStateReducerOptions { readonly faultPoint?: AuthorityFaultPoint; readonly archiveSink?: CorpusArchiveSink; }
 
 /** Sole canonical mathematical state writer. */
 export class ResearchStateReducer {
-	constructor(private readonly store: ResearchStore, private readonly options: { readonly faultPoint?: AuthorityFaultPoint } = {}) {}
+	constructor(private readonly store: ResearchStore, private readonly options: ResearchStateReducerOptions = {}) {}
 
 	async apply(request: ApplyOutcomeRequest): Promise<{ readonly applied: boolean; readonly effect: AcceptedEffect; readonly state: ResearchProjectState }> {
 		const effectId = effectIdentity(request.projectId, request.cycleId, request.logicalJobId, request.effectSlot);
@@ -58,7 +60,9 @@ export class ResearchStateReducer {
 			this.inject("after_event");
 			return true;
 		});
-		return { applied: result.result, effect: result.state.acceptedEffects[effectId] ?? effect, state: result.state };
+		const committedEffect = result.state.acceptedEffects[effectId] ?? effect;
+		try { await this.options.archiveSink?.recordAcceptedEffect(request, committedEffect, result.state); } catch { /* Projection enqueue is recoverable and cannot invalidate committed semantic state. */ }
+		return { applied: result.result, effect: committedEffect, state: result.state };
 	}
 
 	/** Validate the tactical truth gate, then translate verified protocol objects into deterministic effects. */

@@ -3,14 +3,14 @@ import { randomUUID } from "node:crypto";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createUserMessage } from "../models/index.js";
-import { ConfigConflictError, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService, type ProofRole } from "../config.js";
+import { ConfigConflictError, corpusPublishingConfigOf, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService, type ProofRole } from "../config.js";
 import type { Agent } from "../agent/types.js";
 import type { JsonObject } from "../models/json.js";
 import type { RuntimeTool } from "../models/tools.js";
 import { Session } from "../session/index.js";
 import { ProofWorkflow } from "../proof/runtime.js";
 import { CommandProofFormalVerifier } from "../proof/formal.js";
-import { activeAuthorityForClaim, AgentCorpusBootstrapper, AgentFinalAuditRole, AgentFormalizerRole, AgentLiteratureApplicability, AgentResearchDirector, AgentSynthesisRole, CorpusService, LiteratureService, OpenAlexLiteratureProvider, ResearchEvidenceRecorder, ResearchInvariantValidator, ResearchRetrievalService, ResearchRuntime, ResearchStore, RootClosureService, createResearchTools, researchFrontier, rootSynthesisReadiness, stableId, type LiteratureProvider, type TacticalProofRequest, type TacticalResearchResult, type TrustReceipt, type VerifiedResearchContribution } from "../research/index.js";
+import { activeAuthorityForClaim, AgentCorpusBootstrapper, AgentFinalAuditRole, AgentFormalizerRole, AgentLiteratureApplicability, AgentResearchDirector, AgentSynthesisRole, CorpusArchiveCoordinator, CorpusService, LiteratureService, OpenAlexLiteratureProvider, ResearchEvidenceRecorder, ResearchInvariantValidator, ResearchRetrievalService, ResearchRuntime, ResearchStore, RootClosureService, createResearchTools, researchFrontier, rootSynthesisReadiness, stableId, type LiteratureProvider, type TacticalProofRequest, type TacticalResearchResult, type TrustReceipt, type VerifiedResearchContribution } from "../research/index.js";
 import { createAgentProofVerifier, type AgentProofRoles } from "../proof/agent-role.js";
 import type {
 	ProofMode,
@@ -79,6 +79,7 @@ export class ProofApiServer {
 	private readonly sessions = new Map<string, SessionRecord>();
 	private readonly researchStore: ResearchStore;
 	private readonly researchCorpus: CorpusService;
+	private readonly corpusArchive: CorpusArchiveCoordinator;
 	private researchRuntime: ResearchRuntime;
 	private readonly literatureProvider: LiteratureProvider;
 	private readonly activeResearch = new Map<string, { readonly controller: AbortController; readonly promise: Promise<void> }>();
@@ -97,6 +98,7 @@ export class ProofApiServer {
 		this.researchProofFaultAfterWorkerResults = options.researchProofFaultAfterWorkerResults;
 		this.researchStore = new ResearchStore(join(this.rootDirectory, "research"));
 		this.researchCorpus = new CorpusService(this.researchStore);
+		this.corpusArchive = new CorpusArchiveCoordinator({ researchStore: this.researchStore, configForState: (state) => corpusPublishingConfigOf(mathAgentConfigOf(state.effectiveConfig)) });
 		this.literatureProvider = options.literatureProvider ?? new OpenAlexLiteratureProvider();
 		this.researchRuntime = this.buildResearchRuntime();
 	}
@@ -104,6 +106,7 @@ export class ProofApiServer {
 	private buildResearchRuntime(): ResearchRuntime {
 		return new ResearchRuntime({
 			store: this.researchStore,
+			archiveSink: this.corpusArchive,
 			proofRunner: (request, signal) => this.runResearchProof(request, signal),
 			literatureRunner: (request, signal) => this.runLiteratureProof(request, signal),
 			synthesisRunner: (projectId, signal) => this.runRootSynthesis(projectId, signal),
@@ -289,6 +292,12 @@ export class ProofApiServer {
 		if (operation === "corpus" && parts[5] === "search" && request.method === "GET") { const query = url.searchParams.get("q") ?? ""; this.send(response, 200, { matches: await this.researchCorpus.search(projectId, query, url.searchParams.get("exact") === "true") }); return; }
 		if (operation === "corpus" && parts[5] !== undefined && request.method === "GET") { this.send(response, 200, await this.researchCorpus.read(projectId, parts[5], Number(url.searchParams.get("offset") ?? 0), url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : undefined)); return; }
 		if (operation === "corpus" && request.method === "GET") { this.send(response, 200, { corpus: await this.researchCorpus.list(projectId) }); return; }
+		if (operation === "corpus-archive" && parts.length === 5 && request.method === "GET") { const archive = await this.corpusArchive.archiveStore.readOptional(projectId); this.send(response, 200, { enabled: corpusPublishingConfigOf(projectConfig).enabled, status: archive === undefined ? "NOT_ACTIVATED" : "ACTIVE", activatedAt: archive?.activatedAt, intents: archive === undefined ? [] : Object.values(archive.intents), receipts: archive === undefined ? [] : Object.values(archive.receipts) }); return; }
+		if (operation === "corpus-archive" && parts[5] === "pending" && request.method === "GET") { const archive = await this.corpusArchive.archiveStore.readOptional(projectId); this.send(response, 200, { pending: archive === undefined ? [] : Object.values(archive.intents).filter((intent) => intent.status !== "COMPLETE" && intent.status !== "PERMANENT_FAILURE") }); return; }
+		if (operation === "corpus-archive" && parts[5] === "reconcile" && request.method === "POST") { this.send(response, 200, await this.corpusArchive.reconcile(projectId)); return; }
+		if (operation === "corpus-archive" && parts[5] === "intents" && parts[6] !== undefined && parts.length === 7 && request.method === "GET") { const archive = await this.corpusArchive.archiveStore.readOptional(projectId), intent = archive?.intents[parts[6]]; if (intent === undefined) throw new ApiHttpError(404, "Corpus archive intent not found"); this.send(response, 200, { intent, receipt: archive?.receipts[intent.intentId] }); return; }
+		if (operation === "corpus-archive" && parts[5] === "intents" && parts[6] !== undefined && parts[7] === "retry" && request.method === "POST") { this.send(response, 200, { intent: await this.corpusArchive.archiveStore.resetForRetry(projectId, parts[6]) }); return; }
+		if (operation === "corpus-archive" && parts[5] === "intents" && parts[6] !== undefined && parts[7] === "publish" && request.method === "POST") { this.send(response, 200, await this.corpusArchive.reconcile(projectId, parts[6])); return; }
 		if (operation === "bootstrap" && request.method === "POST") { if (projectConfig?.corpus.enabled === false) throw new ApiHttpError(409, "Corpus bootstrap is disabled by the project configuration snapshot"); const body = await readJsonObject(request), rangeIds = Array.isArray(body.rangeIds) && body.rangeIds.every((item) => typeof item === "string") ? body.rangeIds as string[] : undefined, maxRanges = typeof body.maxRanges === "number" && Number.isInteger(body.maxRanges) && body.maxRanges > 0 ? body.maxRanges : undefined; const bootstrapper = this.createRoles.createAgent === undefined || projectConfig?.roles.corpus_bootstrapper.enabled === false ? undefined : new AgentCorpusBootstrapper((artifactId) => this.createResearchAgent("corpus_bootstrapper", projectId, artifactId)); this.send(response, 200, { report: await this.researchCorpus.bootstrap(projectId, bootstrapper, undefined, { ...(rangeIds === undefined ? {} : { rangeIds }), ...(maxRanges === undefined ? {} : { maxRanges }) }), state: await this.researchStore.read(projectId) }); return; }
 		if ((operation === "start" || operation === "resume") && request.method === "POST") {
 			if (this.activeResearch.has(projectId)) throw new ApiHttpError(409, "Research project is already running"); const body = await readJsonObject(request); const maxCycles = positiveInteger(body.maxCycles) ?? projectConfig?.research.maxCycles ?? 100; const controller = new AbortController();
@@ -400,7 +409,7 @@ export class ProofApiServer {
 		const primaryAttempt = `${synthesisId}-primary`, finalAttempt = `${synthesisId}-final`, primaryDirectory = join(this.researchStore.projectDirectory(projectId), "audits", primaryAttempt), finalDirectory = join(this.researchStore.projectDirectory(projectId), "audits", finalAttempt); await mkdir(primaryDirectory, { recursive: true }); await mkdir(finalDirectory, { recursive: true }); const primaryRecorder = new ResearchEvidenceRecorder(this.researchStore, projectId, primaryAttempt), finalRecorder = new ResearchEvidenceRecorder(this.researchStore, projectId, finalAttempt), primaryTools = this.researchTools(projectId, primaryDirectory, primaryRecorder, "verifier", config), finalTools = this.researchTools(projectId, finalDirectory, finalRecorder, "secondary_auditor", config);
 		const primaryRole = new AgentFinalAuditRole(() => this.createResearchAgent("verifier", projectId, primaryAttempt, primaryTools), "configured-synthesis-primary-auditor"), finalRole = new AgentFinalAuditRole(() => this.createResearchAgent("secondary_auditor", projectId, finalAttempt, finalTools), "configured-fresh-final-auditor");
 		const primary = { audit: async (request: Parameters<AgentFinalAuditRole["audit"]>[0], signal?: AbortSignal) => { await this.reserveResearchBudget(projectId, "verifierCalls", config?.budgets.verifierCalls); const result = await primaryRole.audit(request, signal), reads = (await primaryRecorder.list("verifier")).filter((item) => item.operation === "READ"); return { ...result, evidenceInspected: reads.map((item) => item.artifact), toolReceiptIds: reads.map((item) => item.receiptId) }; } }, final = { audit: async (request: Parameters<AgentFinalAuditRole["audit"]>[0], signal?: AbortSignal) => { await this.reserveResearchBudget(projectId, "secondaryAuditorCalls", config?.budgets.secondaryAuditorCalls); const result = await finalRole.audit(request, signal), reads = (await finalRecorder.list("secondary_auditor")).filter((item) => item.operation === "READ"); return { ...result, evidenceInspected: reads.map((item) => item.artifact), toolReceiptIds: reads.map((item) => item.receiptId) }; } };
-		return new RootClosureService(this.researchStore, synthesizer, primary, final);
+		return new RootClosureService(this.researchStore, synthesizer, primary, final, this.corpusArchive);
 	}
 	private async reserveResearchBudget(projectId: string, counter: "verifierCalls" | "secondaryAuditorCalls", limit?: number): Promise<void> { await this.researchStore.transaction(projectId, (draft) => { if (limit !== undefined && draft.budget[counter] >= limit) throw new ApiHttpError(409, `${counter} budget exhausted`); (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).budget = { ...draft.budget, [counter]: draft.budget[counter] + 1 }; }); }
 	private projectConfigSnapshot(project: import("../research/index.js").ResearchProjectState): MathAgentConfig | undefined { const config = mathAgentConfigOf(project.effectiveConfig); if (config === undefined && this.configService !== undefined) throw new Error(`Project ${project.projectId} has no valid effective-config snapshot; refusing to mix the current live configuration into an existing project`); return config; }
@@ -919,7 +928,7 @@ function isMissingFile(error: unknown): boolean {
 
 function researchLinks(projectId: string): Readonly<Record<string, string>> {
 	const base = `/v1/research/projects/${projectId}`;
-	return { status: base, audit: `${base}/audit`, frontier: `${base}/frontier`, claims: `${base}/claims`, dependencies: `${base}/dependencies`, coverage: `${base}/coverage`, routes: `${base}/routes`, artifacts: `${base}/artifacts`, literature: `${base}/literature`, bootstrapReport: `${base}/bootstrap-report`, checkpoints: `${base}/checkpoints`, events: `${base}/events`, rootReadiness: `${base}/root-readiness`, synthesis: `${base}/synthesis`, formalization: `${base}/formalization`, result: `${base}/result`, resume: `${base}/resume` };
+	return { status: base, audit: `${base}/audit`, frontier: `${base}/frontier`, claims: `${base}/claims`, dependencies: `${base}/dependencies`, coverage: `${base}/coverage`, routes: `${base}/routes`, artifacts: `${base}/artifacts`, literature: `${base}/literature`, corpusArchive: `${base}/corpus-archive`, bootstrapReport: `${base}/bootstrap-report`, checkpoints: `${base}/checkpoints`, events: `${base}/events`, rootReadiness: `${base}/root-readiness`, synthesis: `${base}/synthesis`, formalization: `${base}/formalization`, result: `${base}/result`, resume: `${base}/resume` };
 }
 
 function configuredProofFormalVerifier(config: MathAgentConfig, fallbackDirectory: string): CommandProofFormalVerifier {

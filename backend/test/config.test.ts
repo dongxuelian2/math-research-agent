@@ -7,6 +7,7 @@ import {
 	ConfigConflictError,
 	DEFAULT_CONFIG,
 	MathAgentConfigService,
+	corpusPublishingConfigOf,
 	stringifyMathAgentConfig,
 } from "../src/index.js";
 
@@ -21,6 +22,8 @@ test("loads one TOML authority, masks credentials, round-trips request parameter
 	assert.equal(initial.models.mock?.credentialConfigured, false);
 	assert.match(service.tomlText, /\[models\.mock\]/);
 	assert.doesNotMatch(service.tomlText, /api_key\s*=/iu);
+	assert.equal(service.config.corpus.publishingEnabled, false);
+	assert.match(service.tomlText, /publishing_enabled\s*=\s*false/u);
 
 	const updated = await service.update({
 		models: {
@@ -55,4 +58,9 @@ test("canonical TOML output never serializes unsupported secret fields", () => {
 	const text = stringifyMathAgentConfig(DEFAULT_CONFIG);
 	assert.doesNotMatch(text, /api_key\s*=/iu);
 	assert.match(text, /proof_api_port\s*=\s*4310/u);
+	assert.match(text, /repository_url\s*=\s*"https:\/\/github\.com\/dongxuelian2\/three-term-decimal-concatenation-square-sum\.git"/u);
+});
+
+test("legacy configuration without publishing fields remains disabled", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "math-agent-legacy-corpus-")); t.after(async () => rm(directory, { recursive: true, force: true })); const path = join(directory, "math-agent.toml"), legacy = stringifyMathAgentConfig(DEFAULT_CONFIG).split(/\r?\n/u).filter((line) => !/^(?:publishing_enabled|repository_url|local_checkout|branch|auto_push|index_command)\s*=/u.test(line)).join("\n"); await import("node:fs/promises").then(({ writeFile }) => writeFile(path, legacy)); const service = new MathAgentConfigService(path); await service.load(); assert.equal(corpusPublishingConfigOf(service.config).enabled, false); assert.equal(corpusPublishingConfigOf(service.config).localCheckout, "");
 });

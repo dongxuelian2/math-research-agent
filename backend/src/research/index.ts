@@ -11,3 +11,7 @@ export * from "./runtime.js";
 export * from "./literature.js";
 export * from "./closure.js";
 export * from "./agent-role.js";
+export * from "./corpus-archive-types.js";
+export * from "./corpus-archive-store.js";
+export * from "./corpus-archive-policy.js";
+export * from "./corpus-archive.js";

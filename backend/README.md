@@ -52,6 +52,23 @@ the asynchronous run completes. `test/proof-api.test.ts` drives this entire
 sequence through `fetch`, while injecting offline mock role providers only on
 the backend side.
 
+The research API also exposes the failure-isolated long-term corpus projection
+outbox:
+
+```text
+GET  /v1/research/projects/:projectId/corpus-archive
+GET  /v1/research/projects/:projectId/corpus-archive/pending
+GET  /v1/research/projects/:projectId/corpus-archive/intents/:intentId
+POST /v1/research/projects/:projectId/corpus-archive/reconcile
+POST /v1/research/projects/:projectId/corpus-archive/intents/:intentId/retry
+POST /v1/research/projects/:projectId/corpus-archive/intents/:intentId/publish
+```
+
+Publishing is disabled by default. `npm run corpus -- <command> --project <id>`
+provides the equivalent local status/retry/publish/reconcile surface after a
+build. The normative behavior is documented in
+`docs/CORPUS_ARCHIVE_PROTOCOL.md`.
+
 ```bash
 npm install
 npm test

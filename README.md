@@ -110,6 +110,26 @@ Proof-as-Test 启动说明见：
 - [`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)
 - [`docs/MRR_V1_INVARIANTS.md`](docs/MRR_V1_INVARIANTS.md)
 - [`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)
+- [`docs/CORPUS_ARCHIVE_PROTOCOL.md`](docs/CORPUS_ARCHIVE_PROTOCOL.md)
+- [`docs/CORPUS_ARCHIVE_INTEGRATION_MAP.md`](docs/CORPUS_ARCHIVE_INTEGRATION_MAP.md)
+
+长期研究语料发布是一个独立、默认关闭的投影层。只有已持久化的语义 effect，或带有当前
+`FinalProofAuthority` 的严格结论，才可进入配置的 canonical Git corpus；Planner/Worker/
+Verifier 原始输出、scratch、candidate proof 与 audit JSON 均不会直接发布。`[corpus]` 中的
+`publishing_enabled`、`repository_url`、`local_checkout`、`branch`、`auto_push`、
+`index_command` 和可选 `node_path` 控制该层。Git 或 push 失败不会回滚研究真值。
+
+构建后可用以下命令检查/恢复 outbox，无需直接打开状态 JSON：
+
+```bash
+pnpm run build:proof
+pnpm run corpus -- status --project <project-id>
+pnpm run corpus -- pending --project <project-id>
+pnpm run corpus -- inspect --project <project-id> --intent <intent-id>
+pnpm run corpus -- retry --project <project-id> --intent <intent-id>
+pnpm run corpus -- publish --project <project-id> --intent <intent-id>
+pnpm run corpus -- reconcile --project <project-id>
+```
 
 Web 设置页“模型与证明角色”和高级 TOML 编辑器共用一个 `ConfigService`。
 修改使用修订号、串行化并发更新、文件锁语义和临时文件原子替换；正在运行的

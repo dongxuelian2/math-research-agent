@@ -38,6 +38,12 @@ wall_time_seconds = 86400
 enabled = true
 roots = []
 import_authority_policy = "PROVISIONAL_IMPORTED"
+publishing_enabled = false
+repository_url = "https://github.com/dongxuelian2/three-term-decimal-concatenation-square-sum.git"
+local_checkout = ""
+branch = "main"
+auto_push = false
+index_command = ["python", "tools/update-research-index.py"]
 
 [tools]
 enabled = true

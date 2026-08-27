@@ -14,6 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js",
+    "corpus": "node dist/src/research/corpus-archive-cli.js",
     "smoke:real:mrr": "npm run build && node scripts/real-provider-research-smoke.mjs"
   },
   "engines": {
