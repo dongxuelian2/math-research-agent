@@ -9,6 +9,7 @@ import { withProofToolScope } from "./tool-scope.js";
 import type {
 	FormalVerificationResult,
 	ProofAction,
+	ProofAgentFactory,
 	ProofArtifactStatus,
 	ProofBudgetOptions,
 	ProofBudgetState,
@@ -36,9 +37,11 @@ import type {
 	ProofStepRecord,
 	ProofTask,
 	ProofTaskInput,
+	ProofTaskStatus,
 	ProofTool,
 	ProofVerifier,
 	ProofVerifierContext,
+	ProofWorkflowMode,
 	ResearchResult,
 	VerificationResult,
 } from "./types.js";
@@ -49,6 +52,9 @@ export interface ProofRuntimeOptions {
 	readonly planner: ProofPlanner;
 	readonly researcher: ProofResearcher;
 	readonly verifier: ProofVerifier;
+	/** Optional factory for logical agents selected by a dynamic plan. */
+	readonly agentFactory?: ProofAgentFactory;
+	readonly workflowMode?: ProofWorkflowMode;
 	readonly runId?: string;
 	readonly mode?: ProofMode;
 	readonly autoVerify?: boolean;
@@ -111,6 +117,8 @@ export class ProofRuntime {
 	private readonly planner: ProofPlanner;
 	private readonly researcher: ProofResearcher;
 	private readonly verifier: ProofVerifier;
+	private readonly agentFactory?: ProofAgentFactory;
+	private readonly workflowMode: ProofWorkflowMode;
 	private readonly autoVerify: boolean;
 	private readonly maxWorkers: number;
 	private readonly maxSteps: number;
@@ -126,6 +134,7 @@ export class ProofRuntime {
 	private readonly verifyLeanItems: boolean;
 	private readonly runConfigValue: JsonObject;
 	private readonly requestedMode?: ProofMode;
+	private readonly requestedWorkflowMode?: ProofWorkflowMode;
 	private readonly targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string };
 	private readonly evidenceProvider?: ProofRuntimeOptions["evidenceProvider"];
 	private readonly evidenceResolver?: ProofRuntimeOptions["evidenceResolver"];
@@ -136,6 +145,7 @@ export class ProofRuntime {
 	private readonly faultAfterCompletedActionReceipts?: number;
 	private persistedWorkerResults = 0;
 	private persistedActionReceipts = 0;
+	private taskStatusQueue: Promise<void> = Promise.resolve();
 	private stateValue: ProofState;
 	private eventList: ProofEvent[] = [];
 	private readonly eventListeners = new Set<(event: ProofEvent) => void | Promise<void>>();
@@ -147,12 +157,15 @@ export class ProofRuntime {
 		this.planner = options.planner;
 		this.researcher = options.researcher;
 		this.verifier = options.verifier;
+		this.agentFactory = options.agentFactory;
+		this.workflowMode = options.workflowMode ?? "dynamic";
 		this.autoVerify = options.autoVerify ?? true;
 		this.maxWorkers = Math.max(1, options.maxWorkers ?? 3);
 		this.maxSteps = Math.max(1, options.maxSteps ?? 32);
 		this.historyLimit = Math.max(1, options.historyLimit ?? 3);
 		this.obligation = options.obligation;
 		this.requestedMode = options.mode;
+		this.requestedWorkflowMode = options.workflowMode;
 		this.targetGate = options.targetGate;
 		this.evidenceProvider = options.evidenceProvider;
 		this.evidenceResolver = options.evidenceResolver;
@@ -173,6 +186,7 @@ export class ProofRuntime {
 		this.stateValue = {
 			runId: this.runIdValue,
 			mode: options.mode ?? "prove",
+			workflowMode: this.workflowMode,
 			status: "OPEN",
 			step: 0,
 			obligation: this.obligation,
@@ -327,6 +341,7 @@ export class ProofRuntime {
 			mode: this.stateValue.mode,
 			maxWorkers: this.maxWorkers,
 			maxSteps: this.maxSteps,
+			workflowMode: this.stateValue.workflowMode,
 			autoVerify: this.autoVerify,
 			formalVerification: this.formalVerifier !== undefined,
 		});
@@ -340,9 +355,11 @@ export class ProofRuntime {
 			if (saved.runId !== this.runIdValue) return;
 			this.stateValue = {
 				...this.stateValue,
-				...saved,
-				obligation: this.obligation,
-				mode: this.requestedMode ?? saved.mode ?? this.stateValue.mode,
+					...saved,
+					obligation: this.obligation,
+					mode: this.requestedMode ?? saved.mode ?? this.stateValue.mode,
+					workflowMode: this.requestedWorkflowMode ?? (isWorkflowMode(saved.workflowMode) ? saved.workflowMode : undefined) ?? this.stateValue.workflowMode,
+				tasks: (saved.tasks ?? []).map(normalizePersistedTask),
 				budget: { ...this.stateValue.budget, ...(saved.budget ?? {}), plannerCalls: saved.budget?.plannerCalls ?? 0 },
 				executionPlans: (saved.executionPlans ?? []).map(normalizeExecutionPlan),
 			};
@@ -560,34 +577,54 @@ export class ProofRuntime {
 	}
 
 	private async dispatchTasks(taskInputs: readonly ProofTaskInput[], signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
-		// maxWorkers is a concurrency limit, not an admission limit.  The old
-		// slice silently discarded every task beyond the first worker batch.
-		// mapConcurrent below already provides a bounded queue, so materialize
-		// every logical task and let that queue account for all of them.
 		const materialized = taskInputs.map((input, index) => this.materializeTask(input, index));
 		if (new Set(materialized.map((task) => task.taskId)).size !== materialized.length) throw new ProofProtocolError("Planner task ids must be unique inside a persisted plan");
-		this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, ...materialized.filter((task) => !this.stateValue.tasks.some((existing) => existing.taskId === task.taskId))] };
+		validateTaskDependencies(materialized, this.stateValue.tasks);
+		const tasks = materialized.map((task) => {
+			const existing = this.stateValue.tasks.find((item) => item.taskId === task.taskId);
+			if (existing === undefined) return task;
+			if (existing.routeFingerprint !== task.routeFingerprint || JSON.stringify(existing.dependsOn) !== JSON.stringify(task.dependsOn)) throw new ProofProtocolError(`Task ${task.taskId} is immutable once admitted; create a new task id for a changed route or dependency graph`);
+			return existing;
+		});
+		this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, ...tasks.filter((task) => !this.stateValue.tasks.some((existing) => existing.taskId === task.taskId))] };
+		await this.persistState();
 		const accepted: ProofTask[] = [];
 		const seenRoutes = new Set<string>();
-		for (const task of materialized) {
+		for (const task of tasks) {
 			if (seenRoutes.has(task.routeFingerprint) || this.stateValue.failedRoutes.some((failure) => failure.routeFingerprint === task.routeFingerprint)) {
 				await this.recordFailure({
 					routeFingerprint: task.routeFingerprint,
 					taskId: task.taskId,
-					reason: "This proof route was already rejected and is blocked from retry.",
-					step: this.stateValue.step,
-				});
+						reason: "This proof route was already rejected and is blocked from retry.",
+						step: this.stateValue.step,
+					});
+				await this.updateTaskStatus(task.taskId, "FAILED_TERMINAL", "This proof route was already rejected and is blocked from retry.");
 				this.addOutput("spawn", task.summary, "Rejected duplicate failed route.");
 				continue;
 			}
 			const completed = this.persistedResearchResult(task.taskId);
-			if (completed === undefined && !this.consumeBudget("workerCalls")) {
+			if (completed !== undefined) {
+				if (task.status === "RUNNING" || task.status === "PENDING") await this.updateTaskStatus(task.taskId, taskStatusForResearchResult(completed, false));
+				// A durable worker result is not only a signal to skip the provider
+				// call. It must re-enter the merge/verification pipeline as well;
+				// otherwise a crash after the result receipt but before candidate
+				// materialization would permanently strand that candidate.
+				seenRoutes.add(task.routeFingerprint);
+				accepted.push(this.stateValue.tasks.find((item) => item.taskId === task.taskId) ?? task);
+				continue;
+			}
+			const dependencyReason = taskDependencyReason(task, this.stateValue.tasks);
+			if (dependencyReason !== undefined) {
+				if (dependencyReason.terminal) await this.updateTaskStatus(task.taskId, "BLOCKED", dependencyReason.reason);
+				this.addOutput("spawn", task.summary, `Task deferred: ${dependencyReason.reason}`);
+				continue;
+			}
+			if (!this.consumeBudget("workerCalls")) {
 				this.addOutput("spawn", task.summary, "Worker budget exhausted; task was not dispatched.");
 				continue;
 			}
 			seenRoutes.add(task.routeFingerprint);
-			accepted.push(task);
-			if (completed === undefined) await this.emit({
+			await this.emit({
 				type: "proof/task_dispatched",
 				eventId: randomUUID(),
 				runId: this.runIdValue,
@@ -595,32 +632,49 @@ export class ProofRuntime {
 				step: this.stateValue.step,
 				task,
 			});
+			await this.updateTaskStatus(task.taskId, "RUNNING");
+			accepted.push(this.stateValue.tasks.find((item) => item.taskId === task.taskId) ?? task);
 		}
+		if (accepted.length === 0) return;
 
 		const researchWorks = await mapConcurrent(accepted, this.maxWorkers, async (task): Promise<ResearchWork> => {
 			const persisted = this.persistedResearchResult(task.taskId);
-			if (persisted !== undefined) return { task, result: persisted, providerBlocked: false, persisted: true };
+			if (persisted !== undefined) {
+				if (task.status === "RUNNING" || task.status === "PENDING") await this.updateTaskStatus(task.taskId, taskStatusForResearchResult(persisted, false));
+				return { task, result: persisted, providerBlocked: false, persisted: true };
+			}
 			await writeFile(join(stepDirectory, `worker_${slugify(task.taskId)}_task.md`), task.description, "utf8");
-			if (signal?.aborted) return { task, result: { kind: "blocked", reason: "Proof run was aborted" }, providerBlocked: false, persisted: false };
+			if (signal?.aborted) {
+				const result: ResearchResult = { kind: "blocked", reason: "Proof run was aborted" };
+				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
+				await this.updateTaskStatus(task.taskId, "BLOCKED", result.reason);
+				return { task, result, providerBlocked: false, persisted: false };
+			}
 			try {
 				const referencedMaterials = await this.repositoryValue.resolveWikilinks(task.description);
+				const continuation = task.continuationOf === undefined ? "" : formatContinuationMaterials(task.continuationOf, this.persistedResearchResult(task.continuationOf));
 				const context: ProofResearchContext = {
 					runId: this.runIdValue,
 					step: this.stateValue.step,
 					obligation: this.obligation,
 					whiteboard: this.stateValue.whiteboard,
 					task,
-					referencedMaterials,
+					referencedMaterials: [referencedMaterials, continuation].filter((item) => item.length > 0).join("\n\n"),
 				};
-				const result = await withProofToolScope({ role: "worker", logicalTaskId: task.taskId }, () => this.researcher.research(context, signal));
+				const researcher = task.agent === undefined || this.agentFactory === undefined
+					? this.researcher
+					: await this.agentFactory(task.agent, context);
+				const result = await withProofToolScope({ role: "worker", logicalTaskId: task.taskId }, () => researcher.research(context, signal));
 				await writeJson(join(stepDirectory, `worker_${slugify(task.taskId)}_result.json`), result);
 				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
+				await this.updateTaskStatus(task.taskId, taskStatusForResearchResult(result, false), result.kind === "partial" ? result.reason : undefined);
 				this.persistedWorkerResults += 1; if (this.faultAfterWorkerResults === this.persistedWorkerResults) throw new InjectedProofTaskFault(`Injected fault after worker result ${this.persistedWorkerResults}`);
 				return { task, result, providerBlocked: false, persisted: false };
 			} catch (error) {
 				if (error instanceof InjectedProofTaskFault) throw error;
 				const result: ResearchResult = { kind: "blocked", reason: errorMessage(error) };
 				await this.emit({ type: "proof/research_result", eventId: stableEventId(this.runIdValue, "research", task.taskId), runId: this.runIdValue, timestamp: Date.now(), step: this.stateValue.step, taskId: task.taskId, result });
+				await this.updateTaskStatus(task.taskId, isProviderFailure(error) ? "BLOCKED" : "FAILED_RETRYABLE", result.reason);
 				return { task, result, providerBlocked: isProviderFailure(error), persisted: false };
 			}
 		});
@@ -632,7 +686,12 @@ export class ProofRuntime {
 			if (work.result.kind === "candidate") {
 				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), work.result.candidate.content, "utf8");
 			} else {
-				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), work.result.kind === "observation" ? work.result.content : work.result.reason, "utf8");
+				const output = work.result.kind === "observation"
+					? work.result.content
+					: work.result.kind === "partial"
+						? `PARTIAL: ${work.result.reason}\n\n${work.result.content}`
+						: work.result.reason;
+				await writeFile(join(stepDirectory, `worker_${slugify(work.task.taskId)}_output.md`), output, "utf8");
 			}
 			if (work.providerBlocked) providerBlockedResearch += 1;
 			if (work.result.kind === "candidate") {
@@ -661,7 +720,11 @@ export class ProofRuntime {
 				candidates.push({ task: work.task, candidate });
 				continue;
 			}
-			this.addOutput("spawn", work.task.summary, work.result.kind === "observation" ? `${work.result.content}${work.result.suggestedNext === undefined ? "" : `\nNext: ${work.result.suggestedNext}`}` : work.result.reason);
+			this.addOutput("spawn", work.task.summary, work.result.kind === "observation"
+					? `${work.result.content}${work.result.suggestedNext === undefined ? "" : `\nNext: ${work.result.suggestedNext}`}`
+					: work.result.kind === "partial"
+						? `PARTIAL: ${work.result.reason}\n${work.result.content}${work.result.suggestedNext === undefined ? "" : `\nNext: ${work.result.suggestedNext}`}`
+						: work.result.reason);
 		}
 
 		if (!this.autoVerify || candidates.length === 0) {
@@ -1024,11 +1087,13 @@ export class ProofRuntime {
 			step: this.stateValue.step,
 			obligation: this.obligation,
 			mode: this.stateValue.mode,
+			workflowMode: this.stateValue.workflowMode,
 			status: this.stateValue.status,
 			whiteboard: this.stateValue.whiteboard,
 			repository: items.map((item) => ({ ...item, content: "" })),
 			repositoryIndex: await this.repositoryValue.formatIndex(),
 			candidates: [...this.stateValue.candidates],
+			tasks: [...this.stateValue.tasks],
 			failedRoutes: [...this.stateValue.failedRoutes],
 			recentOutputs: [...this.stateValue.recentOutputs],
 			stepHistory: [...this.stateValue.stepHistory],
@@ -1053,6 +1118,8 @@ export class ProofRuntime {
 		const taskId = input.taskId ?? `${this.runIdValue}-task-${this.stateValue.tasks.length + index + 1}`;
 		if (this.targetGate !== undefined && input.scope === "TARGET" && input.targetClaimId !== this.targetGate.targetClaimId) throw new ProofProtocolError("Planner TARGET task must carry the exact runtime target claim id");
 		const routeKey = input.routeKey ?? input.description;
+		const dependsOn = [...new Set(input.dependsOn ?? [])];
+		if (dependsOn.includes(taskId)) throw new ProofProtocolError(`Task ${taskId} cannot depend on itself`);
 		return {
 			taskId,
 			summary: input.summary,
@@ -1062,7 +1129,43 @@ export class ProofRuntime {
 			...(input.routeKey === undefined ? {} : { routeKey: input.routeKey }),
 			...(input.targetClaimId === undefined ? {} : { targetClaimId: input.targetClaimId }),
 			...(input.contributionKind === undefined ? {} : { contributionKind: input.contributionKind }),
+			dependsOn,
+			...(input.agent === undefined ? {} : { agent: input.agent }),
+			...(input.successCriteria === undefined ? {} : { successCriteria: input.successCriteria }),
+			...(input.continuationOf === undefined ? {} : { continuationOf: input.continuationOf }),
+			status: "PENDING",
+			attempt: 0,
+			updatedAt: new Date().toISOString(),
 		};
+	}
+
+	private async updateTaskStatus(taskId: string, status: ProofTaskStatus, reason?: string): Promise<void> {
+		const operation = this.taskStatusQueue.then(async () => {
+			const current = this.stateValue.tasks.find((task) => task.taskId === taskId);
+			if (current === undefined || (current.status === status && (reason === undefined || current.lastError === reason))) return;
+			const updated: ProofTask = {
+				...current,
+				status,
+				attempt: status === "RUNNING" && current.status !== "RUNNING" ? current.attempt + 1 : current.attempt,
+				updatedAt: new Date().toISOString(),
+				lastError: reason,
+			};
+			this.stateValue = { ...this.stateValue, tasks: this.stateValue.tasks.map((task) => task.taskId === taskId ? updated : task) };
+			await this.emit({
+				type: "proof/task_status_changed",
+				eventId: randomUUID(),
+				runId: this.runIdValue,
+				timestamp: Date.now(),
+				step: this.stateValue.step,
+				taskId,
+				previousStatus: current.status,
+				status,
+				task: updated,
+				...(reason === undefined ? {} : { reason }),
+			});
+		});
+		this.taskStatusQueue = operation.catch(() => undefined);
+		await operation;
 	}
 
 	private materializeCandidate(task: ProofTask, result: Extract<ResearchResult, { kind: "candidate" }>): ProofCandidate {
@@ -1170,6 +1273,7 @@ export class ProofRuntime {
 			runId: this.runIdValue,
 			status: this.stateValue.status,
 			mode: this.stateValue.mode,
+			workflowMode: this.stateValue.workflowMode,
 			steps: this.stateValue.step,
 			...(candidate === undefined ? {} : { candidateId: candidate.candidateId }),
 			...(this.proofPathValue === undefined ? {} : { proofPath: this.proofPathValue }),
@@ -1196,6 +1300,14 @@ export class ProofRuntime {
 					break;
 				case "proof/task_dispatched":
 					if (!this.stateValue.tasks.some((task) => task.taskId === event.task.taskId)) this.stateValue = { ...this.stateValue, tasks: [...this.stateValue.tasks, event.task] };
+					break;
+				case "proof/task_status_changed":
+					this.stateValue = {
+						...this.stateValue,
+						tasks: this.stateValue.tasks.some((task) => task.taskId === event.taskId)
+							? this.stateValue.tasks.map((task) => task.taskId === event.taskId ? event.task : task)
+							: [...this.stateValue.tasks, event.task],
+					};
 					break;
 				case "proof/research_result":
 					this.restoreCandidateFromResearch(event.taskId, event.result);
@@ -1376,15 +1488,87 @@ function mergeWorkerVerifierOutput(research: readonly ResearchWork[], verificati
 			? work.result.candidate.content
 			: work.result.kind === "observation"
 				? work.result.content
-				: `BLOCKED: ${work.result.reason}`;
+				: work.result.kind === "partial"
+					? `PARTIAL: ${work.result.reason}\n${work.result.content}`
+					: `BLOCKED: ${work.result.reason}`;
 			const verification = byTask.get(work.task.taskId);
-		const verifierText = verification === undefined
-			? "Verifier: not run"
-			: verification.result === undefined
-				? `Verifier: ERROR — ${verification.error ?? "unknown error"}`
-				: `Verifier: ${verification.result.verdict}\n${verification.result.feedback}`;
+			const verifierText = verification === undefined
+				? "Verifier: not run"
+				: verification.result === undefined
+					? `Verifier: ERROR — ${verification.error ?? "unknown error"}`
+					: `Verifier: ${verification.result.verdict}\n${verification.result.feedback}`;
 		return [`## Worker ${index + 1}: ${work.task.summary}`, workerText, verifierText].join("\n\n");
 	}).join("\n\n---\n\n");
+}
+
+function taskStatusForResearchResult(result: ResearchResult, providerBlocked: boolean): ProofTaskStatus {
+	if (result.kind === "partial") return "PARTIAL";
+	if (result.kind === "blocked") return providerBlocked ? "BLOCKED" : "FAILED_RETRYABLE";
+	return "COMPLETED";
+}
+
+function formatContinuationMaterials(taskId: string, result: ResearchResult | undefined): string {
+	if (result === undefined) return `Continuation source ${taskId} is not available in the durable result log.`;
+	const content = result.kind === "candidate"
+		? result.candidate.content
+		: result.kind === "observation"
+			? result.content
+			: result.kind === "partial"
+				? result.content
+				: result.reason;
+	return `Previous result from task ${taskId} (${result.kind}); preserve valid work and repair only the missing part:\n${content}`;
+}
+
+function taskDependencyReason(task: ProofTask, tasks: readonly ProofTask[]): { readonly reason: string; readonly terminal: boolean } | undefined {
+	for (const dependencyId of task.dependsOn) {
+		const dependency = tasks.find((item) => item.taskId === dependencyId);
+		if (dependency === undefined) return { reason: `Dependency ${dependencyId} is unknown.`, terminal: true };
+		if (["FAILED_TERMINAL", "BLOCKED"].includes(dependency.status)) return { reason: `Dependency ${dependencyId} is ${dependency.status}; the controller must create a replacement or change the graph.`, terminal: true };
+		if (dependency.status !== "COMPLETED") return { reason: `Waiting for dependency ${dependencyId} (${dependency.status}).`, terminal: false };
+	}
+	return undefined;
+}
+
+function validateTaskDependencies(tasks: readonly ProofTask[], existing: readonly ProofTask[]): void {
+	const graph = new Map([...existing, ...tasks].map((task) => [task.taskId, task]));
+	const known = new Set(graph.keys());
+	for (const task of tasks) {
+		if (new Set(task.dependsOn).size !== task.dependsOn.length) throw new ProofProtocolError(`Task ${task.taskId} contains duplicate dependencies`);
+		for (const dependencyId of task.dependsOn) {
+			if (!known.has(dependencyId)) throw new ProofProtocolError(`Task ${task.taskId} depends on unknown task ${dependencyId}`);
+		}
+	}
+	const visiting = new Set<string>();
+	const visited = new Set<string>();
+	const visit = (taskId: string): void => {
+		if (visited.has(taskId)) return;
+		if (visiting.has(taskId)) throw new ProofProtocolError(`Dynamic task graph contains a dependency cycle at ${taskId}`);
+		visiting.add(taskId);
+		for (const dependencyId of graph.get(taskId)?.dependsOn ?? []) visit(dependencyId);
+		visiting.delete(taskId);
+		visited.add(taskId);
+	};
+	for (const taskId of graph.keys()) visit(taskId);
+}
+
+function normalizePersistedTask(task: ProofTask): ProofTask {
+	const raw = task as Partial<ProofTask>;
+	const status = isTaskStatus(raw.status) ? raw.status : "PENDING";
+	return {
+		...task,
+		dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn.filter((item): item is string => typeof item === "string") : [],
+		status,
+		attempt: Number.isInteger(raw.attempt) && (raw.attempt as number) >= 0 ? raw.attempt as number : 0,
+		updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date(0).toISOString(),
+	};
+}
+
+function isTaskStatus(value: unknown): value is ProofTaskStatus {
+	return value === "PENDING" || value === "RUNNING" || value === "COMPLETED" || value === "PARTIAL" || value === "FAILED_RETRYABLE" || value === "FAILED_TERMINAL" || value === "BLOCKED";
+}
+
+function isWorkflowMode(value: unknown): value is ProofWorkflowMode {
+	return value === "dynamic" || value === "legacy";
 }
 
 function errorMessage(error: unknown): string {

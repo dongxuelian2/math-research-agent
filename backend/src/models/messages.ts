@@ -20,6 +20,8 @@ export type AssistantToolCallContent = {
 	readonly id: string;
 	readonly name: string;
 	readonly arguments: JsonObject;
+	/** Provider-specific response metadata that must be replayed on the next turn. */
+	readonly providerMetadata?: JsonObject;
 };
 
 export type AssistantContent = AssistantTextContent | AssistantToolCallContent;

@@ -2,6 +2,9 @@ import type { JsonObject } from "../models/json.js";
 
 export type ProofMode = "prove" | "prove_and_formalize" | "formalize_only";
 
+/** Whether the model owns task decomposition or a legacy fixed prompt does. */
+export type ProofWorkflowMode = "dynamic" | "legacy";
+
 export type ProofStatus =
 	| "OPEN"
 	| "RUNNING"
@@ -10,7 +13,33 @@ export type ProofStatus =
 	| "PARTIAL"
 	| "FAILED"
 	| "BLOCKED_PROVIDER"
-	| "CANCELLED"
+	| "CANCELLED";
+
+export type ProofTaskStatus =
+	| "PENDING"
+	| "RUNNING"
+	| "COMPLETED"
+	| "PARTIAL"
+	| "FAILED_RETRYABLE"
+	| "FAILED_TERMINAL"
+	| "BLOCKED";
+
+/** Logical agent metadata selected by the workflow controller. */
+export type ProofAgentSpec = {
+	/** Stable identity used to resume the same logical agent across steps. */
+	readonly agentId: string;
+	/** Why this agent exists; the runtime may map it to an approved model/profile. */
+	readonly purpose: string;
+	/** Capabilities are descriptive and do not grant tools or permissions. */
+	readonly capabilities?: readonly string[];
+};
+
+export type ProofWorkflowSpec = {
+	/** The controller's current decomposition strategy. */
+	readonly strategy: string;
+	readonly rationale?: string;
+	readonly successCriteria?: readonly string[];
+};
 
 /**
  * The first three verdicts mirror OpenProver's verifier vocabulary. The
@@ -41,6 +70,14 @@ export type ProofTaskInput = {
 	readonly scope?: "TARGET" | "CONTRIBUTION";
 	readonly targetClaimId?: string;
 	readonly contributionKind?: ProofContributionKind;
+	/** Stable ids of tasks whose completed results are prerequisites. */
+	readonly dependsOn?: readonly string[];
+	/** Optional logical agent selected by the dynamic workflow controller. */
+	readonly agent?: ProofAgentSpec;
+	/** What the worker must establish before the task can be considered complete. */
+	readonly successCriteria?: string;
+	/** Links a new task to a previous partial task so the worker can continue it. */
+	readonly continuationOf?: string;
 };
 
 export type ProofTask = {
@@ -52,6 +89,14 @@ export type ProofTask = {
 	readonly scope: "TARGET" | "CONTRIBUTION";
 	readonly targetClaimId?: string;
 	readonly contributionKind?: ProofContributionKind;
+	readonly dependsOn: readonly string[];
+	readonly agent?: ProofAgentSpec;
+	readonly successCriteria?: string;
+	readonly continuationOf?: string;
+	readonly status: ProofTaskStatus;
+	readonly attempt: number;
+	readonly updatedAt: string;
+	readonly lastError?: string;
 };
 
 export type ProofContributionKind =
@@ -128,6 +173,12 @@ export type ResearchResult =
 	| {
 			readonly kind: "blocked";
 			readonly reason: string;
+		}
+	| {
+			readonly kind: "partial";
+			readonly content: string;
+			readonly reason: string;
+			readonly suggestedNext?: string;
 		};
 
 export type VerificationResult = {
@@ -209,12 +260,14 @@ export type ProofPlannerContext = {
 	readonly step: number;
 	readonly obligation: ProofObligation;
 	readonly mode?: ProofMode;
+	readonly workflowMode: ProofWorkflowMode;
 	readonly status: ProofStatus;
 	readonly whiteboard: string;
 	readonly repository: readonly ProofRepositoryItem[];
 	/** OpenProver-style one-line repository index. */
 	readonly repositoryIndex?: string;
 	readonly candidates: readonly ProofCandidate[];
+	readonly tasks: readonly ProofTask[];
 	readonly failedRoutes: readonly ProofRouteFailure[];
 	readonly recentOutputs: readonly ProofOutput[];
 	readonly stepHistory?: readonly ProofStepRecord[];
@@ -259,6 +312,12 @@ export interface ProofPlannerWithTrace {
 export interface ProofResearcher {
 	research(context: ProofResearchContext, signal?: AbortSignal): Promise<ResearchResult>;
 }
+
+/** Creates a logical worker selected by the dynamic workflow controller. */
+export type ProofAgentFactory = (
+	spec: ProofAgentSpec,
+	context: ProofResearchContext,
+) => ProofResearcher | Promise<ProofResearcher>;
 
 export interface ProofVerifier {
 	verify(
@@ -314,6 +373,8 @@ export type ProofAction =
 export type ProofPlan = {
 	readonly actions: readonly ProofAction[];
 	readonly summary?: string;
+	/** Controller-authored description of this round's dynamic decomposition. */
+	readonly workflow?: ProofWorkflowSpec;
 };
 
 export type ProofExecutionPlan = {
@@ -386,6 +447,7 @@ export type ProofStepRecord = {
 export type ProofState = {
 	readonly runId: string;
 	readonly mode: ProofMode;
+	readonly workflowMode: ProofWorkflowMode;
 	readonly status: ProofStatus;
 	readonly step: number;
 	readonly obligation: ProofObligation;
@@ -415,6 +477,7 @@ export type ProofRunResult = {
 	readonly runId: string;
 	readonly status: ProofStatus;
 	readonly mode?: ProofMode;
+	readonly workflowMode?: ProofWorkflowMode;
 	readonly steps: number;
 	readonly candidateId?: string;
 	readonly proofPath?: string;
@@ -445,6 +508,18 @@ export type ProofEvent =
 			readonly timestamp: number;
 			readonly step: number;
 			readonly task: ProofTask;
+		}
+	| {
+			readonly type: "proof/task_status_changed";
+			readonly eventId: string;
+			readonly runId: string;
+			readonly timestamp: number;
+			readonly step: number;
+			readonly taskId: string;
+			readonly previousStatus: ProofTaskStatus;
+			readonly status: ProofTaskStatus;
+			readonly task: ProofTask;
+			readonly reason?: string;
 		}
 	| {
 			readonly type: "proof/research_result";

@@ -9,25 +9,29 @@ obligation + mode
       │
       ▼
 Planner context
-  theorem / whiteboard / repository index / failed routes
+  theorem / whiteboard / repository index / failed routes / task graph
   recent merged Worker+Verifier output / budget / artifact status
       │
       ▼
-Planner action protocol
+Workflow-controller action protocol
   JSON 或 <OPENPROVER_ACTION> TOML
       │
       ├── read_theorem / read_items / write_items / write_whiteboard
-      ├── spawn ──┬─ Worker 1 ──┐
-      │           ├─ Worker 2 ──┼─ 独立 Verifier 批次 ──┐
-      │           └─ Worker N ──┘                       │
-      │                                                  ▼
-      │                                     merged feedback → next Planner
+      ├── spawn ──┬─ ready logical agent 1 ──┐
+      │           ├─ ready logical agent N ──┼─ 独立 Verifier 批次 ──┐
+      │           └─ blocked/dependent tasks ┘                        │
+      │                                                               ▼
+      │                                       merged feedback + task states
+      │                                                               │
+      └──────────────────────────────────────────── next controller round
       ├── literature_search / use_tool
       ├── submit_proof
       └── submit_lean_proof
 ```
 
-`ProofWorkflow`/`ProofRuntime` 是唯一拥有证明状态和提交门禁的编排器。三个 Agent 角色只负责模型调用：Planner 决定下一步，Worker 解决一个聚焦任务，Verifier 独立检查 Worker 的输出。
+`ProofWorkflow`/`ProofRuntime` 是唯一拥有证明状态和提交门禁的执行内核。默认的 `dynamic` 模式由模型在每轮自行决定是直接求解还是拆出多少个逻辑 agent；它可以声明 `dependsOn`、`successCriteria` 和 `continuationOf`，运行时只执行依赖已完成的 ready frontier，并把任务状态反馈给下一轮控制器。agent 元数据只描述目的和能力，不授予工具权限；实际模型/profile 由受信任的 factory 解析。`legacy` 模式保留旧的固定 Planner/Worker/Verifier 提示词以便对照回退。
+
+因此，模型负责“这次工作应该如何组织”，运行时负责“哪些动作被允许、如何持久化、何时并行、如何恢复以及什么证据可以提交”。这不是一次性让模型生成不可检查的 DAG：每轮都会重新规划，部分输出会成为可续跑的状态，独立 Verifier 和 formal gate 仍然是提交前的硬门槛。
 
 ## 与 OpenProver 的对应关系
 
@@ -35,7 +39,8 @@ Planner action protocol
 | --- | --- |
 | `Prover.run()` / `_do_step()` | `ProofWorkflow.run()`，每轮建立 `steps/step_NNN` |
 | `parse_planner_toml()` | `parsePlannerPlan()`，同时接受 JSON 与 tagged TOML |
-| `spawn` 并行 Worker | `dispatchTasks()` + `maxWorkers` |
+| 动态 `spawn` 任务图与 ready frontier | `dispatchTasks()` + `dependsOn` + `maxWorkers` |
+| 逻辑 agent 复用/创建 | `ProofAgentFactory` + 稳定 `agentId` |
 | Worker 完成后并行 Verifier | `dispatchTasks()` 的两阶段批次 |
 | `_push_output()` | `recentOutputs` 中的 `Merged Worker + Verifier feedback` |
 | `Repo` / `[[slug]]` | `ProofRepository` 与 `resolveWikilinks()` |
@@ -44,7 +49,7 @@ Planner action protocol
 | `submit_proof` | 读取 candidate 或 repository slug，并要求独立 `CORRECT` |
 | `submit_lean_proof` | `ProofFormalVerifier`；默认 adapter 执行 `lake env lean` |
 
-Planner 的 retry 只处理协议层失败，最多三次；数学上被 Verifier 否定的路线不能通过 retry 绕过，而会写入 `failedRoutes` 并出现在下一轮上下文中。
+Planner 的 retry 只处理协议层失败，最多三次；解析器兼容旧的单数 `task` 输出并归一化为任务数组。数学上被 Verifier 否定的路线不能通过 retry 绕过，而会写入 `failedRoutes` 并出现在下一轮上下文中。Worker 如果以模型输出上限结束，结果会记录为 `PARTIAL`，不会被伪装成候选；控制器可以用 `continuationOf` 生成续跑任务。
 
 ## 持久化工件
 
@@ -67,6 +72,7 @@ Planner 的 retry 只处理协议层失败，最多三次；数学上被 Verifie
         ├── planner_response.txt
         ├── planner_plan.json
         ├── actions.json
+        ├── task status events / dependency frontier in state.json
         ├── worker_<id>_task.md
         ├── worker_<id>_result.json
         ├── worker_<id>_output.md

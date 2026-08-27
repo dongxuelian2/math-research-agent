@@ -18,6 +18,7 @@ import type {
 	ProofRunResult,
 	ProofState,
 	ProofStatus,
+	ProofWorkflowMode,
 } from "../proof/types.js";
 
 export interface ProofApiRoleFactory {
@@ -112,7 +113,7 @@ export class ProofApiServer {
 				const auditId = stableResearchAuditId(projectId, candidate.contentHash), directory = join(this.researchStore.projectDirectory(projectId), "audits", auditId); await mkdir(directory, { recursive: true });
 				const config = this.projectConfigSnapshot(await this.researchStore.read(projectId)), recorder = new ResearchEvidenceRecorder(this.researchStore, projectId, auditId), tools = this.researchTools(projectId, directory, recorder, "secondary_auditor", config);
 				const agent = await this.createResearchAgent("secondary_auditor", projectId, auditId, tools), verifier = createAgentProofVerifier(agent), obligation: ProofObligation = { obligationId: auditId, theorem: claim.statement }, body = (await this.researchStore.resolveArtifact(projectId, candidate)).body;
-				const task = { taskId: auditId, summary: "Fresh independent root audit", description: `Audit the exact target proof. Retrieve every relied-on artifact before accepting.`, routeFingerprint: auditId, scope: "TARGET" as const, targetClaimId: claim.claimId }, proofCandidate = { candidateId: candidate.artifactId, taskId: auditId, content: body, strategy: "fresh-root-audit", routeFingerprint: auditId, claimFingerprint: candidate.contentHash, candidateFingerprint: candidate.contentHash, claim: claim.statement, evidence: workerReadEvidence, discoveredEvidence: [], bodyReadEvidence: workerReadEvidence, declaredEvidence: workerReadEvidence, reliedOnArtifactIds: workerReadEvidence.map((item) => item.artifactId), assumptions: claim.assumptions, dependencyClaims: claim.dependencies, scope: "TARGET" as const, targetClaimId: claim.claimId };
+				const task = { taskId: auditId, summary: "Fresh independent root audit", description: `Audit the exact target proof. Retrieve every relied-on artifact before accepting.`, routeFingerprint: auditId, scope: "TARGET" as const, targetClaimId: claim.claimId, dependsOn: [], status: "COMPLETED" as const, attempt: 1, updatedAt: new Date().toISOString() }, proofCandidate = { candidateId: candidate.artifactId, taskId: auditId, content: body, strategy: "fresh-root-audit", routeFingerprint: auditId, claimFingerprint: candidate.contentHash, candidateFingerprint: candidate.contentHash, claim: claim.statement, evidence: workerReadEvidence, discoveredEvidence: [], bodyReadEvidence: workerReadEvidence, declaredEvidence: workerReadEvidence, reliedOnArtifactIds: workerReadEvidence.map((item) => item.artifactId), assumptions: claim.assumptions, dependencyClaims: claim.dependencies, scope: "TARGET" as const, targetClaimId: claim.claimId };
 				const result = await verifier.verify(proofCandidate, { runId: auditId, step: 1, obligation, task }, signal); const inspected = (await recorder.list("secondary_auditor")).filter((item) => item.operation === "READ").map((item) => item.artifact);
 				await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.budget = { ...draft.budget, secondaryAuditorCalls: draft.budget.secondaryAuditorCalls + 1 }; });
 				return { verdict: result.verdict === "NEEDS_MINOR_FIXES" ? "MINOR_FIX" : result.verdict, feedback: result.feedback, profile: "configured-secondary-auditor", evidenceInspected: inspected, toolReceiptIds: (await recorder.list("secondary_auditor")).map((item) => item.receiptId) };
@@ -331,7 +332,7 @@ export class ProofApiServer {
 		const projectState = await this.researchStore.read(request.projectId), config = this.projectConfigSnapshot(projectState), projectBudget = projectState.budget, tools = this.researchTools(request.projectId, request.scratchDirectory, evidenceRecorder, undefined, config);
 		const targetGate = { targetObligationId: request.obligation.obligationId, targetClaimId: request.targetClaimId };
 		const roles = await this.createRoles({ session, sessionId: request.attemptId, runId: request.logicalJobId, obligation: proofObligation, mode: "prove", tools, targetGate, ...(config === undefined ? {} : { config }) });
-		const workflow = new ProofWorkflow({ session, obligation: proofObligation, ...roles, mode: "prove", maxWorkers: config?.proof.maxWorkers ?? this.defaultMaxWorkers, maxSteps: config?.proof.maxSteps ?? this.defaultMaxSteps, historyLimit: config?.proof.historyLimit, workspaceDirectory: join(request.scratchDirectory, "proof-runtime"), runId: request.logicalJobId, tools: [], targetGate, tacticalDirective: request.directive as unknown as Readonly<Record<string, unknown>>, planDependencies: request.contextManifest.artifactRefs, planDependencyValidator: async (plan) => { const current = await this.researchStore.read(request.projectId); for (const ref of plan.dependencyRefs) try { const resolved = await this.researchStore.resolveArtifact(request.projectId, ref); if (resolved.artifact.artifactType === "PROMOTED_PROOF") { const currentAuthority = Object.values(current.authorityReceipts).some((authority) => authority.artifact.artifactId === ref.artifactId && authority.artifact.contentHash === ref.contentHash && activeAuthorityForClaim(current, authority.claimId, authority.claimRevision)?.authorityReceiptId === authority.authorityReceiptId); if (!currentAuthority) return `Plan dependency invalidated: promoted authority is no longer current for ${ref.artifactId}`; } } catch (error) { return `Plan dependency invalidated: ${ref.artifactId}: ${errorMessage(error)}`; } return undefined; }, evidenceProvider: (role, taskId, classification) => evidenceRecorder.refs(role, taskId, classification), ...(this.researchProofFaultAfterWorkerResults === undefined ? {} : { faultAfterWorkerResults: this.researchProofFaultAfterWorkerResults }), budget: config === undefined ? undefined : { maxPlannerCalls: Math.max(0, config.budgets.plannerCalls - projectBudget.plannerCalls), maxWorkerCalls: Math.max(0, config.budgets.workerCalls - projectBudget.workerCalls), maxVerifierCalls: Math.max(0, config.budgets.verifierCalls - projectBudget.verifierCalls), maxLiteratureSearches: Math.max(0, config.budgets.literatureSearches - projectBudget.literatureCalls), maxToolCalls: Math.max(0, config.budgets.toolCalls - projectBudget.toolCalls), maxWallTimeMs: Math.max(0, config.budgets.wallTimeSeconds * 1000 - (Date.now() - projectBudget.startedAt)) } });
+		const workflow = new ProofWorkflow({ session, obligation: proofObligation, ...roles, mode: "prove", workflowMode: config?.proof.workflowMode, maxWorkers: config?.proof.maxWorkers ?? this.defaultMaxWorkers, maxSteps: config?.proof.maxSteps ?? this.defaultMaxSteps, historyLimit: config?.proof.historyLimit, workspaceDirectory: join(request.scratchDirectory, "proof-runtime"), runId: request.logicalJobId, tools: [], targetGate, tacticalDirective: request.directive as unknown as Readonly<Record<string, unknown>>, planDependencies: request.contextManifest.artifactRefs, planDependencyValidator: async (plan) => { const current = await this.researchStore.read(request.projectId); for (const ref of plan.dependencyRefs) try { const resolved = await this.researchStore.resolveArtifact(request.projectId, ref); if (resolved.artifact.artifactType === "PROMOTED_PROOF") { const currentAuthority = Object.values(current.authorityReceipts).some((authority) => authority.artifact.artifactId === ref.artifactId && authority.artifact.contentHash === ref.contentHash && activeAuthorityForClaim(current, authority.claimId, authority.claimRevision)?.authorityReceiptId === authority.authorityReceiptId); if (!currentAuthority) return `Plan dependency invalidated: promoted authority is no longer current for ${ref.artifactId}`; } } catch (error) { return `Plan dependency invalidated: ${ref.artifactId}: ${errorMessage(error)}`; } return undefined; }, evidenceProvider: (role, taskId, classification) => evidenceRecorder.refs(role, taskId, classification), ...(this.researchProofFaultAfterWorkerResults === undefined ? {} : { faultAfterWorkerResults: this.researchProofFaultAfterWorkerResults }), budget: config === undefined ? undefined : { maxPlannerCalls: Math.max(0, config.budgets.plannerCalls - projectBudget.plannerCalls), maxWorkerCalls: Math.max(0, config.budgets.workerCalls - projectBudget.workerCalls), maxVerifierCalls: Math.max(0, config.budgets.verifierCalls - projectBudget.verifierCalls), maxLiteratureSearches: Math.max(0, config.budgets.literatureSearches - projectBudget.literatureCalls), maxToolCalls: Math.max(0, config.budgets.toolCalls - projectBudget.toolCalls), maxWallTimeMs: Math.max(0, config.budgets.wallTimeSeconds * 1000 - (Date.now() - projectBudget.startedAt)) } });
 		const result = await workflow.run(signal), state = workflow.state, candidateArtifacts = new Map<string, import("../research/index.js").ResearchArtifact>();
 		if (this.researchProofFaultAfterWorkerResults !== undefined && result.status === "FAILED" && /Injected fault after worker result/u.test(result.reason ?? "")) { await this.syncExecutionTasks(request, workflow, candidateArtifacts); throw new Error(result.reason); }
 		for (const candidate of state.candidates) candidateArtifacts.set(candidate.candidateId, await this.researchStore.putArtifact(request.projectId, { artifactType: "WORKER_CANDIDATE", body: candidate.content, provenance: `ProofRuntime-worker:${candidate.taskId}`, creationAttemptId: request.attemptId, references: candidate.evidence, metadata: { candidateId: candidate.candidateId, taskId: candidate.taskId, plannerScope: candidate.scope, strategy: candidate.strategy, discoveredEvidence: candidate.discoveredEvidence, bodyReadEvidence: candidate.bodyReadEvidence, reliedOnEvidence: candidate.evidence } }));
@@ -411,7 +412,7 @@ export class ProofApiServer {
 		await this.researchStore.transaction(request.projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }, tasks = { ...draft.executionTasks }; let newPlanners = 0, newWorkers = 0, newVerifiers = 0;
 			const executionPlans = { ...draft.executionPlans }; for (const plan of proofState.executionPlans) executionPlans[plan.planId] = { planId: plan.planId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, step: plan.step, inputHash: plan.inputHash, taskIds: plan.taskIds, dependencyRefs: plan.dependencyRefs, actionExecutions: plan.actionExecutions.map((action) => ({ actionId: action.actionId, planId: action.planId, ordinal: action.ordinal, action: action.action as unknown as Readonly<Record<string, unknown>>, status: action.status, resultArtifactIds: action.resultArtifactIds.map((id) => artifacts.get(id)?.artifactId ?? id), effectIds: action.effectIds, ...(action.result === undefined ? {} : { result: action.result }), ...(action.startedAt === undefined ? {} : { startedAt: action.startedAt }), ...(action.completedAt === undefined ? {} : { completedAt: action.completedAt }), ...(action.error === undefined ? {} : { error: action.error }) })), status: plan.status, ...(plan.staleReason === undefined ? {} : { staleReason: plan.staleReason }), createdAt: plan.createdAt, ...(plan.completedAt === undefined ? {} : { completedAt: plan.completedAt }) };
 			for (const step of proofState.stepHistory) { const plannerId = stableId("execution-task", request.logicalJobId, "PLANNER", `step-${step.step}`); if (tasks[plannerId] === undefined) newPlanners += 1; tasks[plannerId] = { executionTaskId: plannerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "PLANNER", logicalTaskId: `step-${step.step}`, status: step.status === "interrupted" ? "INTERRUPTED" : step.status === "failed" ? "FAILED_RETRYABLE" : "COMPLETED", inputHash: stableId("input", request.logicalJobId, "planner", String(step.step)), startedAt: now, ...(step.status === "completed" ? { completedAt: now } : {}) }; }
-			for (const task of proofState.tasks) { const workerId = stableId("execution-task", request.logicalJobId, "WORKER", task.taskId), candidate = proofState.candidates.find((item) => item.taskId === task.taskId), workerCompleted = workflow.events.some((event) => event.type === "proof/research_result" && event.taskId === task.taskId); if (tasks[workerId] === undefined && workerCompleted) newWorkers += 1; tasks[workerId] = { executionTaskId: workerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "WORKER", logicalTaskId: task.taskId, status: workerCompleted ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", task.taskId, task.description), ...(candidate === undefined || artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(workerCompleted ? { completedAt: now } : {}) }; if (candidate !== undefined) { const verifierId = stableId("execution-task", request.logicalJobId, "VERIFIER", candidate.candidateId), completed = proofState.verifications[candidate.candidateId] !== undefined; if (tasks[verifierId] === undefined && completed) newVerifiers += 1; tasks[verifierId] = { executionTaskId: verifierId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "VERIFIER", logicalTaskId: candidate.candidateId, status: completed ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", candidate.candidateFingerprint), ...(artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(completed ? { completedAt: now } : {}) }; } }
+			for (const task of proofState.tasks) { const workerId = stableId("execution-task", request.logicalJobId, "WORKER", task.taskId), candidate = proofState.candidates.find((item) => item.taskId === task.taskId), workerCompleted = task.status === "COMPLETED", workerStatus = executionTaskStatusForProofTask(task.status); if (tasks[workerId] === undefined && workerCompleted) newWorkers += 1; tasks[workerId] = { executionTaskId: workerId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "WORKER", logicalTaskId: task.taskId, status: workerStatus, inputHash: stableId("input", task.taskId, task.description), ...(candidate === undefined || artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(workerCompleted ? { completedAt: now } : {}) }; if (candidate !== undefined) { const verifierId = stableId("execution-task", request.logicalJobId, "VERIFIER", candidate.candidateId), completed = proofState.verifications[candidate.candidateId] !== undefined; if (tasks[verifierId] === undefined && completed) newVerifiers += 1; tasks[verifierId] = { executionTaskId: verifierId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "VERIFIER", logicalTaskId: candidate.candidateId, status: completed ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", candidate.candidateFingerprint), ...(artifacts.get(candidate.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(candidate.candidateId) }), startedAt: now, ...(completed ? { completedAt: now } : {}) }; } }
 			const mergeId = stableId("execution-task", request.logicalJobId, "MERGE", "merge"), mergeCompleted = proofState.executionPlans.length === 0 || proofState.executionPlans.every((plan) => plan.status === "COMPLETED"); tasks[mergeId] = { executionTaskId: mergeId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "MERGE", logicalTaskId: "merge", status: mergeCompleted ? "COMPLETED" : "INTERRUPTED", inputHash: stableId("input", request.logicalJobId, "merge"), startedAt: tasks[mergeId]?.startedAt ?? now, ...(mergeCompleted ? { completedAt: now } : {}) }; if (proofState.targetSubmission !== undefined) { const targetId = stableId("execution-task", request.logicalJobId, "TARGET_SUBMISSION", proofState.targetSubmission.candidateId); tasks[targetId] = { executionTaskId: targetId, logicalJobId: request.logicalJobId, attemptId: request.attemptId, kind: "TARGET_SUBMISSION", logicalTaskId: proofState.targetSubmission.candidateId, status: "COMPLETED", inputHash: stableId("input", proofState.targetSubmission.candidateId), ...(artifacts.get(proofState.targetSubmission.candidateId) === undefined ? {} : { resultArtifact: artifacts.get(proofState.targetSubmission.candidateId) }), startedAt: now, completedAt: now }; }
 			mutable.executionTasks = tasks; mutable.executionPlans = executionPlans; mutable.budget = { ...draft.budget, plannerCalls: draft.budget.plannerCalls + newPlanners, workerCalls: draft.budget.workerCalls + newWorkers, verifierCalls: draft.budget.verifierCalls + newVerifiers };
 		});
@@ -515,11 +516,13 @@ export class ProofApiServer {
 		const maxWorkers = positiveInteger(body.maxWorkers) ?? this.defaultMaxWorkers;
 		const maxSteps = positiveInteger(body.maxSteps) ?? this.defaultMaxSteps;
 		const config = this.configService?.config;
+		const workflowMode = parseWorkflowMode(body.workflowMode) ?? config?.proof.workflowMode;
 		const roles = await this.createRoles({ session: record.session, sessionId, runId, obligation: record.pendingObligation, mode, ...(config === undefined ? {} : { config }) });
 		const workflow = new ProofWorkflow({
 			session: record.session,
 			obligation: record.pendingObligation,
 			mode,
+			workflowMode,
 			...roles,
 			maxWorkers,
 			maxSteps,
@@ -693,11 +696,13 @@ export class ProofApiServer {
 			const runId = entry.name;
 			const mode = parseMode(runConfig.mode) ?? record.mode ?? this.defaultMode;
 			const config = mathAgentConfigOf(runConfig.config);
+			const workflowMode = parseWorkflowMode(runConfig.workflowMode) ?? config?.proof.workflowMode;
 			const roles = await this.createRoles({ session: record.session, sessionId, runId, obligation: record.pendingObligation, mode, ...(config === undefined ? {} : { config }) });
 			const workflow = new ProofWorkflow({
 				session: record.session,
 				obligation: record.pendingObligation,
 				mode,
+				workflowMode,
 				...roles,
 				maxWorkers: positiveInteger(runConfig.maxWorkers) ?? this.defaultMaxWorkers,
 				maxSteps: positiveInteger(runConfig.maxSteps) ?? this.defaultMaxSteps,
@@ -853,17 +858,27 @@ function resultFromState(run: RunRecord): ProofRunResult {
 		runId: run.runId,
 		status: state.status,
 		mode: state.mode,
+		workflowMode: state.workflowMode,
 		steps: state.step,
 		...(state.submittedCandidateId === undefined ? {} : { candidateId: state.submittedCandidateId }),
 		...(state.proofLeanPath === undefined ? {} : { proofLeanPath: state.proofLeanPath }),
 	};
 }
 
+function executionTaskStatusForProofTask(status: import("../proof/types.js").ProofTaskStatus): import("../research/types.js").ExecutionTaskStatus {
+	if (status === "COMPLETED") return "COMPLETED";
+	if (status === "FAILED_TERMINAL") return "FAILED_TERMINAL";
+	if (status === "FAILED_RETRYABLE" || status === "BLOCKED" || status === "PARTIAL") return "FAILED_RETRYABLE";
+	if (status === "RUNNING") return "INTERRUPTED";
+	return "PENDING";
+}
+
 function isProofRunResult(value: Record<string, unknown>): value is ProofRunResult {
 	return typeof value.runId === "string"
 		&& (value.status === "PROVED" || value.status === "CANDIDATE_READY" || value.status === "PARTIAL" || value.status === "FAILED" || value.status === "BLOCKED_PROVIDER" || value.status === "CANCELLED")
-		&& (value.mode === "prove" || value.mode === "prove_and_formalize" || value.mode === "formalize_only")
-		&& typeof value.steps === "number";
+			&& (value.mode === "prove" || value.mode === "prove_and_formalize" || value.mode === "formalize_only")
+			&& (value.workflowMode === undefined || value.workflowMode === "dynamic" || value.workflowMode === "legacy")
+			&& typeof value.steps === "number";
 }
 
 function isTerminalStatus(status: ProofStatus): boolean {
@@ -883,6 +898,12 @@ function parseMode(value: unknown): ProofMode | undefined {
 	if (value === undefined) return undefined;
 	if (value === "prove" || value === "prove_and_formalize" || value === "formalize_only") return value;
 	throw new ApiHttpError(400, "mode must be prove, prove_and_formalize, or formalize_only");
+}
+
+function parseWorkflowMode(value: unknown): ProofWorkflowMode | undefined {
+	if (value === undefined) return undefined;
+	if (value === "dynamic" || value === "legacy") return value;
+	throw new ApiHttpError(400, "workflowMode must be dynamic or legacy");
 }
 
 function positiveInteger(value: unknown): number | undefined {

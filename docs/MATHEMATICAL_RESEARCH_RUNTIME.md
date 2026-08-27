@@ -1,6 +1,6 @@
 # Mathematical Research Runtime v1
 
-MRR v1.1 is the durable strategic layer above the existing TypeScript `ProofRuntime`. It does not restore OpenProver or introduce a second proof engine. `ResearchRuntime` selects and persists strategic work; `ProofRuntime` remains the bounded tactical Planner/Worker/Verifier engine; `ResearchStateReducer` is the only mathematical truth writer.
+MRR v1.1 is the durable strategic layer above the existing TypeScript `ProofRuntime`. It does not restore OpenProver or introduce a second proof engine. `ResearchRuntime` selects and persists strategic work; `ProofRuntime` is the bounded tactical execution kernel whose default `dynamic` mode lets the model choose the task/agent workflow each round (with a `legacy` prompt mode for rollback); `ResearchStateReducer` is the only mathematical truth writer.
 
 ## Production chain
 
@@ -27,7 +27,7 @@ The concrete production path is:
 - `CorpusService.bootstrap` in `backend/src/research/corpus.ts`: per-file semantic analysis, merge, dependency/route/coverage reconstruction, review, and durable report.
 - `AgentResearchDirector` plus `ResearchDirector.decide` in `backend/src/research/agent-role.ts` and `runtime.ts`: model strategy, strict validation, and fallback.
 - `ProofApiServer.runResearchProof`: bridge from a selected obligation and exact `TacticalDirective` into `ProofWorkflow`, with the target gate, project config snapshot, and research tools.
-- `ProofRuntime.run` in `backend/src/proof/runtime.ts`: persisted step plans, task queue, durable Worker results, independent verification, exact same-step resume, dependency invalidation, and exact submission action.
+- `ProofRuntime.run` in `backend/src/proof/runtime.ts`: persisted step plans, model-authored task graph, ready-frontier queue, logical-agent factory, durable Worker/partial results, independent verification, exact same-step resume, dependency invalidation, and exact submission action.
 - `ResearchEvidenceRecorder` and `createResearchTools`: automatic role/task-scoped artifact access receipts.
 - `ResearchStateReducer.applyTactical`: centralized kind validation, truth-gate validation, typed contribution conversion, graph/coverage/route effects, and one atomic claim/effect/authority/event commit.
 - `ResearchRetrievalService` and `ResearchContextBuilder`: unified cross-cycle memory and bounded context selection.
@@ -98,7 +98,7 @@ A structural-probe observation does not reset the stall counter. Structural prog
 
 ## Execution, resume, and storage
 
-The durable execution ledger records Planner steps, Workers, Verifiers, merge, target submission, and result conversion with stable identities and statuses. Worker results are persisted as they complete. On restart, completed A/B tasks are hydrated and not rerun; only interrupted C and missing Verifiers execute.
+The durable execution ledger records Planner steps, Workers, Verifiers, merge, target submission, and result conversion with stable identities and statuses. Worker results and task status transitions are persisted as they complete. On restart, completed tasks are hydrated and not rerun; partial/blocked tasks remain visible to the controller for continuation or replacement, and missing Verifiers execute.
 
 Research orchestration uses stable IDs for cycles, decisions, directives, jobs, attempts, plans, execution tasks, effects, authority receipts, and events. Execution is at least once; mathematical effects are exactly once. A plan is written before Worker dispatch. Crashes resume the current step without asking the Planner to recreate task identities; completed Workers are hydrated, interrupted Workers and missing Verifiers run, and only then can the next plan be requested. A changed/missing/hash-invalid or no-longer-current authority dependency makes the old plan `STALE` and records the replan reason.
 

@@ -143,6 +143,31 @@ test("executes a sequential tool loop and distinguishes tool errors", async (t) 
 	assert.equal(session.contextProjection().filter((message) => message.role === "tool_result").length, 1);
 });
 
+test("preserves provider tool-call metadata across the next model turn", async (t) => {
+	const { directory, session } = await makeSession();
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const providerMetadata = { google: { thought_signature: "opaque-signature" } };
+	const provider = new MockProvider([
+		{
+			events: [
+				{ type: "tool_call_delta", callId: "call-meta", name: "echo", argumentsDelta: '{"value":"ok"}', providerMetadata },
+				{ type: "complete", stopReason: "tool_calls" },
+			],
+		},
+		{ events: [{ type: "complete", stopReason: "end_turn" }] },
+	]);
+	const agent = new AgentCore({ session, model: model(), provider, tools: [echoTool([])] });
+
+	await agent.prompt("use echo");
+
+	const assistant = session.contextProjection().find((message) => message.role === "assistant");
+	assert.equal(assistant?.role, "assistant");
+	if (assistant?.role === "assistant") {
+		assert.deepEqual(assistant.content.find((part) => part.kind === "tool_call")?.providerMetadata, providerMetadata);
+	}
+	assert.deepEqual(provider.requests[1]?.messages.find((message) => message.role === "assistant")?.content.find((part) => part.kind === "tool_call")?.providerMetadata, providerMetadata);
+});
+
 test("runs multiple tools in parallel and survives invalid arguments", async (t) => {
 	const { directory, session } = await makeSession();
 	t.after(async () => rm(directory, { recursive: true, force: true }));

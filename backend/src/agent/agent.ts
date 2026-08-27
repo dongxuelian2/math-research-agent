@@ -235,7 +235,7 @@ export class AgentCore implements Agent {
 		let providerStopReason: AssistantMessage["stopReason"] = "end_turn";
 		let failure: ErrorRecord | undefined;
 		let aborted = false;
-		const calls = new Map<string, { name: string; rawArguments: string }>();
+		const calls = new Map<string, { name: string; rawArguments: string; providerMetadata?: AssistantToolCallContent["providerMetadata"] }>();
 		const argumentErrors = new Map<string, string>();
 		const request: ProviderRequest = {
 			model: this.model,
@@ -261,6 +261,9 @@ export class AgentCore implements Agent {
 					calls.set(event.callId, {
 						name: event.name ?? previous.name,
 						rawArguments: previous.rawArguments + (event.argumentsDelta ?? ""),
+						...(event.providerMetadata === undefined && previous.providerMetadata === undefined
+							? {}
+							: { providerMetadata: event.providerMetadata ?? previous.providerMetadata }),
 					});
 					await this.emit(
 						messageUpdate(runId, turn, assistantId, {
@@ -313,6 +316,7 @@ export class AgentCore implements Agent {
 				id,
 				name: call.name,
 				arguments: argumentsObject,
+				...(call.providerMetadata === undefined ? {} : { providerMetadata: call.providerMetadata }),
 			} satisfies AssistantToolCallContent);
 			pendingCalls.push({ id, name: call.name, rawArguments: call.rawArguments });
 		}

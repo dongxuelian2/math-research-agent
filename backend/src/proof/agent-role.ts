@@ -4,6 +4,7 @@ import type { AgentMessage, AgentRunResult, AssistantMessage } from "../models/i
 import { isJsonObject, type JsonObject } from "../models/json.js";
 import type {
 	ProofAction,
+	ProofAgentFactory,
 	ProofCandidate,
 	ProofPlan,
 	ProofPlanner,
@@ -23,6 +24,7 @@ export interface AgentProofRoles {
 	readonly planner: ProofPlanner;
 	readonly researcher: ProofResearcher;
 	readonly verifier: ProofVerifier;
+	readonly agentFactory?: ProofAgentFactory;
 }
 
 /** A model/provider failure is different from a malformed planner response. */
@@ -48,11 +50,13 @@ export function createAgentProofRoles(options: {
 	readonly planner: Agent;
 	readonly researcher: Agent;
 	readonly verifier: Agent;
+	readonly agentFactory?: ProofAgentFactory;
 }): AgentProofRoles {
 	return {
 		planner: new AgentProofPlanner(options.planner),
 		researcher: new AgentProofResearcher(options.researcher),
 		verifier: new AgentProofVerifier(options.verifier),
+		...(options.agentFactory === undefined ? {} : { agentFactory: options.agentFactory }),
 	};
 }
 
@@ -64,7 +68,7 @@ class AgentProofPlanner implements ProofPlanner, ProofPlannerWithTrace {
 	async plan(context: ProofPlannerContext, signal?: AbortSignal): Promise<ProofPlan> {
 		throwIfAborted(signal);
 		const prompt = formatPlannerPrompt(context);
-		const system = plannerSystemPrompt(context.mode ?? "prove");
+		const system = plannerSystemPrompt(context.mode ?? "prove", context.workflowMode);
 		let lastText = "";
 		let lastError = "";
 		for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -108,6 +112,9 @@ class AgentProofResearcher implements ProofResearcher {
 				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content, assumptions?:string[], dependencyClaims?:string[], reliedOnArtifactIds?:string[]}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
 				"For research contributions return candidate.contribution={kind,statement,relationshipToTarget,claimId?,assumptions,dependencyClaims,childClaims?,coverageScope?,coverageAssertion?,closedCaseClaimId?,closureReason?,targetScope?,counterexampleScope?}. Reductions require >=1 unique non-self child; case splits require >=2 plus explicit scope/exhaustiveness; counterexamples require target and witness scopes. Do not label a lemma or local case as the target.",
 				"A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
+				context.task.agent === undefined ? "Logical agent: the default mathematical worker." : `Logical agent: ${context.task.agent.agentId}\nPurpose: ${context.task.agent.purpose}${context.task.agent.capabilities === undefined ? "" : `\nCapabilities: ${context.task.agent.capabilities.join(", ")}`}`,
+				context.task.successCriteria === undefined ? "" : `Success criteria:\n${context.task.successCriteria}`,
+				context.task.continuationOf === undefined ? "" : `This is a continuation of partial task ${context.task.continuationOf}. Preserve valid work and complete the missing portion; do not restart without explaining why.`,
 				`Theorem:\n${context.obligation.theorem}`,
 				context.obligation.context === undefined ? "" : `Theorem context:\n${context.obligation.context}`,
 				`Focused task:\n${context.task.description}`,
@@ -117,6 +124,17 @@ class AgentProofResearcher implements ProofResearcher {
 		throwIfAborted(signal);
 		assertAgentResult(result, "researcher");
 		const text = assistantText(result).trim();
+		const assistantStopReason = lastAssistantStopReason(result);
+		if (assistantStopReason === "length" || result.stopReason === "max_turns") {
+			return {
+				kind: "partial",
+				content: text,
+				reason: assistantStopReason === "length"
+					? "Worker output reached the model output limit before a complete result was returned."
+					: "Worker reached its turn budget before a complete result was returned.",
+				suggestedNext: `Create a continuation task for ${context.task.taskId} and preserve this partial output.`,
+			};
+		}
 		return parseResearchResult(text, context.task.taskId);
 	}
 }
@@ -145,6 +163,9 @@ class AgentProofVerifier implements ProofVerifier {
 		);
 		throwIfAborted(signal);
 		assertAgentResult(result, "verifier");
+		if (lastAssistantStopReason(result) === "length") {
+			return { verdict: "UNFINISHED", feedback: "Verifier output reached the model output limit before a verdict was returned." };
+		}
 		return parseVerification(assistantText(result));
 	}
 }
@@ -152,9 +173,19 @@ class AgentProofVerifier implements ProofVerifier {
 export function parsePlannerPlan(text: string): ProofPlan {
 	const parsed = parseJsonObject(text);
 	if (parsed !== undefined && Array.isArray(parsed.actions)) {
+		const workflow = parsed.workflow === undefined ? undefined : parseWorkflowSpec(parsed.workflow);
 		return {
 			actions: parsed.actions.map((action) => parseAction(action)),
 			...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
+			...(workflow === undefined ? {} : { workflow }),
+		};
+	}
+	if (parsed !== undefined && typeof parsed.action === "string") {
+		const workflow = parsed.workflow === undefined ? undefined : parseWorkflowSpec(parsed.workflow);
+		return {
+			actions: [parseAction(parsed)],
+			...(typeof parsed.summary === "string" ? { summary: parsed.summary } : {}),
+			...(workflow === undefined ? {} : { workflow }),
 		};
 	}
 
@@ -221,6 +252,14 @@ function parseResearchResult(text: string, taskId: string): ResearchResult {
 	if (text.length === 0) {
 		return { kind: "blocked", reason: "Researcher returned an empty response" };
 	}
+	if (looksLikeStructuredResearchResponse(text)) {
+		return {
+			kind: "partial",
+			content: text,
+			reason: "Researcher returned an incomplete structured response; it was not promoted to a candidate.",
+			suggestedNext: `Continue task ${taskId} with the preserved partial response.`,
+		};
+	}
 	return {
 		kind: "candidate",
 		candidate: { taskId, content: text, strategy: "agent-reasoning" },
@@ -256,10 +295,11 @@ function parseAction(value: unknown): ProofAction {
 			return { action: "write_whiteboard", content, ...summary };
 		}
 		case "spawn": {
-			if (!Array.isArray(value.tasks)) {
+			const taskValues = value.tasks ?? (value.task === undefined ? undefined : [value.task]);
+			if (!Array.isArray(taskValues)) {
 				throw new ProofProtocolError("spawn requires tasks");
 			}
-			return { action: "spawn", tasks: value.tasks.map(parseTask), ...summary };
+			return { action: "spawn", tasks: taskValues.map(parseTask), ...summary };
 		}
 		case "literature_search": {
 			const query = value.query ?? value.search_query;
@@ -316,22 +356,73 @@ function parseAction(value: unknown): ProofAction {
 }
 
 function parseTask(value: unknown): ProofTaskInput {
-	if (!isRecord(value) || typeof value.summary !== "string" || typeof value.description !== "string") {
-		throw new ProofProtocolError("spawn tasks require summary and description");
-	}
+	if (typeof value === "string") return { summary: summarizeTask(value), description: value };
+	if (!isRecord(value)) throw new ProofProtocolError("spawn tasks require a string or object");
+	const rawDescription = value.description ?? value.task ?? value.prompt ?? value.instruction;
+	const description = typeof rawDescription === "string" ? rawDescription : undefined;
+	const summary = typeof value.summary === "string" ? value.summary : description === undefined ? undefined : summarizeTask(description);
+	if (summary === undefined || description === undefined) throw new ProofProtocolError("spawn tasks require summary and description (or a task/instruction string)");
+	const taskId = typeof value.taskId === "string" ? value.taskId : typeof value.task_id === "string" ? value.task_id : typeof value.id === "string" ? value.id : undefined;
 	const contributionKind = value.contributionKind ?? value.contribution_kind;
+	const dependsOn = value.dependsOn ?? value.depends_on;
+	if (dependsOn !== undefined && (!Array.isArray(dependsOn) || !dependsOn.every((item) => typeof item === "string"))) {
+		throw new ProofProtocolError("spawn task dependsOn must be an array of task ids");
+	}
+	const continuationOf = value.continuationOf ?? value.continuation_of;
+	if (continuationOf !== undefined && typeof continuationOf !== "string") throw new ProofProtocolError("spawn task continuationOf must be a task id");
+	const agent = parseAgentSpec(value.agent, taskId, summary);
+	const successCriteria = value.successCriteria ?? value.success_criteria;
+	if (successCriteria !== undefined && typeof successCriteria !== "string") throw new ProofProtocolError("spawn task successCriteria must be a string");
 	return {
-		...(typeof value.taskId === "string" ? { taskId: value.taskId } : {}),
-		summary: value.summary,
-		description: value.description,
+		...(taskId === undefined ? {} : { taskId }),
+		summary,
+		description,
 		...(typeof value.routeKey === "string" ? { routeKey: value.routeKey } : {}),
 		...(value.scope === "TARGET" || value.scope === "CONTRIBUTION" ? { scope: value.scope } : {}),
 		...(typeof value.targetClaimId === "string" ? { targetClaimId: value.targetClaimId } : typeof value.target_claim_id === "string" ? { targetClaimId: value.target_claim_id } : {}),
 		...(isContributionKind(contributionKind) ? { contributionKind } : {}),
+		...(dependsOn === undefined ? {} : { dependsOn }),
+		...(agent === undefined ? {} : { agent }),
+		...(typeof successCriteria === "string" ? { successCriteria } : {}),
+		...(typeof continuationOf === "string" ? { continuationOf } : {}),
 	};
 }
 
+function summarizeTask(description: string): string {
+	const normalized = description.replace(/\s+/g, " ").trim();
+	return normalized.length <= 120 ? normalized : `${normalized.slice(0, 117)}...`;
+}
+
+export function createAgentProofResearcher(researcher: Agent): ProofResearcher { return new AgentProofResearcher(researcher); }
+
 export function createAgentProofVerifier(verifier: Agent): ProofVerifier { return new AgentProofVerifier(verifier); }
+
+function parseAgentSpec(value: unknown, fallbackId: string | undefined, fallbackPurpose: string): import("./types.js").ProofAgentSpec | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value === "string") return { agentId: fallbackId ?? "dynamic-worker", purpose: value };
+	if (!isRecord(value)) throw new ProofProtocolError("spawn task agent must be a string or object");
+	const agentId = value.agentId ?? value.agent_id ?? value.id ?? fallbackId ?? "dynamic-worker";
+	const purpose = value.purpose ?? value.reason ?? fallbackPurpose;
+	if (typeof agentId !== "string" || agentId.trim().length === 0 || typeof purpose !== "string" || purpose.trim().length === 0) throw new ProofProtocolError("spawn task agent requires agentId and purpose");
+	const capabilities = value.capabilities;
+	if (capabilities !== undefined && (!Array.isArray(capabilities) || !capabilities.every((item) => typeof item === "string"))) throw new ProofProtocolError("spawn task agent capabilities must be an array of strings");
+	return {
+		agentId: agentId.trim(),
+		purpose: purpose.trim(),
+		...(capabilities === undefined ? {} : { capabilities }),
+	};
+}
+
+function parseWorkflowSpec(value: unknown): import("./types.js").ProofWorkflowSpec {
+	if (!isRecord(value) || typeof value.strategy !== "string" || value.strategy.trim().length === 0) throw new ProofProtocolError("workflow requires a non-empty strategy");
+	const successCriteria = value.successCriteria ?? value.success_criteria;
+	if (successCriteria !== undefined && (!Array.isArray(successCriteria) || !successCriteria.every((item) => typeof item === "string"))) throw new ProofProtocolError("workflow successCriteria must be an array of strings");
+	return {
+		strategy: value.strategy.trim(),
+		...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
+		...(successCriteria === undefined ? {} : { successCriteria }),
+	};
+}
 
 function parseContribution(value: Record<string, unknown>): import("./types.js").ProofContributionDraft {
 	if (!isContributionKind(value.kind) || typeof value.statement !== "string" || typeof value.relationshipToTarget !== "string") throw new ProofProtocolError("candidate.contribution requires kind, statement, and relationshipToTarget");
@@ -465,28 +556,39 @@ function parseTomlAction(block: TomlBlock): ProofAction {
 function formatPlannerPrompt(context: ProofPlannerContext): string {
 	const repository = context.repositoryIndex ?? context.repository.map((item) => `- [[${item.slug}]]: ${item.summary}`).join("\n");
 	const history = context.recentOutputs.map((output) => `### ${output.action} — ${output.summary}\n${output.content}`).join("\n\n");
+	const tasks = context.tasks.length === 0
+		? "none"
+		: context.tasks.map((task) => `- ${task.taskId} [${task.status}]${task.dependsOn.length === 0 ? "" : ` dependsOn=${task.dependsOn.join(",")}`} — ${task.summary}${task.agent === undefined ? "" : ` (agent=${task.agent.agentId}: ${task.agent.purpose})`}${task.lastError === undefined ? "" : `; lastError=${task.lastError}`}`).join("\n");
 	const failures = context.failedRoutes.length === 0
 		? "none"
 		: context.failedRoutes.map((failure) => `- ${failure.routeFingerprint.slice(0, 12)}: ${failure.reason}`).join("\n");
+	const coordination = context.workflowMode === "dynamic"
+		? "You are the workflow controller. Decide the decomposition for this round yourself: solve directly when appropriate, or spawn any number of logical agents with focused tasks. Use stable task ids, explicit dependsOn edges, successCriteria, and continuationOf when a previous task is partial. The runtime executes only the ready frontier and will return pending/partial tasks in the next round. Do not assume a fixed number or fixed set of agent roles. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\"}]}; do not use a singular task field."
+		: "Delegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy.";
 	return [
 		"# WHITEBOARD\n\n" + (context.whiteboard || "(empty — initialize Goal / Plan / Failed / Backlog / Status)"),
 		"# THEOREM\n\n" + context.obligation.theorem,
 		context.obligation.context === undefined ? "" : "# THEOREM CONTEXT\n\n" + context.obligation.context,
-		`# STATUS\n\nmode=${context.mode ?? "prove"}\nstatus=${context.status}\nstep=${context.step}`,
+		`# STATUS\n\nmode=${context.mode ?? "prove"}\nworkflowMode=${context.workflowMode}\nstatus=${context.status}\nstep=${context.step}`,
+		"# TASK GRAPH\n\n" + tasks,
 		"# REPOSITORY\n\n" + (repository || "(empty)"),
 		"# FAILED ROUTES\n\n" + failures,
 		context.tacticalDirective === undefined ? "" : "# TACTICAL DIRECTIVE\n\n" + JSON.stringify(context.tacticalDirective, null, 2),
 		"# RECENT WORKER / VERIFIER OUTPUT\n\n" + (history || "(none)"),
-		"# COORDINATION RULES\n\nDelegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy. Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. Return one or more actions in JSON or OpenProver TOML format.",
+		`# COORDINATION RULES\n\n${coordination} Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. Return one or more actions in JSON or OpenProver TOML format. In JSON, an optional top-level workflow object may describe strategy, rationale, and successCriteria.`,
 	].filter((part) => part.length > 0).join("\n\n---\n\n");
 }
 
-function plannerSystemPrompt(mode: string): string {
+function plannerSystemPrompt(mode: string, workflowMode: "dynamic" | "legacy"): string {
 	return [
-		"You are the PLANNER in an OpenProver-style proof workflow. Decide what work should happen next; workers do the mathematical reasoning.",
-	"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_target_proof, submit_lean_proof, stop.",
-	"Keep task descriptions self-contained. Workers only receive the theorem, task, and explicitly referenced repository material. Never silently repair a verifier rejection; create a new route and record the failure.",
-	mode === "prove" ? "Goal: accept a verified informal proof." : mode === "formalize_only" ? "Goal: accept only a formally checked Lean proof." : "Goal: accept both a verified informal proof and a formally checked Lean proof.",
+		workflowMode === "dynamic"
+			? "You are the WORKFLOW CONTROLLER in a mathematical research system. You own the next-step workflow: choose the number, purpose, and dependencies of logical agents from the theorem and current evidence."
+			: "You are the PLANNER in an OpenProver-style proof workflow. Decide what work should happen next; workers do the mathematical reasoning.",
+		"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_target_proof, submit_lean_proof, stop.",
+		workflowMode === "dynamic"
+			? "Keep each task self-contained. A task may name a logical agent with agentId, purpose, and descriptive capabilities; this metadata never grants tools. Use dependsOn only for real prerequisites, and use continuationOf to continue a partial result. Never silently repair a verifier rejection; create a new route and record the failure. The exact spawn shape is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\"}]}; use tasks (plural), not task."
+			: "Keep task descriptions self-contained. Workers only receive the theorem, task, and explicitly referenced repository material. Never silently repair a verifier rejection; create a new route and record the failure.",
+		mode === "prove" ? "Goal: accept a verified informal proof." : mode === "formalize_only" ? "Goal: accept only a formally checked Lean proof." : "Goal: accept both a verified informal proof and a formally checked Lean proof.",
 	].join("\n\n");
 }
 
@@ -502,6 +604,14 @@ function assistantText(result: AgentRunResult): string {
 	return "";
 }
 
+function lastAssistantStopReason(result: AgentRunResult): AssistantMessage["stopReason"] | undefined {
+	for (let index = result.messages.length - 1; index >= 0; index -= 1) {
+		const message = result.messages[index];
+		if (message?.role === "assistant") return message.stopReason;
+	}
+	return undefined;
+}
+
 function assistantMessageText(message: AssistantMessage): string {
 	return message.content
 		.filter((part): part is Extract<AssistantMessage["content"][number], { kind: "text" }> => part.kind === "text")
@@ -513,7 +623,7 @@ function assertAgentResult(result: AgentRunResult, role: string): void {
 	if (result.error !== undefined || ["model_error", "session_error"].includes(result.stopReason)) {
 		throw new ProofProviderError(`${role} provider failed: ${result.error?.message ?? result.stopReason}`);
 	}
-	}
+}
 
 function parseJsonObject(text: string): Record<string, unknown> | undefined {
 	const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -526,6 +636,11 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+function looksLikeStructuredResearchResponse(text: string): boolean {
+	const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+	return trimmed.startsWith("{") && /["']kind["']\s*:/u.test(trimmed);
 }
 
 function isVerdict(value: unknown): value is VerificationResult["verdict"] {

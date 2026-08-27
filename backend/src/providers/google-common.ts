@@ -61,11 +61,13 @@ export async function* parseGoogleStream(chunks: AsyncIterable<string>): AsyncIt
 					const explicitId = asString(functionCall.id);
 					const callId = explicitId ?? `google-call-${callNumber}`;
 					if (explicitId === undefined) callNumber += 1;
+					const thoughtSignature = asString(part.thoughtSignature) ?? asString(part.thought_signature);
 					yield {
 						type: "tool_call_delta",
 						callId,
 						...(asString(functionCall.name) === undefined ? {} : { name: asString(functionCall.name) }),
 						argumentsDelta: jsonString(functionCall.args ?? {}),
+						...(thoughtSignature === undefined ? {} : { providerMetadata: { google: { thought_signature: thoughtSignature } } }),
 					};
 				}
 			}
@@ -105,6 +107,7 @@ function toGoogleContents(request: ProviderRequest): readonly Record<string, unk
 								args: part.arguments,
 								...(isGemini3Model(request.model.model) ? { id: part.id } : {}),
 							},
+							...(googleThoughtSignature(part.providerMetadata) === undefined ? {} : { thoughtSignature: googleThoughtSignature(part.providerMetadata) }),
 						},
 			);
 			// An interrupted/empty model turn can be retained in the Agent
@@ -142,4 +145,9 @@ function isGemini3Model(model: string): boolean {
 
 function thinkingBudget(effort: ReasoningEffort): number {
 	return effort === "low" ? 1024 : effort === "medium" ? 4096 : 8192;
+}
+
+function googleThoughtSignature(metadata: import("../models/json.js").JsonObject | undefined): string | undefined {
+	const google = asRecord(metadata?.google);
+	return asString(google?.thought_signature) ?? asString(google?.thoughtSignature);
 }

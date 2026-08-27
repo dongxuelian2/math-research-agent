@@ -47,6 +47,8 @@ export type ModelToolCallDelta = {
 	readonly callId: string;
 	readonly name?: string;
 	readonly argumentsDelta?: string;
+	/** Provider-specific response metadata that must survive tool-call round trips. */
+	readonly providerMetadata?: JsonObject;
 };
 
 export type ModelComplete = {

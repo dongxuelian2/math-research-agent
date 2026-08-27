@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { AgentCore } from "./agent/agent.js";
 import type { Agent, AgentEventListener } from "./agent/types.js";
 import type { AgentRunResult, UserMessage } from "./models/index.js";
-import { createAgentProofRoles, type AgentProofRoles } from "./proof/agent-role.js";
+import { createAgentProofResearcher, createAgentProofRoles, type AgentProofRoles } from "./proof/agent-role.js";
+import type { ProofAgentFactory, ProofResearcher } from "./proof/types.js";
 import type { ProofApiRoleFactory } from "./api/server.js";
 import { createProvider } from "./providers/registry.js";
 import { Session } from "./session/session.js";
@@ -33,18 +34,27 @@ export function createConfiguredProofRoleFactory(options: ConfiguredProofRoleFac
 		const planner = await createRoleAgent("planner", config, rolesDirectory, undefined, targetGate);
 		const worker = await createRoleAgent("worker", config, rolesDirectory, tools, targetGate);
 		const verifier = await createRoleAgent("verifier", config, rolesDirectory, tools, targetGate);
-		return createAgentProofRoles({ planner, researcher: worker, verifier });
+		const dynamicResearchers = new Map<string, Promise<ProofResearcher>>();
+		const agentFactory: ProofAgentFactory = (spec) => {
+			const existing = dynamicResearchers.get(spec.agentId);
+			if (existing !== undefined) return existing;
+			const created = createRoleAgent("worker", config, rolesDirectory, tools, targetGate, spec.agentId).then(createAgentProofResearcher);
+			dynamicResearchers.set(spec.agentId, created);
+			return created;
+		};
+		return createAgentProofRoles({ planner, researcher: worker, verifier, agentFactory });
 	};
 	factory.createAgent = async ({ role, sessionId, runId, tools, config: snapshot }) => { const config = snapshot ?? (typeof options.config === "function" ? options.config() : options.config.config); const directory = join(options.rootDirectory, "research-role-sessions", sessionId, runId); await mkdir(directory, { recursive: true }); return createRoleAgent(role, config, directory, tools); };
 	return factory;
 }
 
-async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directory: string, tools?: readonly import("./models/tools.js").RuntimeTool[], targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }): Promise<Agent> {
+async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directory: string, tools?: readonly import("./models/tools.js").RuntimeTool[], targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }, instanceId?: string): Promise<Agent> {
 	const profile = config.roles[role];
 	const modelProfile = config.models[profile.model];
 	if (modelProfile === undefined) throw new Error(`Role ${role} references unknown model ${profile.model}`);
-	const sessionId = `proof-${role}`;
-	const sessionDirectory = join(directory, role);
+	const identity = instanceId === undefined ? role : `${role}-${safeAgentSegment(instanceId)}`;
+	const sessionId = `proof-${identity}`;
+	const sessionDirectory = join(directory, identity);
 	const session = await openOrCreateSession(sessionId, sessionDirectory, directory);
 	const model = modelConfigOf(modelProfile);
 	const provider = createProvider(model, modelProfile.provider === "mock" ? { mockResponses: createMockResponses(role, targetGate) } : {});
@@ -56,6 +66,10 @@ async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directo
 		maxTurns: profile.maxTurns ?? config.proof.maxSteps,
 	});
 	return profile.timeoutSeconds === undefined ? agent : timeoutAgent(agent, profile.timeoutSeconds);
+}
+
+function safeAgentSegment(value: string): string {
+	return value.trim().replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "agent";
 }
 
 function timeoutAgent(agent: Agent, timeoutSeconds: number): Agent {
