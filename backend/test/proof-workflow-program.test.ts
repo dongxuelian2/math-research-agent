@@ -145,6 +145,47 @@ test("one controller spawn autonomously advances dependencies and injects predec
 	assert.equal(runtime.state.executionPlans[0]?.actionExecutions.length, 2, "compiled frontiers must be durable action receipts");
 });
 
+test("autonomous frontier refuses a verifier-rejected candidate dependency", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "proof-workflow-rejected-dependency-"));
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const session = await Session.create({ projectId: "rejected-dependency", sessionId: "rejected-dependency", cwd: directory, directory });
+	let synthesisCalls = 0;
+	const planner = {
+		async plan(): Promise<ProofPlan> {
+			return { actions: [{ action: "spawn", tasks: [
+				{ taskId: "foundation", summary: "foundation", description: "attempt foundation" },
+				{ taskId: "synthesis", summary: "synthesis", description: "consume foundation", dependsOn: ["foundation"] },
+			] }] };
+		},
+	};
+	const researcher: ProofResearcher = {
+		async research(context) {
+			if (context.task.taskId === "synthesis") synthesisCalls += 1;
+			return { kind: "candidate", candidate: { taskId: context.task.taskId, strategy: "test", content: `candidate ${context.task.taskId}` } };
+		},
+	};
+	const verifier: ProofVerifier = {
+		async verify(candidateValue) {
+			return candidateValue.taskId === "foundation"
+				? { verdict: "INCORRECT", feedback: "foundation is false" }
+				: { verdict: "CORRECT", feedback: "unexpected downstream verification" };
+		},
+	};
+	const runtime = new ProofRuntime({
+		session,
+		obligation: { obligationId: "o", theorem: "T" },
+		planner,
+		researcher,
+		verifier,
+		maxSteps: 1,
+		workspaceDirectory: join(directory, "run"),
+	});
+	const result = await runtime.run();
+	assert.equal(result.status, "FAILED");
+	assert.equal(synthesisCalls, 0, "a rejected candidate must never be fed into a downstream worker");
+	assert.equal(runtime.state.tasks.find((task) => task.taskId === "synthesis")?.status, "FAILED_RETRYABLE");
+});
+
 test("candidate verifier pool isolates concurrent verifier sessions and reuses the same candidate identity", async () => {
 	const created = new Map<string, number>();
 	const active = new Set<string>();

@@ -54,7 +54,10 @@ export class ProofRuntime extends DurableProofRuntime {
 		const agentFactory = options.agentFactory === undefined
 			? undefined
 			: async (spec: Parameters<NonNullable<ProofRuntimeOptions["agentFactory"]>>[0], context: ProofResearchContext): Promise<ProofResearcher> => {
-				const enriched = enrichResearchContext(context, eventSource());
+				const currentEvents = eventSource();
+				const blocked = dependencyBlockReason(context.task, currentEvents);
+				if (blocked !== undefined) return blockedResearcher(blocked);
+				const enriched = enrichResearchContext(context, currentEvents);
 				const selected = await options.agentFactory!(spec, enriched);
 				return withDependencyDataflow(selected, () => eventSource());
 			};
@@ -121,9 +124,16 @@ function compileSpawnFrontiers(action: Extract<ProofAction, { readonly action: "
 function withDependencyDataflow(researcher: ProofResearcher, events: () => readonly ProofEvent[]): ProofResearcher {
 	return {
 		research(context, signal) {
-			return researcher.research(enrichResearchContext(context, events()), signal);
+			const currentEvents = events();
+			const blocked = dependencyBlockReason(context.task, currentEvents);
+			if (blocked !== undefined) return Promise.resolve({ kind: "blocked", reason: blocked });
+			return researcher.research(enrichResearchContext(context, currentEvents), signal);
 		},
 	};
+}
+
+function blockedResearcher(reason: string): ProofResearcher {
+	return { research: async () => ({ kind: "blocked", reason }) };
 }
 
 function withVerifierDependencyDataflow(verifier: ProofVerifier, events: () => readonly ProofEvent[]): ProofVerifier {
@@ -156,6 +166,30 @@ function formatDependencyMaterials(task: ProofTask, events: readonly ProofEvent[
 	return sections.length === 0
 		? ""
 		: ["# Runtime dependency dataflow", ...sections].join("\n\n");
+}
+
+function dependencyBlockReason(task: ProofTask, events: readonly ProofEvent[]): string | undefined {
+	for (const dependencyId of task.dependsOn) {
+		const result = latestResearchResult(events, dependencyId);
+		if (result?.kind !== "candidate") continue;
+		const candidateId = result.candidate.candidateId ?? `${dependencyId}-candidate`;
+		const verification = latestVerification(events, candidateId);
+		if (verification === undefined) {
+			return `Dependency ${dependencyId} produced candidate ${candidateId} without independent verification; refusing downstream execution.`;
+		}
+		if (verification.verdict !== "CORRECT") {
+			return `Dependency ${dependencyId} candidate ${candidateId} failed independent verification (${verification.verdict}); refusing downstream execution.`;
+		}
+	}
+	return undefined;
+}
+
+function latestVerification(events: readonly ProofEvent[], candidateId: string): Extract<ProofEvent, { readonly type: "proof/verification_result" }>["result"] | undefined {
+	for (let index = events.length - 1; index >= 0; index -= 1) {
+		const event = events[index];
+		if (event?.type === "proof/verification_result" && event.candidateId === candidateId) return event.result;
+	}
+	return undefined;
 }
 
 function latestResearchResult(events: readonly ProofEvent[], taskId: string): ResearchResult | undefined {

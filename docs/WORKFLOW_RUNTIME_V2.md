@@ -12,7 +12,7 @@ The controller is still called again after the compiled plan finishes, so mathem
 
 `dependsOn` now carries data as well as control. Before a dependent Worker or Verifier runs, the runtime reads the latest durable `proof/research_result` for each predecessor and appends the exact predecessor output under `Runtime dependency dataflow` in `referencedMaterials`.
 
-This removes the previous hidden dependency on the next controller turn copying or paraphrasing an upstream result into a downstream task. The durable event log remains the source of truth and survives process restart.
+This removes the previous hidden dependency on the next controller turn copying or paraphrasing an upstream result into a downstream task. The durable event log remains the source of truth and survives process restart. If a predecessor produced a proof candidate, autonomous downstream execution additionally requires an independent `CORRECT` verification; rejected or unverified candidates are never forwarded as trusted dependency inputs.
 
 ## Verifier isolation
 
