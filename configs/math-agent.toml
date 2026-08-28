@@ -8,6 +8,7 @@ data_dir = ".math-agent"
 
 [proof]
 default_mode = "prove"
+workflow_mode = "dynamic"
 max_workers = 2
 max_steps = 8
 history_limit = 8

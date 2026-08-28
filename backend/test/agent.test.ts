@@ -92,6 +92,22 @@ test("runs a streaming single turn and persists the projected context", async (t
 	assert.deepEqual(resumed.contextProjection().map((message) => message.role), ["user", "assistant"]);
 });
 
+test("can bound the live provider context without truncating the durable session", async (t) => {
+	const { directory, session } = await makeSession();
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const provider = new MockProvider([
+		{ events: [{ type: "text_delta", text: "first" }, { type: "complete", stopReason: "end_turn" }] },
+		{ events: [{ type: "text_delta", text: "second" }, { type: "complete", stopReason: "end_turn" }] },
+	]);
+	const agent = new AgentCore({ session, model: model(), provider, maxContextMessages: 1 });
+
+	await agent.prompt("first prompt");
+	await agent.prompt("second prompt");
+
+	assert.deepEqual(provider.requests[1]?.messages.map((message) => message.role), ["user"]);
+	assert.equal(session.contextProjection().length, 4);
+});
+
 test("executes a sequential tool loop and distinguishes tool errors", async (t) => {
 	const { directory, session } = await makeSession();
 	t.after(async () => rm(directory, { recursive: true, force: true }));
@@ -141,6 +157,31 @@ test("executes a sequential tool loop and distinguishes tool errors", async (t) 
 		assert.equal(turnEnds[0].toolResults[0]?.isError, false);
 	}
 	assert.equal(session.contextProjection().filter((message) => message.role === "tool_result").length, 1);
+});
+
+test("preserves provider tool-call metadata across the next model turn", async (t) => {
+	const { directory, session } = await makeSession();
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const providerMetadata = { google: { thought_signature: "opaque-signature" } };
+	const provider = new MockProvider([
+		{
+			events: [
+				{ type: "tool_call_delta", callId: "call-meta", name: "echo", argumentsDelta: '{"value":"ok"}', providerMetadata },
+				{ type: "complete", stopReason: "tool_calls" },
+			],
+		},
+		{ events: [{ type: "complete", stopReason: "end_turn" }] },
+	]);
+	const agent = new AgentCore({ session, model: model(), provider, tools: [echoTool([])] });
+
+	await agent.prompt("use echo");
+
+	const assistant = session.contextProjection().find((message) => message.role === "assistant");
+	assert.equal(assistant?.role, "assistant");
+	if (assistant?.role === "assistant") {
+		assert.deepEqual(assistant.content.find((part) => part.kind === "tool_call")?.providerMetadata, providerMetadata);
+	}
+	assert.deepEqual(provider.requests[1]?.messages.find((message) => message.role === "assistant")?.content.find((part) => part.kind === "tool_call")?.providerMetadata, providerMetadata);
 });
 
 test("runs multiple tools in parallel and survives invalid arguments", async (t) => {

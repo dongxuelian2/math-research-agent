@@ -56,6 +56,7 @@ export class AgentCore implements Agent {
 	private readonly tools: readonly RuntimeTool[];
 	private readonly toolExecutionMode: ToolExecutionMode;
 	private readonly maxTurns: number;
+	private readonly maxContextMessages: number | undefined;
 	private readonly hooks: AgentHooks;
 	private readonly listeners = new Set<AgentEventListener>();
 	private contextMessages: AgentMessage[];
@@ -71,8 +72,9 @@ export class AgentCore implements Agent {
 		this.tools = options.tools ?? [];
 		this.toolExecutionMode = options.toolExecutionMode ?? "sequential";
 		this.maxTurns = options.maxTurns ?? 32;
+		this.maxContextMessages = options.maxContextMessages === undefined ? undefined : Math.max(1, Math.floor(options.maxContextMessages));
 		this.hooks = options.hooks ?? {};
-		this.contextMessages = this.session.contextProjection();
+		this.contextMessages = this.limitContextMessages(this.session.contextProjection());
 		this.stateValue = { status: "idle", messages: [...this.contextMessages] };
 	}
 
@@ -139,7 +141,7 @@ export class AgentCore implements Agent {
 		const newMessages: AgentMessage[] = [];
 		try {
 			await this.session.appendMessage(initialMessage);
-			this.contextMessages.push(initialMessage);
+			this.appendContextMessage(initialMessage);
 			this.syncStateMessages();
 			newMessages.push(initialMessage);
 			await this.emit(agentStart(runId));
@@ -162,7 +164,7 @@ export class AgentCore implements Agent {
 
 				const collection = await this.collectAssistant(runId, turn, signal);
 				await this.session.appendMessage(collection.message);
-				this.contextMessages.push(collection.message);
+				this.appendContextMessage(collection.message);
 				this.syncStateMessages();
 				newMessages.push(collection.message);
 
@@ -182,7 +184,7 @@ export class AgentCore implements Agent {
 					const toolResults = await this.executeToolCalls(runId, turn, collection, signal);
 					for (const result of toolResults) {
 						await this.session.appendToolResult(result);
-						this.contextMessages.push(result);
+						this.appendContextMessage(result);
 						this.syncStateMessages();
 						newMessages.push(result);
 					}
@@ -235,7 +237,7 @@ export class AgentCore implements Agent {
 		let providerStopReason: AssistantMessage["stopReason"] = "end_turn";
 		let failure: ErrorRecord | undefined;
 		let aborted = false;
-		const calls = new Map<string, { name: string; rawArguments: string }>();
+		const calls = new Map<string, { name: string; rawArguments: string; providerMetadata?: AssistantToolCallContent["providerMetadata"] }>();
 		const argumentErrors = new Map<string, string>();
 		const request: ProviderRequest = {
 			model: this.model,
@@ -261,6 +263,9 @@ export class AgentCore implements Agent {
 					calls.set(event.callId, {
 						name: event.name ?? previous.name,
 						rawArguments: previous.rawArguments + (event.argumentsDelta ?? ""),
+						...(event.providerMetadata === undefined && previous.providerMetadata === undefined
+							? {}
+							: { providerMetadata: event.providerMetadata ?? previous.providerMetadata }),
 					});
 					await this.emit(
 						messageUpdate(runId, turn, assistantId, {
@@ -313,6 +318,7 @@ export class AgentCore implements Agent {
 				id,
 				name: call.name,
 				arguments: argumentsObject,
+				...(call.providerMetadata === undefined ? {} : { providerMetadata: call.providerMetadata }),
 			} satisfies AssistantToolCallContent);
 			pendingCalls.push({ id, name: call.name, rawArguments: call.rawArguments });
 		}
@@ -472,9 +478,20 @@ export class AgentCore implements Agent {
 
 	private async appendUserMessage(message: UserMessage, newMessages: AgentMessage[]): Promise<void> {
 		await this.session.appendMessage(message);
-		this.contextMessages.push(message);
+		this.appendContextMessage(message);
 		this.syncStateMessages();
 		newMessages.push(message);
+	}
+
+	private appendContextMessage(message: AgentMessage): void {
+		this.contextMessages.push(message);
+		this.contextMessages = this.limitContextMessages(this.contextMessages);
+	}
+
+	private limitContextMessages(messages: readonly AgentMessage[]): AgentMessage[] {
+		return this.maxContextMessages === undefined || messages.length <= this.maxContextMessages
+			? [...messages]
+			: messages.slice(-this.maxContextMessages);
 	}
 
 	private syncStateMessages(): void {

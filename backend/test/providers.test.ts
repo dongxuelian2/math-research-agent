@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+	createAssistantMessage,
 	createProvider,
+	createToolResult,
 	createUserMessage,
 	type ModelStreamEvent,
 	type ProviderRequest,
@@ -73,6 +75,38 @@ test("normalizes all six provider adapters through the same offline contract", a
 		assert.equal(fragmentedCalls[1].callId, "call-1");
 	}
 
+	const thoughtSignature = { google: { thought_signature: "opaque-signature" } };
+	const metadataTransport = new StaticTransport([
+		`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call-meta", extra_content: thoughtSignature, function: { name: "read", arguments: "{}" } }] }, finish_reason: "tool_calls" }] })}\n\n`,
+	]);
+	const metadataProvider = createProvider(
+		{ provider: "openai", model: "model", credentialResolver: () => "secret" },
+		{ transport: metadataTransport },
+	);
+	const metadataEvents = await collect(metadataProvider, request({ provider: "openai", model: "model" }));
+	const metadataCall = metadataEvents.find((event): event is Extract<ModelStreamEvent, { type: "tool_call_delta" }> => event.type === "tool_call_delta");
+	assert.deepEqual(metadataCall?.providerMetadata, thoughtSignature);
+
+	const replayTransport = new StaticTransport(["data: [DONE]\n\n"]);
+	const replayProvider = createProvider(
+		{ provider: "openai", model: "model", credentialResolver: () => "secret" },
+		{ transport: replayTransport },
+	);
+	await collect(replayProvider, {
+		model: { provider: "openai", model: "model", credentialResolver: () => "secret" },
+		tools: [],
+		messages: [
+			createUserMessage("read the theorem"),
+			createAssistantMessage(
+				[{ kind: "tool_call", id: "call-meta", name: "read", arguments: {}, providerMetadata: thoughtSignature }],
+				{ provider: "openai", model: "model", stopReason: "tool_calls" },
+			),
+			createToolResult({ toolCallId: "call-meta", toolName: "read", content: "done", details: {}, isError: false }),
+		],
+	});
+	const replayBody = JSON.parse(replayTransport.requests[0] ?? "{}") as { messages?: Array<{ tool_calls?: Array<{ extra_content?: unknown }> }> };
+	assert.deepEqual(replayBody.messages?.[1]?.tool_calls?.[0]?.extra_content, thoughtSignature);
+
 	const anthropicTransport = new StaticTransport([
 		'event: content_block_delta\ndata: {"index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
 		'event: message_delta\ndata: {"delta":{"stop_reason":"end_turn"}}\n\n',
@@ -87,6 +121,30 @@ test("normalizes all six provider adapters through the same offline contract", a
 	const google = createProvider({ provider: "google", model: "gemini", credentialResolver: () => "secret" }, { transport: googleTransport });
 	const googleEvents = await collect(google, request({ provider: "google", model: "gemini" }));
 	assert.equal(googleEvents.some((event) => event.type === "text_delta" && event.text === "ok"), true);
+	const googleThoughtSignature = "native-opaque-signature";
+	const googleToolTransport = new StaticTransport([
+		`data: ${JSON.stringify({ candidates: [{ content: { parts: [{ functionCall: { name: "read", args: {} }, thoughtSignature: googleThoughtSignature }] }, finishReason: "STOP" }] })}\n\n`,
+	]);
+	const googleToolProvider = createProvider({ provider: "google", model: "gemini-3.7-flash", credentialResolver: () => "secret" }, { transport: googleToolTransport });
+	const googleToolEvents = await collect(googleToolProvider, request({ provider: "google", model: "gemini-3.7-flash" }));
+	const googleToolCall = googleToolEvents.find((event): event is Extract<ModelStreamEvent, { type: "tool_call_delta" }> => event.type === "tool_call_delta");
+	assert.deepEqual(googleToolCall?.providerMetadata, { google: { thought_signature: googleThoughtSignature } });
+	const googleReplayTransport = new StaticTransport(["data: [DONE]\n\n"]);
+	const googleReplayProvider = createProvider({ provider: "google", model: "gemini-3.7-flash", credentialResolver: () => "secret" }, { transport: googleReplayTransport });
+	await collect(googleReplayProvider, {
+		model: { provider: "google", model: "gemini-3.7-flash", credentialResolver: () => "secret" },
+		tools: [],
+		messages: [
+			createUserMessage("read the theorem"),
+			createAssistantMessage(
+				[{ kind: "tool_call", id: "google-call-0", name: "read", arguments: {}, providerMetadata: { google: { thought_signature: googleThoughtSignature } } }],
+				{ provider: "google", model: "gemini-3.7-flash", stopReason: "tool_calls" },
+			),
+			createToolResult({ toolCallId: "google-call-0", toolName: "read", content: "done", details: {}, isError: false }),
+		],
+	});
+	const googleReplayBody = JSON.parse(googleReplayTransport.requests[0] ?? "{}") as { contents?: Array<{ parts?: Array<{ thoughtSignature?: unknown }> }> };
+	assert.equal(googleReplayBody.contents?.[1]?.parts?.[0]?.thoughtSignature, googleThoughtSignature);
 
 	const codex = createProvider(
 		{ provider: "openai-codex", model: "codex-model" },

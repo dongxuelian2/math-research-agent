@@ -3,6 +3,11 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Reproducible Lean/Lake state; source pins live in formalization/*.toml,
+# lake-manifest.json, and lean-toolchain.
+formalization/.lake/
+formalization/proof-attempt-*.lean
+
 # TypeScript proof runtime state (sessions, runs, SSE artifacts)
 .math-agent/
 

@@ -12,7 +12,7 @@ if (-not (Test-Path (Join-Path $RepoRoot 'backend\dist\src\index.js'))) {
   throw 'Math Research Agent is not installed. Run: .\scripts\install.ps1 first.'
 }
 
-$CredentialFile = Join-Path $RepoRoot '11111.json'
+$CredentialFile = Join-Path $RepoRoot 'powerful-layout-478408-f9-7b34a96b996f.json'
 if ([string]::IsNullOrWhiteSpace($env:GOOGLE_APPLICATION_CREDENTIALS) -and (Test-Path $CredentialFile)) {
   $env:GOOGLE_APPLICATION_CREDENTIALS = $CredentialFile
 }

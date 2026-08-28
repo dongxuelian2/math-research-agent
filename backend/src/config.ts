@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, watch as watchFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { ProofMode } from "./proof/types.js";
+import type { ProofMode, ProofWorkflowMode } from "./proof/types.js";
 import type { JsonValue } from "./models/json.js";
 import { createProvider } from "./providers/registry.js";
 import type { MockResponse } from "./providers/mock.js";
@@ -53,6 +53,7 @@ export type MathAgentConfig = {
 	};
 	readonly proof: {
 		readonly defaultMode: ProofMode;
+		readonly workflowMode: ProofWorkflowMode;
 		readonly maxWorkers: number;
 		readonly maxSteps: number;
 		readonly historyLimit: number;
@@ -124,6 +125,7 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 	},
 	proof: {
 		defaultMode: "prove",
+		workflowMode: "dynamic",
 		maxWorkers: 2,
 		maxSteps: 8,
 		historyLimit: 8,
@@ -423,6 +425,7 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 			defaultMode: proof.default_mode === "prove_and_formalize" || proof.defaultMode === "prove_and_formalize"
 				? "prove_and_formalize"
 				: proof.default_mode === "formalize_only" || proof.defaultMode === "formalize_only" ? "formalize_only" : "prove",
+			workflowMode: proof.workflow_mode === "legacy" || proof.workflowMode === "legacy" ? "legacy" : "dynamic",
 			maxWorkers: boundedInteger(proof.max_workers ?? proof.maxWorkers, DEFAULT_CONFIG.proof.maxWorkers),
 			maxSteps: boundedInteger(proof.max_steps ?? proof.maxSteps, DEFAULT_CONFIG.proof.maxSteps),
 			historyLimit: boundedInteger(proof.history_limit ?? proof.historyLimit, DEFAULT_CONFIG.proof.historyLimit),
@@ -484,7 +487,7 @@ function normalizeRole(value: Record<string, unknown>): RoleProfile {
 }
 
 export function stringifyMathAgentConfig(config: MathAgentConfig): string {
-	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
+	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `workflow_mode = ${quote(config.proof.workflowMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
 	if (config.formalization.projectDir !== undefined) lines.push(`project_dir = ${quote(config.formalization.projectDir)}`);
 	if (config.formalization.command !== undefined) lines.push(`command = ${quote(config.formalization.command)}`);
 	lines.push("", "[literature]", `enabled = ${config.literature.enabled}`);

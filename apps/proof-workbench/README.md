@@ -5,10 +5,11 @@
 ## 保留的 GUI 能力
 
 - 证明会话侧栏与会话切换；
-- 数学命题、上下文和证明模式输入；
-- Planner、Worker、Verifier、proof gate、Lean 的进度展示；
-- 通过 SSE 显示运行事件、白板、候选和验证结果；
-- `PROVED`、`PARTIAL`、`FAILED`、`BLOCKED_PROVIDER`、`CANCELLED` 等真实状态；
+- 数学命题、上下文和证明模式输入；形式化模式下由 Formalizer 自动生成 Lean 源码，用户不需要手写证明代码；
+- 动态 Controller 策略、ready frontier、任务依赖、逻辑 Agent、continuation 和 Lean 修复回合展示；
+- 通过 SSE 显示运行事件、白板、候选、Verifier 裁决和 Lean 进程结果；
+- `PROVED`、`PARTIAL`、`FAILED`、`BLOCKED_FORMAL`、`BLOCKED_PROVIDER`、`CANCELLED` 等真实状态；
+- SSE/轮询刷新时保留内容区滚动位置、输入焦点和光标；
 - 最终证明和 Lean 形式化结果展示；
 - 模型目录、角色映射和 TOML 设置编辑。
 

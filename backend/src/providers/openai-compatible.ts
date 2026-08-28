@@ -1,3 +1,4 @@
+import { isJsonObject } from "../models/json.js";
 import { FetchTransport } from "./http.js";
 import { asArray, asRecord, asString, jsonString, parseJson } from "./parse.js";
 import { parseSse } from "./sse.js";
@@ -107,6 +108,11 @@ export class OpenAICompatibleProvider implements ModelProvider {
 							continue;
 						}
 						const functionCall = asRecord(toolCall.function);
+						const providerMetadata = isJsonObject(toolCall.extra_content)
+							? toolCall.extra_content
+							: functionCall !== undefined && isJsonObject(functionCall.extra_content)
+								? functionCall.extra_content
+								: undefined;
 						const announcedId = asString(toolCall.id);
 						if (announcedId !== undefined) {
 							toolIds.set(toolIndex, announcedId);
@@ -121,6 +127,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
 							...(functionCall === undefined || asString(functionCall.arguments) === undefined
 								? {}
 								: { argumentsDelta: asString(functionCall.arguments) }),
+							...(providerMetadata === undefined ? {} : { providerMetadata }),
 						};
 					}
 				}
@@ -172,6 +179,7 @@ function toOpenAIMessages(request: ProviderRequest): readonly Record<string, unk
 					id: part.id,
 					type: "function",
 					function: { name: part.name, arguments: jsonString(part.arguments) },
+					...(part.providerMetadata === undefined ? {} : { extra_content: part.providerMetadata }),
 				}));
 			return {
 				role: "assistant",

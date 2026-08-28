@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { AgentCore } from "./agent/agent.js";
 import type { Agent, AgentEventListener } from "./agent/types.js";
 import type { AgentRunResult, UserMessage } from "./models/index.js";
-import { createAgentProofRoles, type AgentProofRoles } from "./proof/agent-role.js";
+import { createAgentProofResearcher, createAgentProofRoles, createAgentProofVerifier, type AgentProofRoles } from "./proof/agent-role.js";
+import { createCandidateVerifierPool } from "./proof/verifier-pool.js";
+import type { ProofAgentFactory, ProofResearcher } from "./proof/types.js";
 import type { ProofApiRoleFactory } from "./api/server.js";
 import { createProvider } from "./providers/registry.js";
 import { Session } from "./session/session.js";
@@ -32,19 +34,37 @@ export function createConfiguredProofRoleFactory(options: ConfiguredProofRoleFac
 
 		const planner = await createRoleAgent("planner", config, rolesDirectory, undefined, targetGate);
 		const worker = await createRoleAgent("worker", config, rolesDirectory, tools, targetGate);
+		// Keep one fallback verifier for legacy/single-verifier callers. The role
+		// object returned below replaces it with a candidate-keyed verifier pool
+		// for the proof runtime so concurrent audits never share an AgentCore.
 		const verifier = await createRoleAgent("verifier", config, rolesDirectory, tools, targetGate);
-		return createAgentProofRoles({ planner, researcher: worker, verifier });
+		const dynamicResearchers = new Map<string, Promise<ProofResearcher>>();
+		const agentFactory: ProofAgentFactory = (spec) => {
+			const role = spec.role === "formalizer" ? "formalizer" : "worker";
+			const identity = `${role}:${spec.agentId}`;
+			const existing = dynamicResearchers.get(identity);
+			if (existing !== undefined) return existing;
+			const created = createRoleAgent(role, config, rolesDirectory, tools, targetGate, spec.agentId).then(createAgentProofResearcher);
+			dynamicResearchers.set(identity, created);
+			return created;
+		};
+		const baseRoles = createAgentProofRoles({ planner, researcher: worker, verifier, agentFactory });
+		const isolatedVerifier = createCandidateVerifierPool((candidateId) =>
+			createRoleAgent("verifier", config, rolesDirectory, tools, targetGate, `candidate-${candidateId}`).then(createAgentProofVerifier),
+		);
+		return { ...baseRoles, verifier: isolatedVerifier };
 	};
 	factory.createAgent = async ({ role, sessionId, runId, tools, config: snapshot }) => { const config = snapshot ?? (typeof options.config === "function" ? options.config() : options.config.config); const directory = join(options.rootDirectory, "research-role-sessions", sessionId, runId); await mkdir(directory, { recursive: true }); return createRoleAgent(role, config, directory, tools); };
 	return factory;
 }
 
-async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directory: string, tools?: readonly import("./models/tools.js").RuntimeTool[], targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }): Promise<Agent> {
+async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directory: string, tools?: readonly import("./models/tools.js").RuntimeTool[], targetGate?: { readonly targetObligationId: string; readonly targetClaimId: string }, instanceId?: string): Promise<Agent> {
 	const profile = config.roles[role];
 	const modelProfile = config.models[profile.model];
 	if (modelProfile === undefined) throw new Error(`Role ${role} references unknown model ${profile.model}`);
-	const sessionId = `proof-${role}`;
-	const sessionDirectory = join(directory, role);
+	const identity = instanceId === undefined ? role : `${role}-${safeAgentSegment(instanceId)}`;
+	const sessionId = `proof-${identity}`;
+	const sessionDirectory = join(directory, identity);
 	const session = await openOrCreateSession(sessionId, sessionDirectory, directory);
 	const model = modelConfigOf(modelProfile);
 	const provider = createProvider(model, modelProfile.provider === "mock" ? { mockResponses: createMockResponses(role, targetGate) } : {});
@@ -53,9 +73,17 @@ async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directo
 		model,
 		provider,
 		...(tools === undefined ? {} : { tools }),
-		maxTurns: profile.maxTurns ?? config.proof.maxSteps,
+		// proof.max_steps bounds controller rounds, not the number of model/tool
+		// turns inside one logical agent. Keep the agent default aligned with the
+		// AgentCore default unless a role explicitly configures max_turns.
+		maxTurns: profile.maxTurns ?? 32,
+		...(role === "planner" ? { maxContextMessages: 1 } : {}),
 	});
 	return profile.timeoutSeconds === undefined ? agent : timeoutAgent(agent, profile.timeoutSeconds);
+}
+
+function safeAgentSegment(value: string): string {
+	return value.trim().replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "agent";
 }
 
 function timeoutAgent(agent: Agent, timeoutSeconds: number): Agent {

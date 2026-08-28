@@ -1,5 +1,6 @@
 import { createSign } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { request as undiciRequest } from "undici";
 import { FetchTransport } from "./http.js";
 import { asNumber, asRecord, asString } from "./parse.js";
 import { googleRequestBody, parseGoogleStream } from "./google-common.js";
@@ -92,7 +93,7 @@ export class GoogleVertexProvider implements ModelProvider {
 			);
 			for await (const event of events) yield event;
 		} catch (error) {
-			yield { type: "failure", error, retryable: false };
+			yield { type: "failure", error, retryable: isRetryableProviderError(error) };
 		}
 	}
 
@@ -155,7 +156,7 @@ async function requestAccessToken(request: TokenRequest): Promise<TokenResponse>
 	const signer = createSign("RSA-SHA256");
 	signer.update(unsigned);
 	const assertion = `${unsigned}.${signer.sign(request.credentials.privateKey).toString("base64url")}`;
-	const response = await fetch(request.credentials.tokenUri, {
+	const response = await undiciRequest(request.credentials.tokenUri, {
 		method: "POST",
 		headers: { "content-type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -164,10 +165,10 @@ async function requestAccessToken(request: TokenRequest): Promise<TokenResponse>
 		}).toString(),
 		signal: request.signal,
 	});
-	if (!response.ok) {
-		throw new Error(`Google Service Account token request failed with HTTP ${response.status}`);
+	if (response.statusCode < 200 || response.statusCode >= 300) {
+		throw new Error(`Google Service Account token request failed with HTTP ${response.statusCode}: ${await response.body.text()}`);
 	}
-	const payload = asRecord(await response.json() as unknown);
+	const payload = asRecord(await response.body.json() as unknown);
 	const accessToken = asString(payload?.access_token);
 	if (accessToken === undefined) throw new Error("Google Service Account token response did not contain access_token");
 	return { accessToken, expiresIn: asNumber(payload?.expires_in) ?? 3600 };
@@ -180,4 +181,9 @@ function defaultBaseUrl(location: string): string {
 
 function base64UrlJson(value: Record<string, unknown>): string {
 	return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function isRetryableProviderError(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	return /fetch failed|eai_again|enotfound|econnreset|econnrefused|etimedout|timeout|socket|temporarily unavailable|http (?:408|425|429|5\d\d)\b/iu.test(`${error.message} ${String((error as { readonly cause?: unknown }).cause ?? "")}`);
 }

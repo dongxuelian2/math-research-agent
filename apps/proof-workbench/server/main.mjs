@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,10 @@ import { createConfiguredProofRoleFactory, MathAgentConfigService, ProofApiServe
 const appRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const repositoryRoot = resolve(appRoot, "../..");
 const webRoot = resolve(appRoot, "web");
+if ((process.env.GOOGLE_APPLICATION_CREDENTIALS ?? "").trim().length === 0) {
+  const credentialFile = await discoverServiceAccount(repositoryRoot);
+  if (credentialFile !== undefined) process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialFile;
+}
 const configPath = resolve(process.env.MATH_AGENT_CONFIG ?? resolve(repositoryRoot, "configs/math-agent.toml"));
 const args = new Set(process.argv.slice(2));
 
@@ -16,6 +20,7 @@ await configService.load();
 const dataDirectory = resolve(process.env.MATH_AGENT_DATA_DIR ?? resolve(repositoryRoot, configService.config.runtime.dataDir));
 const proofApi = new ProofApiServer({
   rootDirectory: dataDirectory,
+  repositoryDirectory: repositoryRoot,
   configService,
   createRoles: createConfiguredProofRoleFactory({ config: configService, rootDirectory: dataDirectory }),
   defaultMode: configService.config.proof.defaultMode,
@@ -131,4 +136,22 @@ function closeServer(server) {
   return new Promise((resolvePromise, reject) => {
     server.close((error) => error === undefined ? resolvePromise() : reject(error));
   });
+}
+
+async function discoverServiceAccount(rootDirectory) {
+  const entries = (await readdir(rootDirectory, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && extname(entry.name) === ".json" && entry.name !== "package.json")
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const candidates = [];
+  for (const entry of entries) {
+    try {
+      const value = JSON.parse(await readFile(join(rootDirectory, entry.name), "utf8"));
+      if (value?.type === "service_account" && typeof value.client_email === "string" && typeof value.private_key === "string" && typeof value.project_id === "string") {
+        candidates.push(join(rootDirectory, entry.name));
+      }
+    } catch {
+      // Non-credential JSON files are not candidates.
+    }
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
 }

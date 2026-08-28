@@ -6,11 +6,21 @@ import { test } from "node:test";
 import {
 	ProofWorkflow,
 	Session,
+	checkTheoremPreserved,
+	checkUnsafeLeanSource,
 	parsePlannerPlan,
 	type ProofPlan,
 	type ProofResearchContext,
 	type ProofVerifierContext,
 } from "../src/index.js";
+
+test("formal gate rejects changed targets and Lean trust escape hatches", () => {
+	const target = "theorem sample : True := by\n  sorry";
+	assert.equal(checkTheoremPreserved(target, "theorem sample : True := by\n  trivial"), undefined);
+	assert.match(checkTheoremPreserved(target, "theorem unrelated : True := by\n  trivial") ?? "", /preserve theorem declaration/iu);
+	assert.match(checkUnsafeLeanSource("axiom unsound : False\ntheorem sample : True := by trivial") ?? "", /unverified assumptions/iu);
+	assert.match(checkUnsafeLeanSource("theorem sample : True := by sorry") ?? "", /unresolved/iu);
+});
 
 test("parses OpenProver-style tagged TOML action blocks", () => {
 	const plan = parsePlannerPlan(`
@@ -109,6 +119,7 @@ test("formal mode requires both accepted artifacts and persists OpenProver-shape
 	const runtime = new ProofWorkflow({
 		session,
 		obligation: { obligationId: "sample", theorem: "Prove True." },
+		leanTheorem: "theorem sample : True := by\n  sorry",
 		mode: "prove_and_formalize",
 		planner,
 		researcher,

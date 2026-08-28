@@ -25,6 +25,7 @@ export class AgentResearchDirector implements ModelResearchDirector {
 		const text = await prompt(agent, [
 			"You are the strategic Research Director. You may propose strategy but never promote mathematical truth.",
 			"Return exactly one JSON object with action, reason, and only action-relevant stable IDs/fields.",
+			"For target actions copy the exact frontier field names targetObligationId and targetClaimId; do not rename them to obligationId or claimId.",
 			"Allowed actions: ATTACK_OBLIGATION, CREATE_AUXILIARY_OBLIGATION, SPLIT_OBLIGATION, REQUEST_REDUCTION, REQUEST_COUNTEREXAMPLE, REQUEST_COMPUTATION, REQUEST_LITERATURE, RUN_STRUCTURAL_PROBE, CHANGE_ROUTE, REOPEN_ROUTE, SUSPEND_ROUTE, MARK_ROUTE_EXHAUSTED, RESTRUCTURE_RESEARCH_MAP, TRIGGER_SYNTHESIS, STOP_PROJECT.",
 			`Semantic project snapshot:\n${JSON.stringify(snapshot, null, 2)}`,
 		].join("\n\n"), "research_director");
@@ -32,7 +33,7 @@ export class AgentResearchDirector implements ModelResearchDirector {
 		if (typeof value.action !== "string" || typeof value.reason !== "string") throw new ResearchRoleProtocolError("DirectorDecision requires action and reason");
 		return {
 			action: value.action as DirectorProposal["action"], reason: value.reason,
-			...optionalStringField(value, "targetObligationId"), ...optionalStringField(value, "targetClaimId"),
+			...firstStringField(value, "targetObligationId", "obligationId"), ...firstStringField(value, "targetClaimId", "claimId"),
 			...optionalStringField(value, "routeId"), ...optionalStringField(value, "routeFamily"),
 			...optionalStringField(value, "auxiliaryStatement"), ...optionalStringField(value, "literatureQuery"),
 			...(typeof value.budgetAllocated === "number" ? { budgetAllocated: value.budgetAllocated } : {}),
@@ -138,5 +139,6 @@ function json(text: string): Record<string, unknown> {
 	try { const value: unknown = JSON.parse(trimmed.slice(start, end + 1)); if (!record(value)) throw new Error("not object"); return value; } catch (error) { throw new ResearchRoleProtocolError(`Malformed structured JSON: ${String(error)}`); }
 }
 function optionalStringField<K extends string>(value: Record<string, unknown>, key: K): Partial<Record<K, string>> { return typeof value[key] === "string" ? { [key]: value[key] } as Partial<Record<K, string>> : {}; }
+function firstStringField<K extends string>(value: Record<string, unknown>, key: K, alias: string): Partial<Record<K, string>> { return typeof value[key] === "string" ? { [key]: value[key] } as Partial<Record<K, string>> : typeof value[alias] === "string" ? { [key]: value[alias] } as Partial<Record<K, string>> : {}; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function isVerdict(value: unknown): value is TrustReceipt["verdict"] { return value === "CORRECT" || value === "MINOR_FIX" || value === "UNFINISHED" || value === "CRITICALLY_FLAWED" || value === "INCORRECT" || value === "INCONCLUSIVE"; }

@@ -1,18 +1,22 @@
 const runtime = window.__MATH_PROOF_RUNTIME__ || {};
 const apiOrigin = typeof runtime.apiOrigin === "string" ? runtime.apiOrigin.replace(/\/$/u, "") : "";
-const terminalStatuses = new Set(["PROVED", "PARTIAL", "FAILED", "BLOCKED_PROVIDER", "CANCELLED"]);
+const terminalStatuses = new Set(["PROVED", "PARTIAL", "FAILED", "BLOCKED_FORMAL", "BLOCKED_PROVIDER", "CANCELLED"]);
 const eventNames = [
   "proof/obligation_created",
   "proof/status_changed",
   "proof/step_started",
   "proof/step_finished",
   "proof/task_dispatched",
+	"proof/task_status_changed",
   "proof/research_result",
   "proof/verification_result",
   "proof/candidate_ready",
   "proof/route_failed",
   "proof/repository_updated",
   "proof/whiteboard_updated",
+	"proof/formal_verification_result",
+	"proof/planner_output",
+	"proof/submitted",
 ];
 
 const state = {
@@ -26,7 +30,8 @@ const state = {
   events: [],
   draftTheorem: "",
   draftContext: "",
-  draftMode: "prove",
+	draftLeanTheorem: "",
+	draftMode: "prove_and_formalize",
   busy: false,
   settings: undefined,
   settingsToml: "",
@@ -96,6 +101,7 @@ function statusLabel(status) {
     PROVED: "已证明",
     PARTIAL: "部分完成",
     FAILED: "失败",
+		BLOCKED_FORMAL: "形式化工具阻塞",
     BLOCKED_PROVIDER: "Provider 阻塞",
     CANCELLED: "已取消",
   }[status] || status || "待提交";
@@ -103,7 +109,7 @@ function statusLabel(status) {
 
 function statusTone(status) {
   if (status === "PROVED") return "success";
-  if (status === "FAILED" || status === "BLOCKED_PROVIDER") return "danger";
+	if (status === "FAILED" || status === "BLOCKED_PROVIDER" || status === "BLOCKED_FORMAL") return "danger";
   if (status === "RUNNING") return "running";
   if (status === "PARTIAL" || status === "CANCELLED") return "warning";
   return "neutral";
@@ -155,7 +161,7 @@ function connectRunStream(run) {
   connectedRunKey = key;
   const path = `/v1/sessions/${encodeURIComponent(state.activeSessionId)}/proof-runs/${encodeURIComponent(run.runId)}/events`;
   eventSource = new EventSource(apiPath(path));
-  const refresh = () => { void refreshRun(false); };
+	const refresh = () => { void refreshRun(); };
   for (const name of eventNames) {
     eventSource.addEventListener(name, (event) => {
       try {
@@ -165,7 +171,6 @@ function connectRunStream(run) {
         state.events = [...state.events.slice(-99), { type: name }];
       }
       refresh();
-      render();
     });
   }
   eventSource.onerror = refresh;
@@ -200,7 +205,8 @@ async function selectSession(sessionId) {
     state.session = value;
     state.draftTheorem = value?.obligation?.theorem || "";
     state.draftContext = value?.obligation?.context || "";
-    state.draftMode = value?.mode || "prove";
+		state.draftLeanTheorem = value?.leanTheorem || "";
+		state.draftMode = value?.mode || "prove_and_formalize";
     state.run = Array.isArray(value?.runs) ? value.runs.at(-1) : undefined;
     if (state.run?.ready === true) {
       state.result = await request(`/v1/sessions/${encodeURIComponent(sessionId)}/proof-runs/${encodeURIComponent(state.run.runId)}/result`);
@@ -264,7 +270,7 @@ async function submitProof() {
     }
     await request(`/v1/sessions/${encodeURIComponent(sessionId)}/theorem`, {
       method: "POST",
-      body: JSON.stringify({ theorem: state.draftTheorem, context: state.draftContext || undefined, mode: state.draftMode }),
+		body: JSON.stringify({ theorem: state.draftTheorem, context: state.draftContext || undefined, leanTheorem: state.draftLeanTheorem.trim() || undefined, mode: state.draftMode }),
     });
     await request(`/v1/sessions/${encodeURIComponent(sessionId)}/proof-runs`, {
       method: "POST",
@@ -379,6 +385,13 @@ async function saveToml() {
 }
 
 function render() {
+	const currentScroller = app.querySelector(".content-scroll");
+	const scrollTop = currentScroller?.scrollTop;
+	const active = document.activeElement;
+	const activeId = active instanceof HTMLElement && app.contains(active) ? active.id : "";
+	const selection = active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
+		? { start: active.selectionStart, end: active.selectionEnd }
+		: undefined;
   document.documentElement.dataset.theme = state.theme;
   app.innerHTML = `
     <div class="shell">
@@ -390,6 +403,17 @@ function render() {
         </div>
       </div>
     </div>`;
+	const nextScroller = app.querySelector(".content-scroll");
+	if (nextScroller !== null && typeof scrollTop === "number") nextScroller.scrollTop = scrollTop;
+	if (activeId) {
+		const nextActive = document.getElementById(activeId);
+		if (nextActive instanceof HTMLElement) {
+			nextActive.focus({ preventScroll: true });
+			if (selection !== undefined && (nextActive instanceof HTMLTextAreaElement || nextActive instanceof HTMLInputElement)) {
+				nextActive.setSelectionRange(selection.start, selection.end);
+			}
+		}
+	}
 }
 
 function renderSidebar() {
@@ -431,38 +455,98 @@ function renderProof() {
   const run = state.run;
   const runState = run?.state || {};
   const status = run?.status || "OPEN";
-  const candidateCount = Array.isArray(runState.candidates) ? runState.candidates.length : 0;
+	const taskValues = Array.isArray(runState.tasks) ? runState.tasks : [];
+	const candidates = Array.isArray(runState.candidates) ? runState.candidates : [];
+	const formalAttempts = Array.isArray(runState.formalAttempts) ? runState.formalAttempts : [];
+	const candidateCount = candidates.length;
   const verifiedCount = runState.verifications && typeof runState.verifications === "object"
     ? Object.values(runState.verifications).filter((item) => item?.verdict === "CORRECT").length
     : 0;
   const proof = state.result?.answer?.proof || "";
   const formalProof = state.result?.answer?.formalProof || "";
-  const stages = ["Planner", "Workers", "Verifiers", "Proof gate", "Lean"];
-  const eventRows = state.events.slice(-8).reverse().map((event) => `<div class="event-row"><span class="event-icon">›</span><span>${escapeHtml(event.type || "proof event")}</span><time>${formatTime(event.timestamp)}</time></div>`).join("");
-  const tasks = Array.isArray(runState.tasks) && runState.tasks.length > 0
-    ? runState.tasks.map((task) => {
-      const verdict = runState.verifications?.[`${task.taskId}-candidate`]?.verdict || "处理中";
-      return `<div class="task-row"><span class="task-index">${escapeHtml(task.taskId || "task")}</span><span>${escapeHtml(task.summary || task.description || "未命名任务")}</span><b class="verdict ${verdict === "CORRECT" ? "good" : ""}">${escapeHtml(verdict)}</b></div>`;
-    }).join("")
-    : `<div class="empty-panel">运行开始后，Worker 任务会显示在这里。</div>`;
+	const executionPlans = Array.isArray(runState.executionPlans) ? runState.executionPlans : [];
+	const latestWorkflow = [...executionPlans].reverse().find((item) => item?.plan?.workflow)?.plan?.workflow;
+	const runningTasks = taskValues.filter((task) => task.status === "RUNNING");
+	const pendingTasks = taskValues.filter((task) => task.status === "PENDING");
+	const activeFrontier = runningTasks.length > 0 ? runningTasks : pendingTasks.filter((task) => (task.dependsOn || []).every((id) => taskValues.find((item) => item.taskId === id)?.status === "COMPLETED"));
+	const eventRows = state.events.slice(-10).reverse().map((event) => `<div class="event-row"><span class="event-icon">›</span><span><strong>${escapeHtml(eventLabel(event.type))}</strong><small>${escapeHtml(eventSummary(event))}</small></span><time>${formatTime(event.timestamp)}</time></div>`).join("");
+	const tasks = taskValues.length > 0
+		? taskValues.map((task) => {
+			const candidate = candidates.find((item) => item.taskId === task.taskId);
+			const verification = candidate === undefined ? undefined : runState.verifications?.[candidate.candidateId];
+			const formalAttempt = [...formalAttempts].reverse().find((attempt) => attempt.taskId === task.taskId || attempt.candidateId === candidate?.candidateId);
+			const outcome = task.kind === "FORMALIZATION"
+				? formalAttempt === undefined ? taskStatusLabel(task.status) : formalAttempt.result?.ok ? "LEAN PASSED" : `LEAN ${formalAttempt.result?.failureKind || "REJECTED"}`
+				: verification?.verdict || taskStatusLabel(task.status);
+			const dependencies = Array.isArray(task.dependsOn) && task.dependsOn.length > 0 ? `依赖 ${task.dependsOn.join(", ")}` : "无前置依赖";
+			const agent = task.agent?.agentId ? `Agent ${task.agent.agentId}` : "默认 Worker";
+			return `<article class="task-row ${taskTone(task.status)}"><div class="task-main"><div class="task-title"><span class="task-kind ${task.kind === "FORMALIZATION" ? "formal" : ""}">${task.kind === "FORMALIZATION" ? "LEAN" : "MATH"}</span><strong>${escapeHtml(task.summary || task.description || "未命名任务")}</strong></div><small>${escapeHtml(task.taskId || "task")} · ${escapeHtml(agent)} · ${escapeHtml(dependencies)}${task.continuationOf ? ` · 续接 ${escapeHtml(task.continuationOf)}` : ""}</small>${task.lastError ? `<p>${escapeHtml(task.lastError)}</p>` : ""}</div><b class="verdict ${formalAttempt?.result?.ok || verification?.verdict === "CORRECT" ? "good" : ""}">${escapeHtml(outcome)}</b></article>`;
+		}).join("")
+		: `<div class="empty-panel">Controller 生成动态任务后，任务图会显示在这里。</div>`;
+	const frontier = activeFrontier.length > 0
+		? activeFrontier.map((task) => `<span class="frontier-chip ${task.kind === "FORMALIZATION" ? "formal" : ""}">${escapeHtml(task.summary || task.taskId)}</span>`).join("")
+		: `<span class="frontier-empty">当前没有可运行 frontier</span>`;
+	const formalRows = formalAttempts.length === 0
+		? `<div class="empty-panel">尚未调用 Lean 进程门。</div>`
+		: formalAttempts.slice().reverse().map((attempt) => `<div class="formal-attempt"><span>#${attempt.attempt} · step ${attempt.step}</span><b class="${attempt.result?.ok ? "good" : ""}">${attempt.result?.ok ? "PASSED" : escapeHtml(attempt.result?.failureKind || "REJECTED")}</b><p>${escapeHtml(attempt.result?.feedback || "无反馈")}</p></div>`).join("");
   return `<main class="workspace">
-    <section class="page-heading"><div><div class="eyebrow">PROOF-FIRST WORKSPACE</div><h1>数学证明工作台</h1><p>把命题交给 Planner、并行 Worker 和独立 Verifier，所有状态都由后端提交门确认。</p></div><div class="run-id">${run ? `RUN <code>${escapeHtml(run.runId)}</code>` : "READY"}</div></section>
+		<section class="page-heading"><div><div class="eyebrow">DYNAMIC PROOF WORKSPACE</div><h1>数学证明工作台</h1><p>Controller 动态拆解任务图；Worker、Verifier 与 Lean 修复回合按真实后端状态推进。</p></div><div class="run-id">${run ? `RUN <code>${escapeHtml(run.runId)}</code>` : "READY"}</div></section>
     ${state.error ? `<div class="alert danger-alert" role="alert"><strong>请求未完成</strong><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error">×</button></div>` : ""}
     ${state.notice ? `<div class="alert notice-alert"><span>${escapeHtml(state.notice)}</span></div>` : ""}
     <section class="composer card">
       <div class="section-kicker">01 / THEOREM</div>
       <label for="theorem-input">数学命题</label>
       <textarea id="theorem-input" class="theorem-input" placeholder="例如：对所有 n ≥ 1，1 + 3 + ... + (2n - 1) = n²。">${escapeHtml(state.draftTheorem)}</textarea>
-      <label for="context-input">假设与证明要求 <span>可选</span></label>
-      <textarea id="context-input" class="context-input" placeholder="例如：请使用数学归纳法，并明确说明边界条件。">${escapeHtml(state.draftContext)}</textarea>
-      <div class="composer-footer"><select id="mode-input" aria-label="证明模式"><option value="prove" ${state.draftMode === "prove" ? "selected" : ""}>证明</option><option value="prove_and_formalize" ${state.draftMode === "prove_and_formalize" ? "selected" : ""}>证明并形式化</option><option value="formalize_only" ${state.draftMode === "formalize_only" ? "selected" : ""}>仅形式化</option></select><div class="composer-actions"><button class="button secondary" data-action="clear-draft">清空</button>${run && !isTerminal(status) ? `<button class="button secondary danger-button" data-action="cancel-run">取消运行</button>` : ""}<button class="button primary" data-action="submit-proof" ${state.busy ? "disabled" : ""}><span>${state.busy ? "处理中…" : "开始证明"}</span><b>↗</b></button></div></div>
-    </section>
-    <div class="dashboard-grid">
-      <section class="card progress-card"><div class="card-header"><div><div class="section-kicker">02 / PIPELINE</div><h2>证明流程</h2></div><span class="status-text ${statusTone(status)}">${escapeHtml(statusLabel(status))}</span></div><div class="timeline">${stages.map((stage, index) => { const reached = (run?.step || 0) >= index + 1; return `<div class="timeline-item ${reached ? "reached" : ""}"><span class="timeline-line"></span><span class="timeline-dot"></span><div><strong>${stage}</strong><small>${reached ? "已触发" : "等待中"}</small></div></div>`; }).join("")}</div><div class="metrics"><div><strong>${run?.step || 0}</strong><span>步骤</span></div><div><strong>${candidateCount}</strong><span>候选</span></div><div><strong>${verifiedCount}</strong><span>验证通过</span></div></div>${eventRows ? `<div class="event-log"><div class="subhead">最近事件</div>${eventRows}</div>` : ""}</section>
-      <section class="card board-card"><div class="card-header"><div><div class="section-kicker">03 / RESEARCH STATE</div><h2>白板与路线</h2></div><span class="small-tag">LIVE</span></div><pre class="whiteboard">${escapeHtml(typeof runState.whiteboard === "string" && runState.whiteboard ? runState.whiteboard : "Planner 的研究白板会显示在这里。")}</pre><div class="subhead task-heading">Worker / Verifier 产物</div><div class="task-list">${tasks}</div></section>
-    </div>
-    <section class="card answer-card"><div class="card-header"><div><div class="section-kicker">04 / SUBMISSION</div><h2>最终答案</h2></div>${state.result?.status ? `<span class="status-pill ${statusTone(state.result.status)}"><span></span>${escapeHtml(statusLabel(state.result.status))}</span>` : ""}</div>${proof ? `<pre class="proof-output">${escapeHtml(proof)}</pre>` : `<div class="answer-placeholder"><div class="placeholder-mark">∎</div><p>${run === undefined ? "提交一个命题后，完整证明会显示在这里。" : isTerminal(status) ? "本次运行没有生成完整证明文本。" : "证明正在进行，等待独立 Verifier 和提交门。"}</p></div>`}${formalProof ? `<div class="formal-section"><div class="subhead">Lean 形式化结果</div><pre class="proof-output">${escapeHtml(formalProof)}</pre></div>` : ""}</section>
-  </main>`;
+			<label for="context-input">假设与证明要求 <span>可选</span></label>
+			<textarea id="context-input" class="context-input" placeholder="例如：请使用数学归纳法，并明确说明边界条件。">${escapeHtml(state.draftContext)}</textarea>
+			${state.draftMode === "prove" ? "" : `<div class="formal-policy-note"><strong>无需填写 Lean 代码</strong><span>Formalizer 会根据上面的数学命题生成完整 Lean 4 源码；runtime 只在本地 Lean 进程通过后才会结束。编译失败会自动带着反馈回到修复任务。</span></div>`}
+			<div class="composer-footer"><select id="mode-input" aria-label="证明模式"><option value="prove" ${state.draftMode === "prove" ? "selected" : ""}>证明</option><option value="prove_and_formalize" ${state.draftMode === "prove_and_formalize" ? "selected" : ""}>证明并形式化</option><option value="formalize_only" ${state.draftMode === "formalize_only" ? "selected" : ""}>仅形式化</option></select><div class="composer-actions"><button class="button secondary" data-action="clear-draft">清空</button>${run && !isTerminal(status) ? `<button class="button secondary danger-button" data-action="cancel-run">取消运行</button>` : ""}<button class="button primary" data-action="submit-proof" ${state.busy ? "disabled" : ""}><span>${state.busy ? "处理中…" : "开始证明"}</span><b>↗</b></button></div></div>
+		</section>
+		<div class="dashboard-grid">
+			<section class="card progress-card"><div class="card-header"><div><div class="section-kicker">02 / DYNAMIC WORKFLOW</div><h2>Controller 与当前 Frontier</h2></div><span class="status-text ${statusTone(status)}">${escapeHtml(statusLabel(status))}</span></div><div class="workflow-strategy"><span>策略</span><strong>${escapeHtml(latestWorkflow?.strategy || (runState.workflowMode === "dynamic" ? "等待 Controller 生成本轮策略" : "Legacy workflow"))}</strong>${latestWorkflow?.rationale ? `<p>${escapeHtml(latestWorkflow.rationale)}</p>` : ""}</div><div class="subhead">当前可运行任务</div><div class="frontier-list">${frontier}</div><div class="metrics"><div><strong>${run?.step || 0}</strong><span>Controller 回合</span></div><div><strong>${taskValues.length}</strong><span>动态任务</span></div><div><strong>${activeFrontier.length}</strong><span>当前 Frontier</span></div><div><strong>${formalAttempts.length}</strong><span>Lean 尝试</span></div></div>${eventRows ? `<div class="event-log"><div class="subhead">最近事件</div>${eventRows}</div>` : ""}</section>
+			<section class="card board-card"><div class="card-header"><div><div class="section-kicker">03 / TASK GRAPH</div><h2>动态任务图</h2></div><span class="small-tag">${escapeHtml((runState.workflowMode || "dynamic").toUpperCase())}</span></div><div class="task-list">${tasks}</div><div class="subhead board-heading">研究白板</div><pre class="whiteboard">${escapeHtml(typeof runState.whiteboard === "string" && runState.whiteboard ? runState.whiteboard : "Controller 的研究白板会显示在这里。")}</pre></section>
+		</div>
+		<section class="card formal-card"><div class="card-header"><div><div class="section-kicker">04 / FORMAL GATE</div><h2>Lean 验证与修复回合</h2></div><span class="small-tag">PROCESS</span></div><div class="formal-attempts">${formalRows}</div></section>
+		<section class="card answer-card"><div class="card-header"><div><div class="section-kicker">05 / SUBMISSION</div><h2>最终答案</h2></div>${state.result?.status ? `<span class="status-pill ${statusTone(state.result.status)}"><span></span>${escapeHtml(statusLabel(state.result.status))}</span>` : ""}</div>${proof ? `<pre class="proof-output">${escapeHtml(proof)}</pre>` : `<div class="answer-placeholder"><div class="placeholder-mark">∎</div><p>${run === undefined ? "提交一个命题后，完整证明会显示在这里。" : isTerminal(status) ? "本次运行没有生成完整证明文本。" : "动态 Workflow 正在推进，最终状态必须通过对应提交门。"}</p></div>`}${formalProof ? `<div class="formal-section"><div class="subhead">Lean 形式化结果</div><pre class="proof-output">${escapeHtml(formalProof)}</pre></div>` : ""}</section>
+	</main>`;
+}
+
+function taskStatusLabel(status) {
+	return { PENDING: "等待依赖", RUNNING: "运行中", COMPLETED: "已完成", PARTIAL: "待续接", FAILED_RETRYABLE: "待修复", FAILED_TERMINAL: "终止失败", BLOCKED: "阻塞" }[status] || status || "未知";
+}
+
+function taskTone(status) {
+	if (status === "RUNNING") return "running";
+	if (status === "COMPLETED") return "completed";
+	if (status === "FAILED_RETRYABLE" || status === "PARTIAL") return "retryable";
+	if (status === "FAILED_TERMINAL" || status === "BLOCKED") return "blocked";
+	return "pending";
+}
+
+function eventLabel(type) {
+	return {
+		"proof/planner_output": "Controller 已规划",
+		"proof/task_dispatched": "任务已派发",
+		"proof/task_status_changed": "任务状态变化",
+		"proof/research_result": "Worker 返回结果",
+		"proof/verification_result": "Verifier 返回裁决",
+		"proof/formal_verification_result": "Lean 进程返回",
+		"proof/route_failed": "证明路线被拒绝",
+		"proof/submitted": "非形式化证明已提交",
+		"proof/status_changed": "运行状态变化",
+		"proof/step_started": "Controller 回合开始",
+		"proof/step_finished": "Controller 回合结束",
+	}[type] || type || "Proof event";
+}
+
+function eventSummary(event) {
+	if (event.type === "proof/task_status_changed") return `${event.taskId || "task"}: ${taskStatusLabel(event.status)}`;
+	if (event.type === "proof/task_dispatched") return event.task?.summary || event.task?.taskId || "动态任务";
+	if (event.type === "proof/verification_result") return event.result?.verdict || event.candidateId || "Verifier";
+	if (event.type === "proof/formal_verification_result") return event.result?.ok ? "Lean passed" : event.result?.failureKind || "Lean rejected";
+	if (event.type === "proof/status_changed") return statusLabel(event.status);
+	if (typeof event.summary === "string") return event.summary;
+	return event.taskId || event.candidateId || "";
 }
 
 function renderSettings() {
@@ -497,7 +581,7 @@ document.addEventListener("click", (event) => {
   else if (action === "toggle-theme") { state.theme = state.theme === "dark" ? "light" : "dark"; localStorage.setItem("math-proof-theme", state.theme); render(); }
   else if (action === "submit-proof") void submitProof();
   else if (action === "cancel-run") void cancelRun();
-  else if (action === "clear-draft") { state.draftTheorem = ""; state.draftContext = ""; state.error = ""; render(); }
+	else if (action === "clear-draft") { state.draftTheorem = ""; state.draftContext = ""; state.draftLeanTheorem = ""; state.error = ""; render(); }
   else if (action === "dismiss-error") { state.error = ""; render(); }
   else if (action === "save-settings") void saveSettings();
   else if (action === "save-toml") void saveToml();
@@ -507,6 +591,7 @@ document.addEventListener("input", (event) => {
   const target = event.target;
   if (target.id === "theorem-input") state.draftTheorem = target.value;
   else if (target.id === "context-input") state.draftContext = target.value;
+	else if (target.id === "lean-theorem-input") state.draftLeanTheorem = target.value;
   else if (target.id === "toml-input") state.settingsToml = target.value;
   else if (target.dataset.modelField !== undefined) updateModel(target.dataset.modelName, target.dataset.modelField, target.value);
   else if (target.dataset.modelParams !== undefined) state.modelParameters[target.dataset.modelParams] = target.value;
@@ -514,7 +599,7 @@ document.addEventListener("input", (event) => {
 
 document.addEventListener("change", (event) => {
   const target = event.target;
-  if (target.id === "mode-input") state.draftMode = target.value;
+	if (target.id === "mode-input") { state.draftMode = target.value; render(); }
   else if (target.dataset.roleModel !== undefined && state.settings?.roles?.[target.dataset.roleModel] !== undefined) state.settings.roles[target.dataset.roleModel].model = target.value;
   else if (target.dataset.modelField !== undefined) updateModel(target.dataset.modelName, target.dataset.modelField, target.value);
 });

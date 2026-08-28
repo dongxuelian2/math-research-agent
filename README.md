@@ -94,7 +94,7 @@ Run 和结果，应得到相同的持久化产物。
 - `[proof]`：模式、并行 Worker 数、步骤上限；
 - `[research]`、`[budgets]` 与 `[corpus]`：长周期策略、检查点/停滞、执行预算和语义导入；
 - `[tools]`：统一工件访问、允许的受控执行能力与可执行文件；
-- `[formalization]` 与可选 literature adapter；
+- `[formalization]`：默认启用的 Lean 4 进程门及其 Lake project；用户只需提交数学命题，Formalizer 会生成或修复完整 Lean 源码，编译失败会回到动态修复任务；若调用方提供精确 Lean 目标，runtime 仍会严格保持该声明；
 - `[models.*]`：Provider、Model ID、Base URL、API key 环境变量名、推理强度、
   context window、最大输出长度和自定义请求参数；
 - `[roles.*]`：Planner、Worker、Verifier、Synthesizer、Formalizer、Literature
@@ -137,12 +137,12 @@ Proof Run 使用启动时配置快照，新配置只影响后续运行。密钥�
 不写入配置文件、不显示、不返回；Provider 仅在真实运行时按环境变量读取。
 
 当前默认配置已接入 Vertex AI 的 Service Account 路由：`gemini37` 使用
-`gemini-3.7-flash`，三个活动证明角色共用该模型。`11111.json` 这类文件是
-GCP Service Account 凭据，不是 Gemini Developer API key；启动脚本发现仓库根目录
-存在该文件时，会将其路径设置为 `GOOGLE_APPLICATION_CREDENTIALS`，并由后端换取
-短期 OAuth2 token。也可以手动设置该环境变量，项目 ID 默认从 JSON 的 `project_id`
-读取，区域可用 `GOOGLE_CLOUD_LOCATION` 覆盖（默认 `global`）。该 Service Account
-还必须在对应项目启用 Vertex AI API，并拥有调用模型所需的 IAM 权限。
+`gemini-3.7-flash`，三个活动证明角色共用该模型。根目录下符合 Service Account
+格式的 JSON 是 GCP 凭据，不是 Gemini Developer API key；启动入口在未手动设置
+`GOOGLE_APPLICATION_CREDENTIALS` 时，会自动发现唯一的此类文件并使用其路径，
+由后端换取短期 OAuth2 token。也可以手动设置该环境变量，项目 ID 默认从 JSON 的
+`project_id` 读取，区域可用 `GOOGLE_CLOUD_LOCATION` 覆盖（默认 `global`）。该
+Service Account 还必须在对应项目启用 Vertex AI API，并拥有调用模型所需的 IAM 权限。
 
 ## 开发检查
 

@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -19,6 +19,30 @@ test("task-level crash resume reuses completed workers and runs only missing wor
 	const workerCalls = new Map<string, number>(), verifierCalls = new Map<string, number>(); const researcher: ProofResearcher = { async research(context) { workerCalls.set(context.task.taskId, (workerCalls.get(context.task.taskId) ?? 0) + 1); return { kind: "candidate", candidate: { taskId: context.task.taskId, content: `proof ${context.task.taskId}`, strategy: "independent" } }; } }; const verifier: ProofVerifier = { async verify(candidate) { verifierCalls.set(candidate.taskId, (verifierCalls.get(candidate.taskId) ?? 0) + 1); return { verdict: "CORRECT", feedback: "correct" }; } };
 	let runtime = new ProofRuntime({ session, obligation: { obligationId: "o", theorem: "T" }, planner, researcher, verifier, runId: "durable", maxWorkers: 1, maxSteps: 1, workspaceDirectory: join(directory, "run"), faultAfterWorkerResults: 2 }); const interrupted = await runtime.run(); assert.equal(interrupted.status, "FAILED"); assert.deepEqual(Object.fromEntries(workerCalls), { A: 1, B: 1 }); assert.equal(verifierCalls.size, 0);
 	runtime = new ProofRuntime({ session, obligation: { obligationId: "o", theorem: "T" }, planner, researcher, verifier, runId: "durable", maxWorkers: 1, maxSteps: 1, workspaceDirectory: join(directory, "run") }); await runtime.run(); assert.deepEqual(Object.fromEntries(workerCalls), { A: 1, B: 1, C: 1 }); assert.deepEqual(Object.fromEntries(verifierCalls), { A: 1, B: 1, C: 1 }); assert.equal(runtime.state.candidates.length, 3); assert.equal(plannerCalls, 1, "the unfinished persisted step must resume without a Planner call"); assert.equal(runtime.state.executionPlans[0]?.status, "COMPLETED");
+});
+
+test("session receipts ahead of state snapshot prevent duplicate dynamic Worker and Verifier calls", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "proof-session-ahead-")); t.after(async () => rm(directory, { recursive: true, force: true }));
+	let plannerCalls = 0, workerCalls = 0, verifierCalls = 0;
+	const planner: ProofPlanner = { async plan() { plannerCalls += 1; return { actions: [{ action: "spawn", tasks: [{ taskId: "stable-task", summary: "stable task", description: "produce one durable candidate" }] }] }; } };
+	const researcher: ProofResearcher = { async research(context) { workerCalls += 1; return { kind: "candidate", candidate: { taskId: context.task.taskId, content: "durable proof", strategy: "stable" } }; } };
+	const verifier: ProofVerifier = { async verify() { verifierCalls += 1; return { verdict: "CORRECT", feedback: "durably verified" }; } };
+	const workspaceDirectory = join(directory, "run"), session = await Session.create({ projectId: "session-ahead", sessionId: "session-ahead", cwd: directory, directory });
+	const base = { obligation: { obligationId: "o", theorem: "T" }, planner, researcher, verifier, runId: "session-ahead", maxWorkers: 1, maxSteps: 1, workspaceDirectory } as const;
+	let runtime = new ProofRuntime({ ...base, session }); await runtime.run();
+	assert.deepEqual({ plannerCalls, workerCalls, verifierCalls }, { plannerCalls: 1, workerCalls: 1, verifierCalls: 1 });
+
+	// Model a crash after the append-only verification receipt was flushed but
+	// before the newer state snapshot replaced its predecessor.
+	const statePath = join(workspaceDirectory, "state.json"), stale = JSON.parse(await readFile(statePath, "utf8"));
+	stale.status = "RUNNING"; stale.candidates = []; stale.verifications = {};
+	stale.executionPlans = stale.executionPlans.map((plan: any) => ({ ...plan, status: "RUNNING", completedAt: undefined, actionExecutions: plan.actionExecutions.map((action: any) => ({ ...action, status: "RUNNING", completedAt: undefined })) }));
+	await writeFile(statePath, `${JSON.stringify(stale, null, 2)}\n`);
+
+	runtime = new ProofRuntime({ ...base, session: await Session.resume(session.filePath) }); await runtime.run();
+	assert.deepEqual({ plannerCalls, workerCalls, verifierCalls }, { plannerCalls: 1, workerCalls: 1, verifierCalls: 1 });
+	assert.equal(runtime.state.verifications["stable-task-candidate"]?.verdict, "CORRECT");
+	assert.equal(runtime.state.executionPlans[0]?.actionExecutions[0]?.status, "COMPLETED");
 });
 
 test("full plan action resume skips completed literature and computation actions and resumes only missing spawn work", async (t) => {

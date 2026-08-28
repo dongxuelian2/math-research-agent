@@ -61,6 +61,12 @@ export interface AgentOptions {
 	readonly tools?: readonly RuntimeTool[];
 	readonly toolExecutionMode?: ToolExecutionMode;
 	readonly maxTurns?: number;
+	/**
+	 * Optional provider-context bound for stateless roles such as the proof
+	 * controller. The full session remains durable; only the live request
+	 * projection is bounded.
+	 */
+	readonly maxContextMessages?: number;
 	readonly hooks?: AgentHooks;
 }
 
