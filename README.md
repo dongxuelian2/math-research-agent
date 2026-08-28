@@ -136,13 +136,16 @@ Web 设置页“模型与证明角色”和高级 TOML 编辑器共用一个 `Co
 Proof Run 使用启动时配置快照，新配置只影响后续运行。密钥只保存环境变量名，
 不写入配置文件、不显示、不返回；Provider 仅在真实运行时按环境变量读取。
 
-当前默认配置已接入 Vertex AI 的 Service Account 路由：`gemini37` 使用
-`gemini-3.7-flash`，三个活动证明角色共用该模型。根目录下符合 Service Account
-格式的 JSON 是 GCP 凭据，不是 Gemini Developer API key；启动入口在未手动设置
-`GOOGLE_APPLICATION_CREDENTIALS` 时，会自动发现唯一的此类文件并使用其路径，
-由后端换取短期 OAuth2 token。也可以手动设置该环境变量，项目 ID 默认从 JSON 的
-`project_id` 读取，区域可用 `GOOGLE_CLOUD_LOCATION` 覆盖（默认 `global`）。该
-Service Account 还必须在对应项目启用 Vertex AI API，并拥有调用模型所需的 IAM 权限。
+当前默认配置的 `gemini37` 使用 `google-vertex` provider 和
+`gemini-3.7-flash`。Provider adapter 已改为 Google 官方
+`@google/genai` SDK：本地通过 Application Default Credentials（例如
+`gcloud auth application-default login`）认证，部署到 Cloud Run 时直接使用
+Cloud Run service identity 的 ADC；项目 ID 和模型区域分别由
+`GOOGLE_CLOUD_PROJECT`、`GOOGLE_CLOUD_LOCATION` 提供。启动脚本和后端不会扫描、
+读取或签名仓库里的 GCP JSON 文件。对应项目必须启用 Vertex AI API，并授予
+运行身份调用模型所需的 IAM 权限。
+
+Cloud Run 部署与演示见 [`docs/CLOUD_RUN_DEMO.md`](docs/CLOUD_RUN_DEMO.md)。
 
 ## 开发检查
 

@@ -1,9 +1,6 @@
 import { strict as assert } from "node:assert";
-import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
+import { FinishReason, type GenerateContentParameters, type GenerateContentResponse, type GoogleGenAIOptions } from "@google/genai";
 import {
 	createAssistantMessage,
 	createProvider,
@@ -164,38 +161,61 @@ test("normalizes all six provider adapters through the same offline contract", a
 	assert.equal(codexEvents.at(-1)?.type, "complete");
 });
 
-test("authenticates the Vertex adapter with a service-account file and Gemini 3 thinking level", async (t) => {
-	const directory = await mkdtemp(join(tmpdir(), "math-agent-google-vertex-"));
-	t.after(async () => rm(directory, { recursive: true, force: true }));
-	const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
-	const credentialPath = join(directory, "service-account.json");
-	await writeFile(credentialPath, JSON.stringify({
-		type: "service_account",
-		project_id: "test-project",
-		client_email: "test@test-project.iam.gserviceaccount.com",
-		private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
-		private_key_id: "test-key",
-		token_uri: "https://oauth2.example.test/token",
-	}));
-	const transport = new StaticTransport([
-		' data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n'.trimStart(),
-	]);
+test("uses the official GenAI SDK with ADC-compatible Vertex configuration and Gemini 3 thinking level", async () => {
+	const requests: GenerateContentParameters[] = [];
+	let clientOptions: GoogleGenAIOptions | undefined;
 	const provider = createProvider(
 		{
 			provider: "google-vertex",
 			model: "gemini-3.7-flash",
-			credentialFileResolver: () => credentialPath,
 			reasoningEffort: "high",
 			maxTokens: 123,
 		},
 		{
-			transport,
-			googleVertex: { tokenRequester: async () => ({ accessToken: "access-token", expiresIn: 3600 }) },
+			googleVertex: {
+				project: "test-project",
+				location: "global",
+				clientFactory: (options) => {
+					clientOptions = options;
+					return {
+						models: {
+							async generateContentStream(request): Promise<AsyncIterable<GenerateContentResponse>> {
+								requests.push(request);
+								return (async function* (): AsyncIterable<GenerateContentResponse> {
+									yield { candidates: [{ content: { parts: [{ text: "ok" }] } }] } as unknown as GenerateContentResponse;
+									yield {
+										candidates: [{
+											content: { parts: [{ functionCall: { id: "call-1", name: "read", args: {} }, thoughtSignature: "opaque-signature" }] },
+											finishReason: FinishReason.STOP,
+										}],
+										usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, totalTokenCount: 14 },
+								} as unknown as GenerateContentResponse;
+								})();
+							},
+						},
+					};
+				},
+			},
 		},
 	);
-	const events = await collect(provider, request({ provider: "google-vertex", model: "gemini-3.7-flash", credentialFileResolver: () => credentialPath, reasoningEffort: "high", maxTokens: 123 }));
+	const events = await collect(provider, {
+		model: { provider: "google-vertex", model: "gemini-3.7-flash", reasoningEffort: "high", maxTokens: 123 },
+		messages: [createUserMessage("hello")],
+		tools: [{ name: "read", description: "Read an artifact", parameters: { type: "object" } }],
+	});
 	assert.equal(events.some((event) => event.type === "text_delta" && event.text === "ok"), true);
-	assert.equal(transport.requests.length, 1);
-	assert.match(transport.requests[0] ?? "", /"thinkingLevel":"high"/u);
-	assert.doesNotMatch(transport.requests[0] ?? "", /thinkingBudget/u);
+	const toolCall = events.find((event): event is Extract<ModelStreamEvent, { type: "tool_call_delta" }> => event.type === "tool_call_delta");
+	assert.equal(toolCall?.callId, "call-1");
+	assert.deepEqual(toolCall?.providerMetadata, { google: { thought_signature: "opaque-signature" } });
+	assert.deepEqual(events.at(-1), { type: "complete", stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 } });
+	assert.equal(clientOptions?.enterprise, true);
+	assert.equal(clientOptions?.project, "test-project");
+	assert.equal(clientOptions?.location, "global");
+	assert.equal(clientOptions?.googleAuthOptions, undefined);
+	const body = requests[0];
+	assert.equal(body?.model, "gemini-3.7-flash");
+	assert.equal(body?.config?.maxOutputTokens, 123);
+	assert.equal(body?.config?.thinkingConfig?.thinkingLevel, "high");
+	const configuredTools = body?.config?.tools?.[0] as { readonly functionDeclarations?: readonly { readonly name?: string }[] } | undefined;
+	assert.equal(configuredTools?.functionDeclarations?.[0]?.name, "read");
 });

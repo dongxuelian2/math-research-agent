@@ -74,5 +74,7 @@ npm install
 npm test
 ```
 
-The runtime has no third-party dependencies. Provider adapters use the native
-`fetch` API and accept an injectable transport, so all tests remain offline.
+The Google Cloud provider uses the official `@google/genai` SDK and lets that
+SDK obtain Application Default Credentials; it does not parse service-account
+files. Tests inject the small SDK client seam, so the full test suite remains
+offline.

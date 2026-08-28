@@ -1,189 +1,283 @@
-import { createSign } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { request as undiciRequest } from "undici";
-import { FetchTransport } from "./http.js";
-import { asNumber, asRecord, asString } from "./parse.js";
-import { googleRequestBody, parseGoogleStream } from "./google-common.js";
-import { configureProxyFromEnvironment } from "./network.js";
 import {
-	resolveCredentialFile,
-	type ModelConfig,
-	type ModelProvider,
-	type ModelStreamEvent,
-	type ProviderRequest,
-	type ProviderTransport,
-} from "./types.js";
+	GoogleGenAI,
+	type Content,
+	type GenerateContentConfig,
+	type GenerateContentParameters,
+	type GenerateContentResponse,
+	type GoogleGenAIOptions,
+	type HttpOptions,
+	type Part,
+} from "@google/genai";
+import { asRecord, asString } from "./parse.js";
+import { configureProxyFromEnvironment } from "./network.js";
+import { resolveCredential, type ModelConfig, type ModelProvider, type ModelStreamEvent, type ProviderRequest } from "./types.js";
+import type { AgentMessage, AssistantContent, Usage } from "../models/messages.js";
 
-const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
-const DEFAULT_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const DEFAULT_LOCATION = "global";
+const DEFAULT_API_VERSION = "v1";
 
-type ServiceAccount = {
-	readonly clientEmail: string;
-	readonly privateKey: string;
-	readonly privateKeyId?: string;
-	readonly projectId: string;
-	readonly tokenUri: string;
-};
-
-type AccessToken = {
-	readonly value: string;
-	readonly expiresAt: number;
-};
-
-type TokenRequest = {
-	readonly credentials: ServiceAccount;
-	readonly signal?: AbortSignal;
-};
-
-type TokenResponse = {
-	readonly accessToken: string;
-	readonly expiresIn: number;
-};
-
-export interface GoogleVertexProviderOptions {
-	readonly transport?: ProviderTransport;
-	readonly tokenRequester?: (request: TokenRequest) => Promise<TokenResponse>;
-	readonly defaultBaseUrl?: string;
+/**
+ * The small part of GoogleGenAI used by the provider. Keeping this seam
+ * injectable makes the adapter testable without making a network request or
+ * coupling the rest of the agent runtime to the SDK's client class.
+ */
+export interface GoogleGenAIClient {
+	readonly models: {
+		generateContentStream(request: GenerateContentParameters): Promise<AsyncIterable<GenerateContentResponse>>;
+	};
 }
 
+export interface GoogleVertexProviderOptions {
+	readonly clientFactory?: (options: GoogleGenAIOptions) => GoogleGenAIClient;
+	readonly project?: string;
+	readonly location?: string;
+	readonly apiVersion?: string;
+}
+
+/**
+ * Google Cloud Gemini adapter backed by Google's official @google/genai SDK.
+ *
+ * The SDK owns authentication. In a local shell it uses Application Default
+ * Credentials; in Cloud Run it uses the service identity exposed by the
+ * metadata server. This adapter deliberately never reads, scans, parses, or
+ * signs a service-account JSON file.
+ */
 export class GoogleVertexProvider implements ModelProvider {
 	readonly id = "google-vertex" as const;
-	private readonly transport: ProviderTransport;
-	private readonly tokenRequester: (request: TokenRequest) => Promise<TokenResponse>;
-	private readonly defaultBaseUrl?: string;
-	private cachedToken: AccessToken | undefined;
+	private readonly clientFactory: (options: GoogleGenAIOptions) => GoogleGenAIClient;
+	private readonly project?: string;
+	private readonly location?: string;
+	private readonly apiVersion?: string;
+	private clientPromise: Promise<GoogleGenAIClient> | undefined;
 
 	constructor(options: GoogleVertexProviderOptions = {}) {
 		configureProxyFromEnvironment();
-		this.transport = options.transport ?? new FetchTransport();
-		this.tokenRequester = options.tokenRequester ?? requestAccessToken;
-		this.defaultBaseUrl = options.defaultBaseUrl;
+		this.clientFactory = options.clientFactory ?? ((clientOptions) => new GoogleGenAI(clientOptions));
+		this.project = options.project;
+		this.location = options.location;
+		this.apiVersion = options.apiVersion;
 	}
 
 	async *stream(request: ProviderRequest): AsyncIterable<ModelStreamEvent> {
 		try {
-			const credentials = await readServiceAccount(request.model);
-			const accessToken = await this.getAccessToken(credentials, request.signal);
-			const projectId = process.env.GOOGLE_CLOUD_PROJECT || credentials.projectId;
-			const location = process.env.GOOGLE_CLOUD_LOCATION || DEFAULT_LOCATION;
-			const baseUrl = (request.model.baseUrl ?? this.defaultBaseUrl ?? defaultBaseUrl(location)).replace(/\/$/u, "");
-			const modelPath = [
-				"projects",
-				encodeURIComponent(projectId),
-				"locations",
-				encodeURIComponent(location),
-				"publishers",
-				"google",
-				"models",
-				encodeURIComponent(request.model.model),
-			].join("/");
-			const events = parseGoogleStream(
-				this.transport.stream({
-					url: `${baseUrl}/${modelPath}:streamGenerateContent?alt=sse`,
-					method: "POST",
-					headers: {
-						"content-type": "application/json",
-						authorization: `Bearer ${accessToken}`,
-						...request.model.requestHeaders,
-					},
-					body: JSON.stringify(googleRequestBody(request)),
-					signal: request.signal,
-				}),
-			);
-			for await (const event of events) yield event;
+			const client = await this.clientFor(request.model);
+			const response = await client.models.generateContentStream(this.toSdkRequest(request));
+			let completed = false;
+			let callNumber = 0;
+			let usage: Usage | undefined;
+
+			for await (const chunk of response) {
+				const chunkUsage = sdkUsage(chunk);
+				if (chunkUsage !== undefined) usage = chunkUsage;
+				const candidate = chunk.candidates?.[0];
+				for (const part of candidate?.content?.parts ?? []) {
+					if (part.text !== undefined && part.text.length > 0) {
+						yield { type: "text_delta", text: part.text };
+					}
+					const functionCall = part.functionCall;
+					if (functionCall !== undefined) {
+						const callId = functionCall.id ?? `google-call-${callNumber}`;
+						if (functionCall.id === undefined) callNumber += 1;
+						const thoughtSignature = part.thoughtSignature;
+						yield {
+							type: "tool_call_delta",
+							callId,
+							...(functionCall.name === undefined ? {} : { name: functionCall.name }),
+							argumentsDelta: JSON.stringify(functionCall.args ?? {}),
+							...(thoughtSignature === undefined ? {} : { providerMetadata: { google: { thought_signature: thoughtSignature } } }),
+						};
+					}
+				}
+
+				const finishReason = candidate?.finishReason;
+				if (finishReason !== undefined && !completed) {
+					completed = true;
+					yield {
+						type: "complete",
+						stopReason: sdkStopReason(finishReason, candidate?.content?.parts),
+						...(usage === undefined ? {} : { usage }),
+					};
+				}
+			}
+			if (!completed) yield { type: "complete", stopReason: "end_turn", ...(usage === undefined ? {} : { usage }) };
 		} catch (error) {
 			yield { type: "failure", error, retryable: isRetryableProviderError(error) };
 		}
 	}
 
-	private async getAccessToken(credentials: ServiceAccount, signal?: AbortSignal): Promise<string> {
-		const reusable = this.cachedToken;
-		if (reusable !== undefined && reusable.expiresAt > Date.now() + 60_000) return reusable.value;
-		const response = await this.tokenRequester({ credentials, signal });
-		const expiresIn = Math.max(60, response.expiresIn);
-		this.cachedToken = {
-			value: response.accessToken,
-			expiresAt: Date.now() + (expiresIn - 60) * 1000,
+	private async clientFor(model: ModelConfig): Promise<GoogleGenAIClient> {
+		if (this.clientPromise !== undefined) return this.clientPromise;
+		this.clientPromise = this.createClient(model);
+		return this.clientPromise;
+	}
+
+	private async createClient(model: ModelConfig): Promise<GoogleGenAIClient> {
+		const apiKey = await resolveCredential(model);
+		const project = nonEmpty(this.project) ?? nonEmpty(process.env.GOOGLE_CLOUD_PROJECT);
+		const location = nonEmpty(this.location) ?? nonEmpty(process.env.GOOGLE_CLOUD_LOCATION) ?? DEFAULT_LOCATION;
+		const apiVersion = nonEmpty(this.apiVersion) ?? DEFAULT_API_VERSION;
+		const httpOptions = sdkHttpOptions(model, apiVersion);
+		const options: GoogleGenAIOptions = {
+			// `enterprise` is the current official SDK name for the Vertex AI
+			// backend. It is equivalent to the SDK's legacy `vertexai` flag.
+			enterprise: true,
+			...(project === undefined ? {} : { project }),
+			...(location === undefined ? {} : { location }),
+			...(nonEmpty(apiKey) === undefined ? {} : { apiKey: nonEmpty(apiKey) }),
+			...(httpOptions === undefined ? {} : { httpOptions }),
+			apiVersion,
 		};
-		return response.accessToken;
+		return this.clientFactory(options);
+	}
+
+	private toSdkRequest(request: ProviderRequest): GenerateContentParameters {
+		const config = sdkConfig(request);
+		return {
+			model: request.model.model,
+			contents: sdkContents(request.messages, request.model.model),
+			...(Object.keys(config).length === 0 ? {} : { config }),
+		};
 	}
 }
 
-async function readServiceAccount(model: ModelConfig): Promise<ServiceAccount> {
-	const filename = await resolveCredentialFile(model) ?? process.env.GOOGLE_APPLICATION_CREDENTIALS;
-	if (filename === undefined || filename.length === 0) {
-		throw new Error("Google Vertex requires GOOGLE_APPLICATION_CREDENTIALS to point to a Service Account JSON file");
+function sdkContents(messages: readonly AgentMessage[], model: string): Content[] {
+	const contents: Content[] = [];
+	for (const message of messages) {
+		if (message.role === "user") {
+			contents.push({ role: "user", parts: [{ text: message.content }] });
+			continue;
+		}
+		if (message.role === "assistant") {
+			const parts = message.content.map((part) => sdkAssistantPart(part, model)).filter((part): part is Part => part !== undefined);
+			// An interrupted/empty model turn can be retained in the Agent
+			// history. The SDK/API rejects a content item without parts.
+			if (parts.length > 0) contents.push({ role: "model", parts });
+			continue;
+		}
+		contents.push({
+			role: "user",
+			parts: [{
+				functionResponse: {
+					name: message.toolName,
+					response: { result: message.content },
+					...(isGemini3Model(model) ? { id: message.toolCallId } : {}),
+				},
+			}],
+		});
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(await readFile(filename, "utf8")) as unknown;
-	} catch {
-		throw new Error(`Unable to read Google Service Account JSON from ${filename}`);
-	}
-	const object = asRecord(parsed);
-	const clientEmail = asString(object?.client_email);
-	const privateKey = asString(object?.private_key);
-	const projectId = asString(object?.project_id);
-	if (object?.type !== "service_account" || clientEmail === undefined || privateKey === undefined || projectId === undefined) {
-		throw new Error("Google credential file must be a service_account JSON with client_email, private_key, and project_id");
-	}
+	if (contents.length === 0) contents.push({ role: "user", parts: [{ text: "Continue." }] });
+	return contents;
+}
+
+function sdkAssistantPart(part: AssistantContent, model: string): Part | undefined {
+	if (part.kind === "text") return { text: part.text };
+	const thoughtSignature = googleThoughtSignature(part.providerMetadata);
 	return {
-		clientEmail,
-		privateKey,
-		projectId,
-		...(asString(object.private_key_id) === undefined ? {} : { privateKeyId: asString(object.private_key_id) }),
-		tokenUri: asString(object.token_uri) ?? DEFAULT_TOKEN_URI,
+		functionCall: {
+			name: part.name,
+			args: part.arguments,
+			...(isGemini3Model(model) ? { id: part.id } : {}),
+		},
+		...(thoughtSignature === undefined ? {} : { thoughtSignature }),
 	};
 }
 
-async function requestAccessToken(request: TokenRequest): Promise<TokenResponse> {
-	configureProxyFromEnvironment();
-	const now = Math.floor(Date.now() / 1000);
-	const header = {
-		alg: "RS256",
-		typ: "JWT",
-		...(request.credentials.privateKeyId === undefined ? {} : { kid: request.credentials.privateKeyId }),
-	};
-	const claims = {
-		iss: request.credentials.clientEmail,
-		scope: CLOUD_PLATFORM_SCOPE,
-		aud: request.credentials.tokenUri,
-		iat: now,
-		exp: now + 3600,
-	};
-	const unsigned = `${base64UrlJson(header)}.${base64UrlJson(claims)}`;
-	const signer = createSign("RSA-SHA256");
-	signer.update(unsigned);
-	const assertion = `${unsigned}.${signer.sign(request.credentials.privateKey).toString("base64url")}`;
-	const response = await undiciRequest(request.credentials.tokenUri, {
-		method: "POST",
-		headers: { "content-type": "application/x-www-form-urlencoded" },
-		body: new URLSearchParams({
-			grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-			assertion,
-		}).toString(),
-		signal: request.signal,
-	});
-	if (response.statusCode < 200 || response.statusCode >= 300) {
-		throw new Error(`Google Service Account token request failed with HTTP ${response.statusCode}: ${await response.body.text()}`);
+function sdkConfig(request: ProviderRequest): GenerateContentConfig {
+	const parameters = asRecord(request.model.requestParameters) ?? {};
+	const config: Record<string, unknown> = {};
+	const configured = asRecord(parameters.config);
+	if (configured !== undefined) Object.assign(config, configured);
+	for (const [key, value] of Object.entries(parameters)) {
+		if (key !== "config" && key !== "generationConfig" && key !== "generation_config" && key !== "contents" && key !== "model" && key !== "tools") config[key] = value;
 	}
-	const payload = asRecord(await response.body.json() as unknown);
-	const accessToken = asString(payload?.access_token);
-	if (accessToken === undefined) throw new Error("Google Service Account token response did not contain access_token");
-	return { accessToken, expiresIn: asNumber(payload?.expires_in) ?? 3600 };
+	const generationConfig = asRecord(parameters.generationConfig ?? parameters.generation_config);
+	if (generationConfig !== undefined) Object.assign(config, generationConfig);
+
+	if (request.tools.length > 0) {
+		config.tools = [{
+			functionDeclarations: request.tools.map((tool) => ({
+				name: tool.name,
+				description: tool.description,
+				parametersJsonSchema: tool.parameters,
+			})),
+		}];
+	}
+	if (request.model.maxTokens !== undefined) config.maxOutputTokens = request.model.maxTokens;
+	if (request.model.reasoningEffort !== undefined) {
+		const thinkingConfig = asRecord(config.thinkingConfig);
+		config.thinkingConfig = {
+			...thinkingConfig,
+			...(isGemini3Model(request.model.model)
+				? { thinkingLevel: request.model.reasoningEffort }
+				: { thinkingBudget: thinkingBudget(request.model.reasoningEffort) }),
+		};
+	}
+	if (request.responseSchema !== undefined) {
+		config.responseMimeType = "application/json";
+		config.responseJsonSchema = request.responseSchema;
+	}
+	if (request.signal !== undefined) config.abortSignal = request.signal;
+	return config as GenerateContentConfig;
 }
 
-function defaultBaseUrl(location: string): string {
-	const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
-	return `https://${host}/v1`;
+function sdkHttpOptions(model: ModelConfig, apiVersion: string | undefined): HttpOptions | undefined {
+	const headers = model.requestHeaders === undefined ? undefined : { ...model.requestHeaders };
+	const baseUrl = nonEmpty(model.baseUrl);
+	if (baseUrl === undefined && headers === undefined) return undefined;
+	const options: HttpOptions = {
+		...(headers === undefined ? {} : { headers }),
+		...(nonEmpty(apiVersion) === undefined ? {} : { apiVersion }),
+	};
+	if (baseUrl !== undefined) {
+		const versioned = baseUrl.match(/^(.*)\/(v1(?:beta\d*)?)\/?$/u);
+		if (versioned?.[1] !== undefined && versioned[2] !== undefined) {
+			options.baseUrl = versioned[1];
+			if (nonEmpty(apiVersion) === undefined) options.apiVersion = versioned[2];
+		} else {
+			options.baseUrl = baseUrl;
+			if (nonEmpty(apiVersion) === undefined) options.apiVersion = "";
+		}
+	}
+	return options;
 }
 
-function base64UrlJson(value: Record<string, unknown>): string {
-	return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+function sdkUsage(response: GenerateContentResponse): Usage | undefined {
+	const metadata = response.usageMetadata;
+	if (metadata === undefined) return undefined;
+	const usage: Usage = {
+		...(metadata.promptTokenCount === undefined ? {} : { inputTokens: metadata.promptTokenCount }),
+		...(metadata.candidatesTokenCount === undefined ? {} : { outputTokens: metadata.candidatesTokenCount }),
+		...(metadata.totalTokenCount === undefined ? {} : { totalTokens: metadata.totalTokenCount }),
+	};
+	return Object.keys(usage).length === 0 ? undefined : usage;
+}
+
+function sdkStopReason(finishReason: string, parts: readonly Part[] | undefined): "end_turn" | "tool_calls" | "length" {
+	if (finishReason === "MAX_TOKENS") return "length";
+	if (finishReason === "STOP") return "end_turn";
+	return parts?.some((part) => part.functionCall !== undefined) === true ? "tool_calls" : "end_turn";
+}
+
+function isGemini3Model(model: string): boolean {
+	return /^gemini-3(?:\.|-)/u.test(model);
+}
+
+function thinkingBudget(effort: NonNullable<ModelConfig["reasoningEffort"]>): number {
+	return effort === "low" ? 1024 : effort === "medium" ? 4096 : 8192;
+}
+
+function googleThoughtSignature(metadata: import("../models/json.js").JsonObject | undefined): string | undefined {
+	const google = asRecord(metadata?.google);
+	return asString(google?.thought_signature) ?? asString(google?.thoughtSignature);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+	return value !== undefined && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function isRetryableProviderError(error: unknown): boolean {
 	if (!(error instanceof Error)) return false;
-	return /fetch failed|eai_again|enotfound|econnreset|econnrefused|etimedout|timeout|socket|temporarily unavailable|http (?:408|425|429|5\d\d)\b/iu.test(`${error.message} ${String((error as { readonly cause?: unknown }).cause ?? "")}`);
+	const status = (error as Error & { readonly status?: unknown }).status;
+	return (typeof status === "number" && [408, 425, 429, 500, 502, 503, 504].includes(status))
+		|| /fetch failed|eai_again|enotfound|econnreset|econnrefused|etimedout|timeout|socket|temporarily unavailable|http (?:408|425|429|5\d\d)\b/iu.test(`${error.message} ${String((error as { readonly cause?: unknown }).cause ?? "")}`);
 }

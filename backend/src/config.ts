@@ -27,7 +27,6 @@ export type ModelProfile = {
 	readonly model: string;
 	readonly baseUrl?: string;
 	readonly apiKeyEnv?: string;
-	readonly serviceAccountFileEnv?: string;
 	readonly reasoningEffort?: ReasoningEffort;
 	readonly contextWindow?: number;
 	readonly maxTokens?: number;
@@ -257,12 +256,7 @@ export class MathAgentConfigService {
 		for (const [name, model] of Object.entries(this.configValue.models)) {
 			models[name] = {
 				...model,
-				credentialConfigured: model.apiKeyEnv === undefined && model.serviceAccountFileEnv === undefined
-					? false
-					: Boolean(
-						(model.apiKeyEnv !== undefined && process.env[model.apiKeyEnv])
-							|| (model.serviceAccountFileEnv !== undefined && process.env[model.serviceAccountFileEnv]),
-					),
+				credentialConfigured: model.apiKeyEnv === undefined ? false : Boolean(process.env[model.apiKeyEnv]),
 			};
 		}
 		return {
@@ -355,9 +349,6 @@ export function modelConfigOf(profile: ModelProfile): ModelConfig {
 		...(profile.requestHeaders === undefined ? {} : { requestHeaders: profile.requestHeaders }),
 		...(profile.requestParameters === undefined ? {} : { requestParameters: profile.requestParameters }),
 		...(profile.apiKeyEnv === undefined ? {} : { credentialResolver: () => process.env[profile.apiKeyEnv as string] }),
-		...(profile.serviceAccountFileEnv === undefined
-			? {}
-			: { credentialFileResolver: () => process.env[profile.serviceAccountFileEnv as string] }),
 	};
 }
 
@@ -467,7 +458,6 @@ function normalizeModel(value: Record<string, unknown>, fallbackName = "model"):
 		model,
 		...(stringValueOrUndefined(value.base_url ?? value.baseUrl) === undefined ? {} : { baseUrl: stringValueOrUndefined(value.base_url ?? value.baseUrl) }),
 		...(stringValueOrUndefined(value.api_key_env ?? value.apiKeyEnv) === undefined ? {} : { apiKeyEnv: stringValueOrUndefined(value.api_key_env ?? value.apiKeyEnv) }),
-		...(stringValueOrUndefined(value.service_account_file_env ?? value.serviceAccountFileEnv) === undefined ? {} : { serviceAccountFileEnv: stringValueOrUndefined(value.service_account_file_env ?? value.serviceAccountFileEnv) }),
 		...(effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh" || effort === "max" ? { reasoningEffort: effort } : {}),
 		...(numberValue(value.context_window ?? value.contextWindow) === undefined ? {} : { contextWindow: numberValue(value.context_window ?? value.contextWindow) }),
 		...(numberValue(value.max_tokens ?? value.maxTokens) === undefined ? {} : { maxTokens: numberValue(value.max_tokens ?? value.maxTokens) }),
@@ -500,7 +490,6 @@ export function stringifyMathAgentConfig(config: MathAgentConfig): string {
 		lines.push("", `[models.${tomlKey(name)}]`, `provider = ${quote(model.provider)}`, `model = ${quote(model.model)}`);
 		if (model.baseUrl !== undefined) lines.push(`base_url = ${quote(model.baseUrl)}`);
 		if (model.apiKeyEnv !== undefined) lines.push(`api_key_env = ${quote(model.apiKeyEnv)}`);
-		if (model.serviceAccountFileEnv !== undefined) lines.push(`service_account_file_env = ${quote(model.serviceAccountFileEnv)}`);
 		if (model.reasoningEffort !== undefined) lines.push(`reasoning_effort = ${quote(model.reasoningEffort)}`);
 		if (model.contextWindow !== undefined) lines.push(`context_window = ${model.contextWindow}`);
 		if (model.maxTokens !== undefined) lines.push(`max_tokens = ${model.maxTokens}`);

@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,10 +8,6 @@ import { createConfiguredProofRoleFactory, MathAgentConfigService, ProofApiServe
 const appRoot = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const repositoryRoot = resolve(appRoot, "../..");
 const webRoot = resolve(appRoot, "web");
-if ((process.env.GOOGLE_APPLICATION_CREDENTIALS ?? "").trim().length === 0) {
-  const credentialFile = await discoverServiceAccount(repositoryRoot);
-  if (credentialFile !== undefined) process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialFile;
-}
 const configPath = resolve(process.env.MATH_AGENT_CONFIG ?? resolve(repositoryRoot, "configs/math-agent.toml"));
 const args = new Set(process.argv.slice(2));
 
@@ -28,13 +24,15 @@ const proofApi = new ProofApiServer({
   defaultMaxSteps: configService.config.proof.maxSteps,
 });
 
-const apiHost = process.env.MATH_AGENT_PROOF_API_HOST ?? configService.config.runtime.host;
-const apiPort = parsePort(process.env.MATH_AGENT_PROOF_API_PORT, configService.config.runtime.proofApiPort);
+const apiOnly = args.has("--api-only");
+const cloudPort = apiOnly && process.env.PORT !== undefined ? parsePort(process.env.PORT, configService.config.runtime.proofApiPort) : configService.config.runtime.proofApiPort;
+const apiHost = process.env.MATH_AGENT_PROOF_API_HOST ?? (apiOnly && process.env.PORT !== undefined ? "0.0.0.0" : configService.config.runtime.host);
+const apiPort = parsePort(process.env.MATH_AGENT_PROOF_API_PORT, cloudPort);
 const apiUrl = await proofApi.start({ host: apiHost, port: apiPort });
 let webServer;
 let shuttingDown = false;
 
-if (!args.has("--api-only")) {
+if (!apiOnly) {
   const webHost = process.env.MATH_AGENT_WEB_HOST ?? configService.config.runtime.host;
   const webPort = parsePort(process.env.MATH_AGENT_WEB_PORT, configService.config.runtime.webPort);
   webServer = createServer((request, response) => { void serveWeb(request, response, apiUrl); });
@@ -136,22 +134,4 @@ function closeServer(server) {
   return new Promise((resolvePromise, reject) => {
     server.close((error) => error === undefined ? resolvePromise() : reject(error));
   });
-}
-
-async function discoverServiceAccount(rootDirectory) {
-  const entries = (await readdir(rootDirectory, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && extname(entry.name) === ".json" && entry.name !== "package.json")
-    .sort((left, right) => left.name.localeCompare(right.name));
-  const candidates = [];
-  for (const entry of entries) {
-    try {
-      const value = JSON.parse(await readFile(join(rootDirectory, entry.name), "utf8"));
-      if (value?.type === "service_account" && typeof value.client_email === "string" && typeof value.private_key === "string" && typeof value.project_id === "string") {
-        candidates.push(join(rootDirectory, entry.name));
-      }
-    } catch {
-      // Non-credential JSON files are not candidates.
-    }
-  }
-  return candidates.length === 1 ? candidates[0] : undefined;
 }

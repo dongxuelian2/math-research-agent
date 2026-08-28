@@ -40,7 +40,7 @@ export function createProvider(model: ModelConfig, options: ProviderFactoryOptio
 		case "google":
 			return new GoogleProvider({ transport: options.transport });
 		case "google-vertex":
-			return new GoogleVertexProvider({ ...options.googleVertex, transport: options.transport ?? options.googleVertex?.transport });
+			return new GoogleVertexProvider(options.googleVertex);
 		case "openai-codex":
 			return new CodexCliProvider(options.codex);
 		default:

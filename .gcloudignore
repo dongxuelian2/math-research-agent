@@ -1,0 +1,20 @@
+# Keep source uploads free of credentials and local runtime state.
+.git/
+.gitignore
+.dockerignore
+.gcloudignore
+/.math-agent/
+/node_modules/
+**/node_modules/
+/dist/
+**/dist/
+/projects/
+/AUDIT_METADATA/
+/formalization/.lake/
+/*.json
+!/package.json
+.env
+**/.env
+configs/*.local.*
+*.log
+*.tmp

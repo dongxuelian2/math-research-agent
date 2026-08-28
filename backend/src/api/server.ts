@@ -203,7 +203,7 @@ export class ProofApiServer {
 			const url = new URL(request.url ?? "/", "http://127.0.0.1");
 			const parts = url.pathname.split("/").filter((part) => part.length > 0).map((part) => decodeURIComponent(part));
 			if (request.method === "GET" && url.pathname === "/healthz") {
-				this.send(response, 200, { ok: true, service: "math-agent-proof-api" });
+				this.send(response, 200, { ok: true, service: "math-agent-proof-api", runtime: runtimeEvidence() });
 				return;
 			}
 			if (parts[0] === "v1" && parts[1] === "config") {
@@ -831,6 +831,19 @@ export class ProofApiServer {
 		responses.delete(response);
 		if (responses.size === 0) this.sseRunResponses.delete(run);
 	}
+}
+
+function runtimeEvidence(): Record<string, string> {
+	const service = process.env.K_SERVICE;
+	if (service === undefined || service.trim().length === 0) return { platform: "local" };
+	return {
+		platform: "Google Cloud Run",
+		service,
+		...(process.env.K_REVISION === undefined ? {} : { revision: process.env.K_REVISION }),
+		...(process.env.K_CONFIGURATION === undefined ? {} : { configuration: process.env.K_CONFIGURATION }),
+		...(process.env.GOOGLE_CLOUD_PROJECT === undefined ? {} : { project: process.env.GOOGLE_CLOUD_PROJECT }),
+		...(process.env.GOOGLE_CLOUD_LOCATION === undefined ? {} : { location: process.env.GOOGLE_CLOUD_LOCATION }),
+	};
 }
 
 class ApiHttpError extends Error {

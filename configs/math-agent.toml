@@ -55,7 +55,6 @@ execution_boundary = "CONTROLLED_COMMAND_RUNNER"
 [models.gemini37]
 provider = "google-vertex"
 model = "gemini-3.7-flash"
-service_account_file_env = "GOOGLE_APPLICATION_CREDENTIALS"
 reasoning_effort = "high"
 context_window = 1048576
 max_tokens = 8192

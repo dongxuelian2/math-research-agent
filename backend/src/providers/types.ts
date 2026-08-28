@@ -21,7 +21,6 @@ export interface ModelConfig {
 	readonly model: string;
 	readonly baseUrl?: string;
 	readonly credentialResolver?: CredentialResolver;
-	readonly credentialFileResolver?: CredentialResolver;
 	readonly reasoningEffort?: ReasoningEffort;
 	readonly contextWindow?: number;
 	readonly maxTokens?: number;
@@ -88,8 +87,4 @@ export function errorMessage(error: unknown): string {
 
 export async function resolveCredential(model: ModelConfig): Promise<string | undefined> {
 	return model.credentialResolver === undefined ? undefined : model.credentialResolver();
-}
-
-export async function resolveCredentialFile(model: ModelConfig): Promise<string | undefined> {
-	return model.credentialFileResolver === undefined ? undefined : model.credentialFileResolver();
 }

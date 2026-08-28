@@ -25,6 +25,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@google/genai": "2.18.0",
     "undici": "6.21.0"
   }
 }
