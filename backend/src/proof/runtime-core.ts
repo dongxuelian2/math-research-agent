@@ -936,7 +936,11 @@ export class ProofRuntime {
 				}
 				if (restored === undefined) this.stateValue = { ...this.stateValue, candidates: [...this.stateValue.candidates, candidate] };
 				await this.repositoryValue.writeItem({
-					slug: `candidates/${candidate.candidateId}`,
+					// Candidate ids are logical task ids and may contain continuation
+					// chains much longer than the repository's 100-character slug
+					// limit. Keep the logical id in state/events, but use a safe,
+					// deterministic repository key for the materialized candidate.
+					slug: candidateRepositorySlug(candidate.candidateId),
 					content: candidate.content,
 					summary: candidate.strategy,
 					...(work.task.kind === "FORMALIZATION" ? { format: "lean" as const } : {}),
@@ -1880,6 +1884,15 @@ function initialWhiteboard(obligation: ProofObligation, mode: ProofMode): string
 
 function slugify(value: string): string {
 	return normalize(value).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "item";
+}
+
+function candidateRepositorySlug(candidateId: string): string {
+	const prefix = "candidates/";
+	const normalized = slugify(candidateId);
+	if (normalized.length < 80) return `${prefix}${normalized}`;
+	const suffix = fingerprint(candidateId).slice(0, 12);
+	const maxBaseLength = 100 - prefix.length - suffix.length - 1;
+	return `${prefix}${normalized.slice(0, maxBaseLength)}-${suffix}`;
 }
 
 function stringify(value: unknown): string {

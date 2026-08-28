@@ -77,6 +77,7 @@ async function createRoleAgent(role: ProofRole, config: MathAgentConfig, directo
 		// turns inside one logical agent. Keep the agent default aligned with the
 		// AgentCore default unless a role explicitly configures max_turns.
 		maxTurns: profile.maxTurns ?? 32,
+		...(role === "planner" ? { maxContextMessages: 1 } : {}),
 	});
 	return profile.timeoutSeconds === undefined ? agent : timeoutAgent(agent, profile.timeoutSeconds);
 }

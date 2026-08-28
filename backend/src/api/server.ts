@@ -38,6 +38,8 @@ export interface ProofApiRoleFactory {
 
 export type ProofApiServerOptions = {
 	readonly rootDirectory: string;
+	/** Base directory for relative project paths in the effective configuration. */
+	readonly repositoryDirectory?: string;
 	readonly createRoles: ProofApiRoleFactory;
 	readonly configService?: MathAgentConfigService;
 	readonly defaultMode?: ProofMode;
@@ -72,6 +74,7 @@ const TERMINAL_STATUSES: readonly ProofStatus[] = [
 
 export class ProofApiServer {
 	private readonly rootDirectory: string;
+	private readonly repositoryDirectory: string;
 	private readonly createRoles: ProofApiRoleFactory;
 	private readonly configService?: MathAgentConfigService;
 	private readonly defaultMode: ProofMode;
@@ -91,6 +94,7 @@ export class ProofApiServer {
 
 	constructor(options: ProofApiServerOptions) {
 		this.rootDirectory = resolve(options.rootDirectory);
+		this.repositoryDirectory = resolve(options.repositoryDirectory ?? process.cwd());
 		this.createRoles = options.createRoles;
 		this.configService = options.configService;
 		this.defaultMode = options.defaultMode ?? "prove";
@@ -385,7 +389,7 @@ export class ProofApiServer {
 		let draft;
 		try { draft = await agent.formalize({ rootStatement: root.statement, informalProof: (await this.researchStore.resolveArtifact(projectId, finalRef)).body, ...(existingLean === undefined ? {} : { existingLean }) }); }
 		catch (error) { state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = `FORMAL_ERROR: ${errorMessage(error)}`; })).state; return { state, status: "BLOCKED_FORMAL", feedback: errorMessage(error) }; }
-		const source = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_SOURCE", body: draft.lean, provenance: "configured-formalizer-untrusted-draft", references: [finalRef], metadata: { notes: draft.notes, mode } }), formalDirectory = resolve(config.formalization.projectDir ?? join(this.researchStore.projectDirectory(projectId), "formalization")); await mkdir(formalDirectory, { recursive: true });
+		const source = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_SOURCE", body: draft.lean, provenance: "configured-formalizer-untrusted-draft", references: [finalRef], metadata: { notes: draft.notes, mode } }), formalDirectory = resolve(this.repositoryDirectory, config.formalization.projectDir ?? join(this.researchStore.projectDirectory(projectId), "formalization")); await mkdir(formalDirectory, { recursive: true });
 		const command = config.formalization.command ?? "lake", verifier = new CommandProofFormalVerifier({ projectDirectory: formalDirectory, command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
 		const checked = await verifier.verify(draft.lean, { runId, step: 1, obligation: { obligationId: stableId("formal-obligation", projectId, root.claimId), theorem: root.statement }, theoremText: root.statement, workDirectory: formalDirectory });
 		const certificate = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_CERTIFICATE", body: `${JSON.stringify(checked, null, 2)}\n`, provenance: "CommandProofFormalVerifier", references: [source] });
@@ -536,7 +540,7 @@ export class ProofApiServer {
 			workspaceDirectory: join(this.rootDirectory, "proof-runs", sessionId, runId),
 			runId,
 			...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
-				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId)) } : {}),
+				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId), this.repositoryDirectory) } : {}),
 			...(config === undefined ? {} : { runConfig: { config: jsonObjectOf(config) } }),
 		});
 		const run: RunRecord = { runId, workflow, controller: new AbortController(), startedAt: Date.now() };
@@ -718,7 +722,7 @@ export class ProofApiServer {
 				workspaceDirectory: join(directory, runId),
 				runId,
 				...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
-				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(directory, runId)) } : {}),
+				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(directory, runId), this.repositoryDirectory) } : {}),
 				runConfig: jsonObjectOf(runConfig),
 			});
 			await workflow.hydrate();
@@ -964,9 +968,9 @@ function researchLinks(projectId: string): Readonly<Record<string, string>> {
 	return { status: base, audit: `${base}/audit`, frontier: `${base}/frontier`, claims: `${base}/claims`, dependencies: `${base}/dependencies`, coverage: `${base}/coverage`, routes: `${base}/routes`, artifacts: `${base}/artifacts`, literature: `${base}/literature`, bootstrapReport: `${base}/bootstrap-report`, checkpoints: `${base}/checkpoints`, events: `${base}/events`, rootReadiness: `${base}/root-readiness`, synthesis: `${base}/synthesis`, formalization: `${base}/formalization`, result: `${base}/result`, resume: `${base}/resume` };
 }
 
-function configuredProofFormalVerifier(config: MathAgentConfig, fallbackDirectory: string): CommandProofFormalVerifier {
+function configuredProofFormalVerifier(config: MathAgentConfig, fallbackDirectory: string, repositoryDirectory: string): CommandProofFormalVerifier {
 	const command = config.formalization.command ?? "lake";
-	return new CommandProofFormalVerifier({ projectDirectory: resolve(config.formalization.projectDir ?? fallbackDirectory), command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
+	return new CommandProofFormalVerifier({ projectDirectory: resolve(repositoryDirectory, config.formalization.projectDir ?? fallbackDirectory), command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
 }
 
 function configuredImportAuthority(value: string | undefined): import("../research/index.js").ImportAuthority {

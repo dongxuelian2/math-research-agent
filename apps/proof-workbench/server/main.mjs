@@ -20,6 +20,7 @@ await configService.load();
 const dataDirectory = resolve(process.env.MATH_AGENT_DATA_DIR ?? resolve(repositoryRoot, configService.config.runtime.dataDir));
 const proofApi = new ProofApiServer({
   rootDirectory: dataDirectory,
+  repositoryDirectory: repositoryRoot,
   configService,
   createRoles: createConfiguredProofRoleFactory({ config: configService, rootDirectory: dataDirectory }),
   defaultMode: configService.config.proof.defaultMode,

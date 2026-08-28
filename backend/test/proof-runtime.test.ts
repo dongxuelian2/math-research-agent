@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ProofRuntime, Session, type ProofPlan, type ProofTaskInput } from "../src/index.js";
+import { ProofRepository, ProofRuntime, Session, type ProofPlan, type ProofTaskInput } from "../src/index.js";
 
 test("minimal proof runtime closes planner -> researcher -> verifier and persists typed events", async (t) => {
 	const directory = await mkdtemp(join(tmpdir(), "math-agent-proof-minimal-"));
@@ -81,4 +81,46 @@ test("minimal proof runtime closes planner -> researcher -> verifier and persist
 	assert.equal(proofEntries.at(-1)?.type, "proof/step_finished");
 	const resumed = await Session.resume(session.filePath);
 	assert.equal(resumed.customEntries("proof").length, proofEntries.length);
+});
+
+test("materializes candidates from long continuation ids under the repository slug limit", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "math-agent-proof-long-candidate-"));
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const session = await Session.create({ projectId: "long-candidate", cwd: directory, directory });
+	const taskId = `${"part2-ekr-bound:continuation-".repeat(6)}final`;
+	const planner = {
+		async plan(): Promise<ProofPlan> {
+			return {
+				actions: [{ action: "spawn", tasks: [{ taskId, summary: "Complete the continued proof", description: "Return a complete proof." }] }],
+			};
+		},
+	};
+	const researcher = {
+		async research(context: { readonly task: { readonly taskId: string } }) {
+			return { kind: "candidate" as const, candidate: { taskId: context.task.taskId, strategy: "long-id", content: "The continued proof is complete." } };
+		},
+	};
+	const verifier = {
+		async verify() {
+			return { verdict: "CORRECT" as const, feedback: "The candidate is complete." };
+		},
+	};
+	const repository = new ProofRepository(join(directory, "proof-repository"));
+	const runtime = new ProofRuntime({
+		session,
+		obligation: { obligationId: "long-candidate", theorem: "A complete proof must be returned." },
+		planner,
+		researcher,
+		verifier,
+		repository,
+		maxSteps: 1,
+	});
+
+	const result = await runtime.run();
+
+	assert.equal(result.status, "CANDIDATE_READY");
+	const items = await repository.listItems();
+	assert.equal(items.length, 1);
+	assert.match(items[0]?.slug ?? "", /^candidates\/[a-z0-9-]+$/u);
+	assert.ok((items[0]?.slug.length ?? 101) <= 100);
 });
