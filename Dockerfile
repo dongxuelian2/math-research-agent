@@ -22,5 +22,5 @@ RUN pnpm run build
 EXPOSE 8080
 
 # Cloud Run exposes one HTTP port. The API-only mode binds to the injected
-# PORT, which makes /healthz and /v1/* directly reachable at the run.app URL.
+# PORT, which makes /health and /v1/* directly reachable at the run.app URL.
 CMD ["node", "apps/proof-workbench/server/main.mjs", "--api-only"]

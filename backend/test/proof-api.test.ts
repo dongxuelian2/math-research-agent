@@ -112,7 +112,7 @@ test("completes a proof through the HTTP session, theorem, run, and result API",
 	const baseUrl = await api.start({ port: 0 });
 	t.after(async () => api.stop());
 
-	const health = await request(baseUrl, "/healthz");
+	const health = await request(baseUrl, "/health");
 	assert.equal(health.status, 200);
 	assert.equal(health.body.ok, true);
 

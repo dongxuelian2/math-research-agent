@@ -53,5 +53,5 @@ gcloud run deploy "${deploy_args[@]}"
 SERVICE_URL="$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"
 printf '%s\n' "Cloud Run URL: $SERVICE_URL"
 printf '%s\n' 'Runtime proof from the deployed backend:'
-curl --fail --silent --show-error "$SERVICE_URL/healthz"
-printf '\n%s\n' 'Open the /healthz URL in a browser for the visual Cloud Run proof; the response includes K_SERVICE and K_REVISION-derived evidence.'
+curl --fail --silent --show-error "$SERVICE_URL/health"
+printf '\n%s\n' 'Open the /health URL in a browser for the visual Cloud Run proof; the response includes K_SERVICE and K_REVISION-derived evidence.'

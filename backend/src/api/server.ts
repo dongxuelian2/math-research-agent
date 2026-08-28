@@ -202,7 +202,9 @@ export class ProofApiServer {
 			}
 			const url = new URL(request.url ?? "/", "http://127.0.0.1");
 			const parts = url.pathname.split("/").filter((part) => part.length > 0).map((part) => decodeURIComponent(part));
-			if (request.method === "GET" && url.pathname === "/healthz") {
+			// Cloud Run reserves some public paths ending in "z" (including
+			// /healthz), so keep this endpoint on a non-reserved path.
+			if (request.method === "GET" && url.pathname === "/health") {
 				this.send(response, 200, { ok: true, service: "math-agent-proof-api", runtime: runtimeEvidence() });
 				return;
 			}
