@@ -56,6 +56,7 @@ test("minimal proof runtime closes planner -> researcher -> verifier and persist
 
 	assert.equal(result.status, "CANDIDATE_READY");
 	assert.equal(result.candidateId, "induction-1-candidate");
+	assert.equal(runtime.state.tasks.length, 1, "a simple obligation should remain a single focused worker task");
 	assert.match(verifierSawCandidate, /adding the next term/);
 	assert.deepEqual(
 		runtime.events.map((event) => event.type),

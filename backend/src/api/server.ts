@@ -51,6 +51,7 @@ export type ProofApiServerOptions = {
 type SessionRecord = {
 	readonly session: Session;
 	pendingObligation?: ProofObligation;
+	pendingLeanTheorem?: string;
 	mode?: ProofMode;
 	readonly runs: Map<string, RunRecord>;
 };
@@ -66,7 +67,7 @@ type RunRecord = {
 };
 
 const TERMINAL_STATUSES: readonly ProofStatus[] = [
-	"PROVED", "PARTIAL", "FAILED", "BLOCKED_PROVIDER", "CANCELLED",
+	"PROVED", "PARTIAL", "FAILED", "BLOCKED_FORMAL", "BLOCKED_PROVIDER", "CANCELLED",
 ];
 
 export class ProofApiServer {
@@ -113,7 +114,7 @@ export class ProofApiServer {
 				const auditId = stableResearchAuditId(projectId, candidate.contentHash), directory = join(this.researchStore.projectDirectory(projectId), "audits", auditId); await mkdir(directory, { recursive: true });
 				const config = this.projectConfigSnapshot(await this.researchStore.read(projectId)), recorder = new ResearchEvidenceRecorder(this.researchStore, projectId, auditId), tools = this.researchTools(projectId, directory, recorder, "secondary_auditor", config);
 				const agent = await this.createResearchAgent("secondary_auditor", projectId, auditId, tools), verifier = createAgentProofVerifier(agent), obligation: ProofObligation = { obligationId: auditId, theorem: claim.statement }, body = (await this.researchStore.resolveArtifact(projectId, candidate)).body;
-				const task = { taskId: auditId, summary: "Fresh independent root audit", description: `Audit the exact target proof. Retrieve every relied-on artifact before accepting.`, routeFingerprint: auditId, scope: "TARGET" as const, targetClaimId: claim.claimId, dependsOn: [], status: "COMPLETED" as const, attempt: 1, updatedAt: new Date().toISOString() }, proofCandidate = { candidateId: candidate.artifactId, taskId: auditId, content: body, strategy: "fresh-root-audit", routeFingerprint: auditId, claimFingerprint: candidate.contentHash, candidateFingerprint: candidate.contentHash, claim: claim.statement, evidence: workerReadEvidence, discoveredEvidence: [], bodyReadEvidence: workerReadEvidence, declaredEvidence: workerReadEvidence, reliedOnArtifactIds: workerReadEvidence.map((item) => item.artifactId), assumptions: claim.assumptions, dependencyClaims: claim.dependencies, scope: "TARGET" as const, targetClaimId: claim.claimId };
+				const task = { taskId: auditId, summary: "Fresh independent root audit", description: `Audit the exact target proof. Retrieve every relied-on artifact before accepting.`, routeFingerprint: auditId, scope: "TARGET" as const, targetClaimId: claim.claimId, dependsOn: [], status: "COMPLETED" as const, attempt: 1, updatedAt: new Date().toISOString(), kind: "MATHEMATICAL" as const }, proofCandidate = { candidateId: candidate.artifactId, taskId: auditId, content: body, strategy: "fresh-root-audit", routeFingerprint: auditId, claimFingerprint: candidate.contentHash, candidateFingerprint: candidate.contentHash, claim: claim.statement, evidence: workerReadEvidence, discoveredEvidence: [], bodyReadEvidence: workerReadEvidence, declaredEvidence: workerReadEvidence, reliedOnArtifactIds: workerReadEvidence.map((item) => item.artifactId), assumptions: claim.assumptions, dependencyClaims: claim.dependencies, scope: "TARGET" as const, targetClaimId: claim.claimId };
 				const result = await verifier.verify(proofCandidate, { runId: auditId, step: 1, obligation, task }, signal); const inspected = (await recorder.list("secondary_auditor")).filter((item) => item.operation === "READ").map((item) => item.artifact);
 				await this.researchStore.transaction(projectId, (draft) => { const mutable = draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }; mutable.budget = { ...draft.budget, secondaryAuditorCalls: draft.budget.secondaryAuditorCalls + 1 }; });
 				return { verdict: result.verdict === "NEEDS_MINOR_FIXES" ? "MINOR_FIX" : result.verdict, feedback: result.feedback, profile: "configured-secondary-auditor", evidenceInspected: inspected, toolReceiptIds: (await recorder.list("secondary_auditor")).map((item) => item.receiptId) };
@@ -482,28 +483,34 @@ export class ProofApiServer {
 		const body = await readJsonObject(request);
 		const theorem = requiredString(body.theorem, "theorem");
 		const obligationId = optionalString(body.obligationId) ?? `${sessionId}-obligation`;
-		const mode = parseMode(body.mode) ?? this.defaultMode;
+		const config = this.configService?.config;
+		const requestedMode = parseMode(body.mode) ?? config?.proof.defaultMode ?? this.defaultMode;
+		const mode = effectiveProofMode(requestedMode, config);
 		const context = optionalString(body.context);
+		const leanTheorem = optionalString(body.leanTheorem ?? body.lean_theorem);
 		const obligation: ProofObligation = {
 			obligationId,
 			theorem,
 			...(context === undefined ? {} : { context }),
 		};
 		record.pendingObligation = obligation;
+		record.pendingLeanTheorem = leanTheorem;
 		record.mode = mode;
 		await record.session.appendMessage(createUserMessage(`Prove the following theorem:\n\n${theorem}`));
 		await record.session.appendCustom({
 			namespace: "proof-api",
 			type: "theorem_submitted",
-			payload: { type: "theorem_submitted", sessionId, obligationId, theorem, mode, ...(context === undefined ? {} : { context }) },
+			payload: { type: "theorem_submitted", sessionId, obligationId, theorem, mode, ...(context === undefined ? {} : { context }), ...(leanTheorem === undefined ? {} : { leanTheorem }) },
 		});
-		this.send(response, 200, { sessionId, obligation, mode, status: "THEOREM_ACCEPTED" });
+		this.send(response, 200, { sessionId, obligation, mode, ...(leanTheorem === undefined ? {} : { leanTheorem }), status: "THEOREM_ACCEPTED" });
 	}
 
 	private async startProofRun(sessionId: string, record: SessionRecord, request: IncomingMessage, response: ServerResponse): Promise<void> {
 		if (record.pendingObligation === undefined) throw new ApiHttpError(400, "Submit a theorem before starting a proof run");
 		const body = await readJsonObject(request);
-		const mode = parseMode(body.mode) ?? record.mode ?? this.defaultMode;
+		const config = this.configService?.config;
+		const requestedMode = parseMode(body.mode) ?? record.mode ?? config?.proof.defaultMode ?? this.defaultMode;
+		const mode = effectiveProofMode(requestedMode, config);
 		const runId = optionalString(body.runId) ?? randomUUID();
 		if (!/^[A-Za-z0-9_-]{1,100}$/u.test(runId)) throw new ApiHttpError(400, "runId must contain only letters, numbers, '_' or '-'");
 		const existing = record.runs.get(runId);
@@ -515,7 +522,6 @@ export class ProofApiServer {
 		}
 		const maxWorkers = positiveInteger(body.maxWorkers) ?? this.defaultMaxWorkers;
 		const maxSteps = positiveInteger(body.maxSteps) ?? this.defaultMaxSteps;
-		const config = this.configService?.config;
 		const workflowMode = parseWorkflowMode(body.workflowMode) ?? config?.proof.workflowMode;
 		const roles = await this.createRoles({ session: record.session, sessionId, runId, obligation: record.pendingObligation, mode, ...(config === undefined ? {} : { config }) });
 		const workflow = new ProofWorkflow({
@@ -529,7 +535,8 @@ export class ProofApiServer {
 			historyLimit: config?.proof.historyLimit,
 			workspaceDirectory: join(this.rootDirectory, "proof-runs", sessionId, runId),
 			runId,
-			...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId)) } : {}),
+			...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
+				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId)) } : {}),
 			...(config === undefined ? {} : { runConfig: { config: jsonObjectOf(config) } }),
 		});
 		const run: RunRecord = { runId, workflow, controller: new AbortController(), startedAt: Date.now() };
@@ -677,6 +684,7 @@ export class ProofApiServer {
 					theorem: theorem.payload.theorem,
 					...(typeof theorem.payload.context === "string" ? { context: theorem.payload.context } : {}),
 				};
+				record.pendingLeanTheorem = typeof theorem.payload.leanTheorem === "string" ? theorem.payload.leanTheorem : undefined;
 				record.mode = parseMode(theorem.payload.mode) ?? this.defaultMode;
 			}
 			this.sessions.set(session.sessionId, record);
@@ -709,6 +717,7 @@ export class ProofApiServer {
 				historyLimit: config?.proof.historyLimit,
 				workspaceDirectory: join(directory, runId),
 				runId,
+				...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
 				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(directory, runId)) } : {}),
 				runConfig: jsonObjectOf(runConfig),
 			});
@@ -733,6 +742,7 @@ export class ProofApiServer {
 			entryCount: record.session.entries.length,
 			customEntryCount: record.session.customEntries().length,
 			...(record.pendingObligation === undefined ? {} : { obligation: record.pendingObligation }),
+			...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
 			...(record.mode === undefined ? {} : { mode: record.mode }),
 			runs: [...record.runs.values()].map((run) => this.runView(sessionId, run)),
 		};
@@ -875,7 +885,7 @@ function executionTaskStatusForProofTask(status: import("../proof/types.js").Pro
 
 function isProofRunResult(value: Record<string, unknown>): value is ProofRunResult {
 	return typeof value.runId === "string"
-		&& (value.status === "PROVED" || value.status === "CANDIDATE_READY" || value.status === "PARTIAL" || value.status === "FAILED" || value.status === "BLOCKED_PROVIDER" || value.status === "CANCELLED")
+		&& (value.status === "PROVED" || value.status === "CANDIDATE_READY" || value.status === "PARTIAL" || value.status === "FAILED" || value.status === "BLOCKED_FORMAL" || value.status === "BLOCKED_PROVIDER" || value.status === "CANCELLED")
 			&& (value.mode === "prove" || value.mode === "prove_and_formalize" || value.mode === "formalize_only")
 			&& (value.workflowMode === undefined || value.workflowMode === "dynamic" || value.workflowMode === "legacy")
 			&& typeof value.steps === "number";
@@ -898,6 +908,17 @@ function parseMode(value: unknown): ProofMode | undefined {
 	if (value === undefined) return undefined;
 	if (value === "prove" || value === "prove_and_formalize" || value === "formalize_only") return value;
 	throw new ApiHttpError(400, "mode must be prove, prove_and_formalize, or formalize_only");
+}
+
+/**
+ * Once the configured application enables formalization, an old UI/client
+ * sending `mode=prove` must not be able to finish on PROOF.md alone. The
+ * explicit `formalize_only` policy remains respected; every other request is
+ * upgraded to the configured end-to-end formal workflow.
+ */
+function effectiveProofMode(mode: ProofMode, config: MathAgentConfig | undefined): ProofMode {
+	if (mode !== "prove" || config?.formalization.enabled !== true) return mode;
+	return config.proof.defaultMode === "formalize_only" ? "formalize_only" : "prove_and_formalize";
 }
 
 function parseWorkflowMode(value: unknown): ProofWorkflowMode | undefined {

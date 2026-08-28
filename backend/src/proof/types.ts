@@ -12,8 +12,11 @@ export type ProofStatus =
 	| "PROVED"
 	| "PARTIAL"
 	| "FAILED"
+	| "BLOCKED_FORMAL"
 	| "BLOCKED_PROVIDER"
 	| "CANCELLED";
+
+export type ProofTaskKind = "MATHEMATICAL" | "FORMALIZATION";
 
 export type ProofTaskStatus =
 	| "PENDING"
@@ -32,6 +35,8 @@ export type ProofAgentSpec = {
 	readonly purpose: string;
 	/** Capabilities are descriptive and do not grant tools or permissions. */
 	readonly capabilities?: readonly string[];
+	/** Selects an approved configured role; it never grants extra tools. */
+	readonly role?: "worker" | "formalizer";
 };
 
 export type ProofWorkflowSpec = {
@@ -39,6 +44,26 @@ export type ProofWorkflowSpec = {
 	readonly strategy: string;
 	readonly rationale?: string;
 	readonly successCriteria?: readonly string[];
+};
+
+/** A problem-derived unit that the workflow controller can assign independently. */
+export type ProofDecompositionUnit = {
+	readonly unitId: string;
+	readonly label: string;
+	readonly description: string;
+};
+
+/**
+ * A lightweight decomposition signal derived from the obligation shape. It is
+ * advisory for the model, but the dynamic runtime also uses it to prevent an
+ * obviously composite first plan from collapsing into one broad worker task.
+ */
+export type ProofDecomposition = {
+	readonly complexity: "SIMPLE" | "COMPOSITE";
+	readonly unitCount: number;
+	readonly recommendedMinimumTasks: number;
+	readonly signals: readonly string[];
+	readonly units: readonly ProofDecompositionUnit[];
 };
 
 /**
@@ -78,6 +103,8 @@ export type ProofTaskInput = {
 	readonly successCriteria?: string;
 	/** Links a new task to a previous partial task so the worker can continue it. */
 	readonly continuationOf?: string;
+	/** Formalization tasks are process-gated and bypass model-only acceptance. */
+	readonly kind?: ProofTaskKind;
 };
 
 export type ProofTask = {
@@ -97,6 +124,7 @@ export type ProofTask = {
 	readonly attempt: number;
 	readonly updatedAt: string;
 	readonly lastError?: string;
+	readonly kind: ProofTaskKind;
 };
 
 export type ProofContributionKind =
@@ -192,8 +220,20 @@ export type VerificationResult = {
 export type FormalVerificationResult = {
 	readonly ok: boolean;
 	readonly feedback: string;
+	readonly failureKind?: "REJECTED" | "UNAVAILABLE" | "TIMEOUT" | "ABORTED";
 	readonly command?: string;
 	readonly artifactPath?: string;
+};
+
+export type FormalVerificationAttempt = {
+	readonly attempt: number;
+	readonly step: number;
+	readonly sourceId: string;
+	readonly taskId?: string;
+	readonly candidateId?: string;
+	readonly proofSlug?: string;
+	readonly result: FormalVerificationResult;
+	readonly timestamp: number;
 };
 
 export type ProofFormalVerifier = {
@@ -273,7 +313,9 @@ export type ProofPlannerContext = {
 	readonly stepHistory?: readonly ProofStepRecord[];
 	readonly budget?: ProofBudgetState;
 	readonly artifacts?: ProofArtifactStatus;
+	readonly formalAttempts: readonly FormalVerificationAttempt[];
 	readonly tacticalDirective?: Readonly<Record<string, unknown>>;
+	readonly decomposition?: ProofDecomposition;
 };
 
 export type ProofResearchContext = {
@@ -460,6 +502,7 @@ export type ProofState = {
 	readonly recentOutputs: readonly ProofOutput[];
 	readonly stepHistory: readonly ProofStepRecord[];
 	readonly executionPlans: readonly ProofExecutionPlan[];
+	readonly formalAttempts: readonly FormalVerificationAttempt[];
 	readonly budget: ProofBudgetState;
 	readonly submittedCandidateId?: string;
 	readonly submittedProofSlug?: string;
@@ -545,7 +588,10 @@ export type ProofEvent =
 			readonly runId: string;
 			readonly timestamp: number;
 			readonly step: number;
-			readonly proofSlug: string;
+			readonly attempt: FormalVerificationAttempt;
+			readonly proofSlug?: string;
+			readonly taskId?: string;
+			readonly candidateId?: string;
 			readonly result: FormalVerificationResult;
 		}
 	| {

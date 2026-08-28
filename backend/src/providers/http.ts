@@ -1,5 +1,6 @@
 import type { ProviderTransport, TransportRequest } from "./types.js";
 import { configureProxyFromEnvironment } from "./network.js";
+import { request as undiciRequest } from "undici";
 
 export class ProviderHttpError extends Error {
 	readonly status: number;
@@ -19,39 +20,20 @@ export class FetchTransport implements ProviderTransport {
 	}
 
 	async *stream(request: TransportRequest): AsyncIterable<string> {
-		const response = await fetch(request.url, {
+		const response = await undiciRequest(request.url, {
 			method: request.method,
 			headers: request.headers,
 			body: request.body,
 			signal: request.signal,
 		});
 
-		if (!response.ok) {
-			throw new ProviderHttpError(response.status, await response.text());
+		if (response.statusCode < 200 || response.statusCode >= 300) {
+			throw new ProviderHttpError(response.statusCode, await response.body.text());
 		}
 
-		if (response.body === null) {
-			yield await response.text();
-			return;
-		}
-
-		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
-		try {
-			while (true) {
-				const chunk = await reader.read();
-				if (chunk.done) {
-					break;
-				}
-				yield decoder.decode(chunk.value, { stream: true });
-			}
-
-			const finalChunk = decoder.decode();
-			if (finalChunk.length > 0) {
-				yield finalChunk;
-			}
-		} finally {
-			reader.releaseLock();
-		}
+		for await (const chunk of response.body) yield decoder.decode(chunk as Uint8Array, { stream: true });
+		const finalChunk = decoder.decode();
+		if (finalChunk.length > 0) yield finalChunk;
 	}
 }

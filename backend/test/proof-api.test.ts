@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
 	AgentCore,
 	ProofApiServer,
+	MathAgentConfigService,
 	MockProvider,
 	Session,
 	createAgentProofRoles,
@@ -175,4 +176,28 @@ test("completes a proof through the HTTP session, theorem, run, and result API",
 	assert.equal(runs.body.runs.length, 1);
 	assert.equal(runs.body.runs[0].runId, runId);
 	assert.equal(runs.body.runs[0].status, "PROVED");
+});
+
+test("configured formalization upgrades legacy prove requests without requiring Lean code from the user", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "math-agent-proof-api-formal-policy-"));
+	const config = new MathAgentConfigService(join(directory, "math-agent.toml"));
+	await config.load();
+	await config.update({ formalization: { enabled: true } });
+	const api = new ProofApiServer({
+		rootDirectory: directory,
+		configService: config,
+		createRoles: async () => { throw new Error("roles are not needed for theorem policy validation"); },
+	});
+	t.after(async () => { await api.stop(); await config.close(); await rm(directory, { recursive: true, force: true }); });
+	const baseUrl = await api.start({ port: 0 });
+	const created = await request(baseUrl, "/v1/sessions", { method: "POST", body: JSON.stringify({ sessionId: "formal-policy" }) });
+	assert.equal(created.status, 201);
+	const submitted = await request(baseUrl, `/v1/sessions/${created.body.sessionId}/theorem`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ theorem: "For every n, n = n.", mode: "prove" }),
+	});
+	assert.equal(submitted.status, 200);
+	assert.equal(submitted.body.mode, "prove_and_formalize");
+	assert.equal(submitted.body.leanTheorem, undefined);
 });

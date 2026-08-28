@@ -34,11 +34,15 @@ export class CommandProofFormalVerifier implements ProofFormalVerifier {
 
 	async verify(content: string, context: Parameters<ProofFormalVerifier["verify"]>[1], signal?: AbortSignal): Promise<FormalVerificationResult> {
 		if (signal?.aborted) {
-			return { ok: false, feedback: "Formal verification was aborted." };
+			return { ok: false, feedback: "Formal verification was aborted.", failureKind: "ABORTED" };
+		}
+		const unsafeReason = checkUnsafeLeanSource(content);
+		if (unsafeReason !== undefined) {
+			return { ok: false, feedback: unsafeReason, failureKind: "REJECTED", command: `${this.command} ${this.args.join(" ")}` };
 		}
 		const theoremReason = context.theoremText === undefined ? undefined : checkTheoremPreserved(context.theoremText, content);
 		if (theoremReason !== undefined) {
-			return { ok: false, feedback: theoremReason, command: `${this.command} ${this.args.join(" ")}` };
+			return { ok: false, feedback: theoremReason, failureKind: "REJECTED", command: `${this.command} ${this.args.join(" ")}` };
 		}
 		const workDirectory = context.workDirectory ?? this.projectDirectory;
 		await mkdir(workDirectory, { recursive: true });
@@ -61,11 +65,19 @@ export class CommandProofFormalVerifier implements ProofFormalVerifier {
 				artifactPath: file,
 			};
 		} catch (error) {
-			const failure = error as { readonly stdout?: string; readonly stderr?: string; readonly message?: string };
+			const failure = error as { readonly stdout?: string; readonly stderr?: string; readonly message?: string; readonly code?: string | number; readonly killed?: boolean; readonly name?: string };
 			const feedback = [failure.stdout, failure.stderr, failure.message].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n").trim();
+			const failureKind = signal?.aborted || failure.name === "AbortError"
+				? "ABORTED"
+				: failure.code === "ENOENT"
+					? "UNAVAILABLE"
+					: failure.killed === true || failure.code === "ETIMEDOUT"
+						? "TIMEOUT"
+						: "REJECTED";
 			return {
 				ok: false,
 				feedback: feedback || "Lean verification failed.",
+				failureKind,
 				command: [this.command, ...commandArgs].join(" "),
 				artifactPath: file,
 			};
@@ -78,10 +90,12 @@ export function checkTheoremPreserved(theoremText: string, proofText: string): s
 	const theorem = normalizeLean(stripLeanComments(theoremText));
 	const proof = normalizeLean(stripLeanComments(proofText));
 	const declaration = theorem.match(/\b(?:theorem|lemma|def)\s/);
-	if (declaration === null) return undefined;
+	if (declaration === null) return "Configured Lean target must contain a theorem, lemma, or def declaration.";
 	const relevant = theorem.slice(declaration.index ?? 0);
 	const fragments = relevant.split(/\bsorry\b/);
-	if (fragments.length === 1) return undefined;
+	if (fragments.length === 1) {
+		return proof === theorem ? undefined : "Submitted Lean source does not exactly match the configured completed target.";
+	}
 	let position = 0;
 	for (let index = 0; index < fragments.length; index += 1) {
 		const fragment = fragments[index] ?? "";
@@ -97,6 +111,16 @@ export function checkTheoremPreserved(theoremText: string, proofText: string): s
 	}
 	if (/\bsorry\b/.test(proof.slice(position))) {
 		return "Submitted Lean proof still contains `sorry`.";
+	}
+	return undefined;
+}
+
+/** Reject proof-local escape hatches that Lean accepts as declarations or warnings. */
+export function checkUnsafeLeanSource(proofText: string): string | undefined {
+	const proof = stripLeanComments(proofText);
+	if (/\b(?:sorry|admit)\b/u.test(proof)) return "Submitted Lean source contains an unresolved `sorry` or `admit`.";
+	if (/^\s*(?:unsafe\s+)?(?:axiom|constant|opaque)\b/mu.test(proof)) {
+		return "Submitted Lean source introduces an axiom, constant, or opaque declaration; formal proofs must not add unverified assumptions.";
 	}
 	return undefined;
 }

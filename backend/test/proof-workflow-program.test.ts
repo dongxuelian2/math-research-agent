@@ -50,6 +50,7 @@ function verifierContext(taskId: string): ProofVerifierContext {
 			status: "COMPLETED",
 			attempt: 1,
 			updatedAt: new Date(0).toISOString(),
+			kind: "MATHEMATICAL",
 		},
 	};
 }
@@ -143,6 +144,98 @@ test("one controller spawn autonomously advances dependencies and injects predec
 	assert.equal(runtime.state.tasks.find((task) => task.taskId === "right")?.status, "COMPLETED");
 	assert.equal(runtime.state.tasks.find((task) => task.taskId === "synthesis")?.status, "COMPLETED");
 	assert.equal(runtime.state.executionPlans[0]?.actionExecutions.length, 2, "compiled frontiers must be durable action receipts");
+});
+
+test("composite single-task controller plans are expanded into focused agents and a synthesis task", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "proof-workflow-decomposition-"));
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const session = await Session.create({ projectId: "workflow-decomposition", sessionId: "workflow-decomposition", cwd: directory, directory });
+	let plannerCalls = 0;
+	const workerTaskIds: string[] = [];
+	const agentIds: string[] = [];
+	let active = 0;
+	let peak = 0;
+	const planner = {
+		async plan(context: { readonly step: number; readonly decomposition?: { readonly unitCount: number; readonly complexity: string; readonly recommendedMinimumTasks: number } }): Promise<ProofPlan> {
+			plannerCalls += 1;
+			if (plannerCalls === 1) {
+				assert.equal(context.decomposition?.complexity, "COMPOSITE");
+				assert.equal(context.decomposition?.unitCount, 3);
+				assert.equal(context.decomposition?.recommendedMinimumTasks, 4);
+				return {
+					actions: [
+						{
+							action: "spawn",
+							tasks: [{
+								taskId: "all-questions",
+								summary: "Write one proof for all three questions",
+								description: "Give a complete proof addressing all three questions in the theorem.",
+								successCriteria: "All questions are rigorously discharged.",
+							}],
+						},
+						{ action: "stop", reason: "The initial draft is enough." },
+					],
+				};
+			}
+			return { actions: [{ action: "submit_proof", candidateId: "all-questions-candidate" }] };
+		},
+	};
+	const researcher: ProofResearcher = {
+		async research(context) {
+			workerTaskIds.push(context.task.taskId);
+			if (context.task.taskId === "all-questions") {
+				assert.match(context.referencedMaterials, /Dependency output: all-questions:unit-1/u);
+				assert.match(context.referencedMaterials, /Dependency output: all-questions:unit-2/u);
+				assert.match(context.referencedMaterials, /Dependency output: all-questions:unit-3/u);
+				return { kind: "candidate", candidate: { taskId: context.task.taskId, strategy: "synthesis", content: "The three independently established results combine to prove the complete theorem." } };
+			}
+			active += 1;
+			peak = Math.max(peak, active);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			active -= 1;
+			return { kind: "candidate", candidate: { taskId: context.task.taskId, strategy: "focused-unit", content: "The focused unit " + context.task.taskId + " was independently discharged." } };
+		},
+	};
+	const verifier: ProofVerifier = {
+		async verify(candidate) {
+			if (candidate.taskId === "all-questions") assert.match(candidate.content, /three independently established results/u);
+			return { verdict: "CORRECT", feedback: "The synthesis covers all units." };
+		},
+	};
+	const runtime = new ProofRuntime({
+		session,
+		obligation: {
+			obligationId: "composite",
+			theorem: [
+				"Question 1: establish the first claim.",
+				"Question 2: establish the second claim.",
+				"Question 3: establish the third claim.",
+			].join("\n\n"),
+		},
+		planner,
+		researcher,
+		verifier,
+		agentFactory: async (spec) => {
+			agentIds.push(spec.agentId);
+			return researcher;
+		},
+		maxWorkers: 2,
+		maxSteps: 2,
+		workspaceDirectory: join(directory, "run"),
+	});
+
+	const result = await runtime.run();
+
+	assert.equal(result.status, "PROVED");
+	assert.equal(result.candidateId, "all-questions-candidate", "the submitted synthesis must be the run's final candidate");
+	assert.equal(plannerCalls, 2);
+	assert.equal(workerTaskIds.length, 4, "three focused units plus one synthesis task must run");
+	assert.equal(new Set(agentIds).size, 4, "each dispatched task must receive its own logical agent");
+	assert.equal(peak, 2, "focused units should use the configured parallel frontier");
+	assert.equal(runtime.state.tasks.length, 4);
+	assert.deepEqual(runtime.state.tasks.find((task) => task.taskId === "all-questions")?.dependsOn, ["all-questions:unit-1", "all-questions:unit-2", "all-questions:unit-3"]);
+	assert.equal(runtime.state.tasks.find((task) => task.taskId === "all-questions")?.scope, "TARGET");
+	assert.deepEqual(runtime.state.executionPlans[0]?.plan.actions.map((action) => action.action), ["spawn", "spawn"]);
 });
 
 test("autonomous frontier refuses a verifier-rejected candidate dependency", async (t) => {

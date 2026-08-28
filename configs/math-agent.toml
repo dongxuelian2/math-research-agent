@@ -7,14 +7,16 @@ proof_api_port = 43100
 data_dir = ".math-agent"
 
 [proof]
-default_mode = "prove"
+default_mode = "prove_and_formalize"
 workflow_mode = "dynamic"
 max_workers = 8
 max_steps = 64
 history_limit = 64
 
 [formalization]
-enabled = false
+enabled = true
+project_dir = "formalization"
+command = "lake"
 
 [literature]
 enabled = true
@@ -52,7 +54,7 @@ model = "gemini-3.7-flash"
 service_account_file_env = "GOOGLE_APPLICATION_CREDENTIALS"
 reasoning_effort = "high"
 context_window = 1048576
-max_tokens = 16384
+max_tokens = 65536
 
 [roles.planner]
 model = "gemini37"
@@ -78,7 +80,9 @@ enabled = true
 
 [roles.formalizer]
 model = "gemini37"
-enabled = false
+enabled = true
+max_turns = 64
+timeout_seconds = 600
 
 [roles.literature_researcher]
 model = "gemini37"

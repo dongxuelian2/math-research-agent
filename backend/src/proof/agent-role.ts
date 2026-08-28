@@ -31,7 +31,7 @@ export interface AgentProofRoles {
 export class ProofProviderError extends Error {
 	readonly kind = "provider" as const;
 
-	constructor(message: string) {
+	constructor(message: string, readonly retryable = false) {
 		super(message);
 		this.name = "ProofProviderError";
 	}
@@ -76,9 +76,8 @@ class AgentProofPlanner implements ProofPlanner, ProofPlannerWithTrace {
 			const request = attempt === 1
 				? prompt
 				: formatPlannerRetry(prompt, lastText, lastError, attempt);
-			const result = await this.agent.prompt(`${system}\n\n${request}`);
+			const result = await promptWithProviderRetry(this.agent, `${system}\n\n${request}`, signal, "planner");
 			throwIfAborted(signal);
-			assertAgentResult(result, "planner");
 			lastText = assistantText(result).trim();
 			this.lastTrace = { prompt: request, response: lastText, attempts: attempt };
 			try {
@@ -104,14 +103,17 @@ class AgentProofResearcher implements ProofResearcher {
 
 	async research(context: ProofResearchContext, signal?: AbortSignal): Promise<ResearchResult> {
 		throwIfAborted(signal);
-		const result = await this.agent.prompt(
-			[
-				"You are one independent mathematical worker in a planner/worker proof workflow.",
+		const result = await promptWithProviderRetry(this.agent, [
+				context.task.kind === "FORMALIZATION"
+					? "You are the Lean formalizer in a dynamic proof workflow. Produce or repair the exact full Lean 4 source requested by the focused task."
+					: "You are one independent mathematical worker in a planner/worker proof workflow.",
 				"Solve only the focused task below. Do not spawn other agents. Use the available corpus/search/computation/scratch tools when evidence or computation is needed.",
 				"Search results are discovery only. Read every proof-critical artifact body. Declare reliedOnArtifactIds, which must be a subset of artifacts actually read.",
 				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content, assumptions?:string[], dependencyClaims?:string[], reliedOnArtifactIds?:string[]}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
 				"For research contributions return candidate.contribution={kind,statement,relationshipToTarget,claimId?,assumptions,dependencyClaims,childClaims?,coverageScope?,coverageAssertion?,closedCaseClaimId?,closureReason?,targetScope?,counterexampleScope?}. Reductions require >=1 unique non-self child; case splits require >=2 plus explicit scope/exhaustiveness; counterexamples require target and witness scopes. Do not label a lemma or local case as the target.",
-				"A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
+				context.task.kind === "FORMALIZATION"
+					? "Return JSON with candidate.content containing the entire Lean source and no Markdown fences. If an exact configured Lean declaration is supplied, preserve it and replace only its sorry hole; otherwise translate the original mathematical theorem into a precise Lean declaration yourself. Never weaken or trivialize the theorem, and never add axiom/constant/opaque/sorry/admit escape hatches. Compiler feedback is authoritative."
+					: "A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
 				context.task.scope === "TARGET" ? "This task is TARGET-scoped: return a complete proof of the exact theorem, mark candidate.scope as TARGET, and omit candidate.contribution unless you can use one of the declared contribution kinds exactly." : "This task is CONTRIBUTION-scoped: do not claim that a lemma or local observation proves the whole target.",
 				context.task.agent === undefined ? "Logical agent: the default mathematical worker." : `Logical agent: ${context.task.agent.agentId}\nPurpose: ${context.task.agent.purpose}${context.task.agent.capabilities === undefined ? "" : `\nCapabilities: ${context.task.agent.capabilities.join(", ")}`}`,
 				context.task.successCriteria === undefined ? "" : `Success criteria:\n${context.task.successCriteria}`,
@@ -120,10 +122,8 @@ class AgentProofResearcher implements ProofResearcher {
 				context.obligation.context === undefined ? "" : `Theorem context:\n${context.obligation.context}`,
 				`Focused task:\n${context.task.description}`,
 				context.referencedMaterials.length === 0 ? "Referenced repository materials: none" : context.referencedMaterials,
-			].filter((part) => part.length > 0).join("\n\n"),
-		);
+			].filter((part) => part.length > 0).join("\n\n"), signal, "researcher");
 		throwIfAborted(signal);
-		assertAgentResult(result, "researcher");
 		const text = assistantText(result).trim();
 		const assistantStopReason = lastAssistantStopReason(result);
 		if (assistantStopReason === "length" || result.stopReason === "max_turns") {
@@ -149,8 +149,7 @@ class AgentProofVerifier implements ProofVerifier {
 		signal?: AbortSignal,
 	): Promise<VerificationResult> {
 		throwIfAborted(signal);
-		const result = await this.agent.prompt(
-			[
+		const result = await promptWithProviderRetry(this.agent, [
 				"You are an independent verifier. You see the original task and the candidate output, not the researcher's hidden reasoning.",
 				"The runtime has already parsed the worker's response envelope. Treat candidate.content below as the proof body; do not reject a mathematically complete candidate merely because the worker did not include JSON/TOML wrapper syntax.",
 				"Check the mathematical argument, every non-trivial inference, edge cases, and whether the requested task was actually completed.",
@@ -161,10 +160,8 @@ class AgentProofVerifier implements ProofVerifier {
 				`Candidate proof:\n${candidate.content}`,
 				candidate.evidence.length === 0 ? "Candidate evidence receipts: none" : `Candidate evidence receipts (retrieve/check exact ids and hashes):\n${JSON.stringify(candidate.evidence, null, 2)}`,
 				context.referencedMaterials === undefined || context.referencedMaterials.length === 0 ? "" : `Exact referenced repository bodies:\n${context.referencedMaterials}`,
-			].join("\n\n"),
-		);
+		].join("\n\n"), signal, "verifier");
 		throwIfAborted(signal);
-		assertAgentResult(result, "verifier");
 		if (lastAssistantStopReason(result) === "length") {
 			return { verdict: "UNFINISHED", feedback: "Verifier output reached the model output limit before a verdict was returned." };
 		}
@@ -226,6 +223,14 @@ function parseResearchResult(text: string, taskId: string): ResearchResult {
 			kind: "observation",
 			content: parsed.content,
 			...(typeof parsed.suggestedNext === "string" ? { suggestedNext: parsed.suggestedNext } : {}),
+		};
+	}
+	// The dedicated formalizer role historically returns { lean, notes }.
+	// Accept that shape when the same role is dispatched as a dynamic worker.
+	if (parsed !== undefined && typeof parsed.lean === "string") {
+		return {
+			kind: "candidate",
+			candidate: { taskId, content: parsed.lean, strategy: "lean-formalization" },
 		};
 	}
 	if (parsed !== undefined && parsed.kind === "candidate" && isJsonObject(parsed.candidate)) {
@@ -374,6 +379,8 @@ function parseTask(value: unknown): ProofTaskInput {
 	if (continuationOf !== undefined && typeof continuationOf !== "string") throw new ProofProtocolError("spawn task continuationOf must be a task id");
 	const agent = parseAgentSpec(value.agent, taskId, summary);
 	const successCriteria = value.successCriteria ?? value.success_criteria;
+	const rawKind = value.kind ?? value.taskKind ?? value.task_kind;
+	const kind = rawKind === "FORMALIZATION" || rawKind === "formalization" || rawKind === "formal" ? "FORMALIZATION" as const : "MATHEMATICAL" as const;
 	if (successCriteria !== undefined && typeof successCriteria !== "string") throw new ProofProtocolError("spawn task successCriteria must be a string");
 	return {
 		...(taskId === undefined ? {} : { taskId }),
@@ -387,6 +394,7 @@ function parseTask(value: unknown): ProofTaskInput {
 		...(agent === undefined ? {} : { agent }),
 		...(typeof successCriteria === "string" ? { successCriteria } : {}),
 		...(typeof continuationOf === "string" ? { continuationOf } : {}),
+		kind,
 	};
 }
 
@@ -412,6 +420,7 @@ function parseAgentSpec(value: unknown, fallbackId: string | undefined, fallback
 		agentId: agentId.trim(),
 		purpose: purpose.trim(),
 		...(capabilities === undefined ? {} : { capabilities }),
+		...(value.role === "formalizer" ? { role: "formalizer" as const } : value.role === "worker" ? { role: "worker" as const } : {}),
 	};
 }
 
@@ -585,7 +594,7 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 	const tasks = context.tasks.length === 0
 		? "none"
 		: context.tasks.map((task) => [
-			`- ${task.taskId} [${task.status}, attempt=${task.attempt}]${task.dependsOn.length === 0 ? "" : ` dependsOn=${task.dependsOn.join(",")}`}${task.continuationOf === undefined ? "" : ` continuationOf=${task.continuationOf}`} — ${task.summary}`,
+			`- ${task.taskId} [${task.kind}, ${task.status}, attempt=${task.attempt}]${task.dependsOn.length === 0 ? "" : ` dependsOn=${task.dependsOn.join(",")}`}${task.continuationOf === undefined ? "" : ` continuationOf=${task.continuationOf}`} — ${task.summary}`,
 			`  task description: ${task.description}`,
 			task.successCriteria === undefined ? "" : `  success criteria: ${task.successCriteria}`,
 			task.agent === undefined ? "" : `  logical agent: ${task.agent.agentId} (${task.agent.purpose})`,
@@ -594,13 +603,23 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 	const failures = context.failedRoutes.length === 0
 		? "none"
 		: context.failedRoutes.map((failure) => `- ${failure.routeFingerprint.slice(0, 12)}: ${failure.reason}`).join("\n");
+	const formalAttempts = context.formalAttempts.length === 0
+		? "none"
+		: context.formalAttempts.map((attempt) => `- attempt ${attempt.attempt}, step ${attempt.step}: ${attempt.result.ok ? "PASSED" : attempt.result.failureKind ?? "REJECTED"}\n  ${attempt.result.feedback}`).join("\n");
 	const unresolved = context.tasks
 		.filter((task) => task.status === "PARTIAL" || task.status === "FAILED_RETRYABLE")
 		.filter((task) => !context.tasks.some((child) => child.continuationOf === task.taskId))
 		.map((task) => `- ${task.taskId} [${task.status}] requires a continuation or an explicitly different route`)
 		.join("\n");
+	const decomposition = context.decomposition === undefined
+		? ""
+		: [
+			`complexity=${context.decomposition.complexity}; detected units=${context.decomposition.unitCount}; recommended minimum tasks=${context.decomposition.recommendedMinimumTasks}`,
+			`signals: ${context.decomposition.signals.join("; ")}`,
+			...context.decomposition.units.map((unit) => `- ${unit.unitId}: ${unit.label}`),
+		].join("\n");
 	const coordination = context.workflowMode === "dynamic"
-		? "You are the workflow controller. Decide the decomposition for this round from the theorem, evidence, and current task graph. Use one worker only when its success criteria describe one independently verifiable result that fits one worker turn; otherwise split the work into self-contained tasks with explicit dependsOn edges. The number of tasks, boundaries, roles, and strategy must come from the problem, not a fixed template. Use stable task ids, successCriteria, and continuationOf for partial work. The runtime executes the ready frontier and will preserve incomplete results for the next round. A partial or retryable task that you do not explicitly continue will receive a generic runtime continuation automatically. Do not assume a fixed number or fixed set of agent roles. A worker task must return one complete proof or a clearly delimited contribution; do not use write_items as a substitute for a candidate. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\",\"successCriteria\":\"exact completion condition\"}]}; do not use a singular task field."
+		? "You are the workflow controller. Decide the decomposition for this round from the theorem, evidence, decomposition signal, and current task graph. For a COMPOSITE obligation, schedule focused work for every detected unit and a final synthesis/closure task; do not compress multiple units into one worker. Put independent units in the same ready frontier and make synthesis dependOn all required unit task ids. Use one worker only when the obligation is SIMPLE or one independently verifiable result genuinely covers the whole obligation in one worker turn. The number of tasks, boundaries, roles, and strategy must come from the problem-derived units, not a fixed theorem-specific template. Use stable task ids, successCriteria, and continuationOf for partial work. The runtime executes the ready frontier and will preserve incomplete results for the next round. A partial or retryable task that you do not explicitly continue will receive a generic runtime continuation automatically. Do not assume a fixed set of agent roles. A worker task must return one complete proof or a clearly delimited contribution; do not use write_items as a substitute for a candidate. A valid spawn action is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\",\"successCriteria\":\"exact completion condition\"}]}; do not use a singular task field."
 		: "Delegate all mathematical reasoning to workers. Use one focused task per worker. After a failed route, write why it failed and change routeKey or strategy.";
 	const targetGate = targetGateInstruction(context.tacticalDirective);
 	return [
@@ -608,14 +627,16 @@ function formatPlannerPrompt(context: ProofPlannerContext): string {
 		"# THEOREM\n\n" + context.obligation.theorem,
 		context.obligation.context === undefined ? "" : "# THEOREM CONTEXT\n\n" + context.obligation.context,
 		`# STATUS\n\nmode=${context.mode ?? "prove"}\nworkflowMode=${context.workflowMode}\nstatus=${context.status}\nstep=${context.step}`,
+		decomposition.length === 0 ? "" : "# DECOMPOSITION SIGNAL\n\n" + decomposition,
 		"# TASK GRAPH\n\n" + tasks,
 		unresolved.length === 0 ? "" : "# UNRESOLVED WORK\n\n" + unresolved,
 		"# REPOSITORY\n\n" + (repository || "(empty)"),
 		"# FAILED ROUTES\n\n" + failures,
+		context.mode === "prove" ? "" : "# LEAN PROCESS ATTEMPTS\n\n" + formalAttempts,
 		context.tacticalDirective === undefined ? "" : "# TACTICAL DIRECTIVE\n\n" + JSON.stringify(context.tacticalDirective, null, 2),
 		targetGate,
 		"# RECENT WORKER / VERIFIER OUTPUT\n\n" + (history || "(none)"),
-		`# COORDINATION RULES\n\n${coordination} Read referenced repo items before relying on them. Write durable findings before the next step. Submit only after an independent CORRECT verifier result. When a task is PARTIAL or FAILED_RETRYABLE, create a new task id and set continuationOf to the old task id; preserve the old output instead of silently discarding it. Use these JSON shapes: {\"action\":\"write_items\",\"items\":[{\"slug\":\"notes/name\",\"content\":\"...\",\"format\":\"text\"}]}, {\"action\":\"submit_proof\",\"candidateId\":\"<taskId>-candidate\"}. Return one or more actions in JSON or OpenProver TOML format. In JSON, an optional top-level workflow object may describe strategy, rationale, and successCriteria.`,
+		`# COORDINATION RULES\n\n${coordination} Read referenced repo items before relying on them. Write durable findings before the next step. Submit informal mathematics only after an independent CORRECT verifier result. In formal modes, the runtime creates FORMALIZATION tasks and only the configured Lean process may finish the run; failed Lean attempts must be repaired in a continuation task. When a task is PARTIAL or FAILED_RETRYABLE, create a new task id and set continuationOf to the old task id; preserve the old output instead of silently discarding it. Use these JSON shapes: {\"action\":\"write_items\",\"items\":[{\"slug\":\"notes/name\",\"content\":\"...\",\"format\":\"text\"}]}, {\"action\":\"submit_proof\",\"candidateId\":\"<taskId>-candidate\"}. Return one or more actions in JSON or OpenProver TOML format. In JSON, an optional top-level workflow object may describe strategy, rationale, and successCriteria.`,
 	].filter((part) => part.length > 0).join("\n\n---\n\n");
 }
 
@@ -626,7 +647,7 @@ function plannerSystemPrompt(mode: string, workflowMode: "dynamic" | "legacy"): 
 			: "You are the PLANNER in an OpenProver-style proof workflow. Decide what work should happen next; workers do the mathematical reasoning.",
 		"Available actions: read_theorem, read_items, write_items, write_whiteboard, spawn, literature_search, use_tool, submit_proof, submit_target_proof, submit_lean_proof, stop.",
 		workflowMode === "dynamic"
-			? "Keep each task self-contained. A task may name a logical agent with agentId, purpose, and descriptive capabilities; this metadata never grants tools. Use dependsOn only for real prerequisites, and use continuationOf to continue a partial result. Never silently repair a verifier rejection; create a new route and record the failure. The exact spawn shape is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\"}]}; use tasks (plural), not task."
+			? "Keep each task self-contained. For a composite obligation, assign separate logical agents to the problem-derived units and add a final synthesis task with dependsOn edges; do not return one broad task that covers multiple units. A task may name a logical agent with agentId, purpose, and descriptive capabilities; this metadata never grants tools. Use dependsOn only for real prerequisites, and use continuationOf to continue a partial result. Never silently repair a verifier rejection; create a new route and record the failure. The runtime owns mandatory FORMALIZATION tasks and the Lean process gate. The exact spawn shape is {\"action\":\"spawn\",\"tasks\":[{\"taskId\":\"stable-id\",\"summary\":\"short label\",\"description\":\"self-contained task\"}]}; use tasks (plural), not task."
 			: "Keep task descriptions self-contained. Workers only receive the theorem, task, and explicitly referenced repository material. Never silently repair a verifier rejection; create a new route and record the failure.",
 		mode === "prove" ? "Goal: accept a verified informal proof." : mode === "formalize_only" ? "Goal: accept only a formally checked Lean proof." : "Goal: accept both a verified informal proof and a formally checked Lean proof.",
 	].join("\n\n");
@@ -668,8 +689,28 @@ function assistantMessageText(message: AssistantMessage): string {
 
 function assertAgentResult(result: AgentRunResult, role: string): void {
 	if (result.error !== undefined || ["model_error", "session_error"].includes(result.stopReason)) {
-		throw new ProofProviderError(`${role} provider failed: ${result.error?.message ?? result.stopReason}`);
+		const message = `${role} provider failed: ${result.error?.message ?? result.stopReason}`;
+		throw new ProofProviderError(message, isRetryableProviderMessage(message));
 	}
+}
+
+async function promptWithProviderRetry(agent: Agent, input: string, signal: AbortSignal | undefined, role: string): Promise<AgentRunResult> {
+	for (let attempt = 1; attempt <= 3; attempt += 1) {
+		throwIfAborted(signal);
+		const result = await agent.prompt(input);
+		try {
+			assertAgentResult(result, role);
+			return result;
+		} catch (error) {
+			if (!(error instanceof ProofProviderError) || !error.retryable || attempt === 3) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
+		}
+	}
+	throw new ProofProviderError(`${role} provider retry loop exhausted`, true);
+}
+
+function isRetryableProviderMessage(message: string): boolean {
+	return /fetch failed|enotfound|eai_again|econnreset|econnrefused|etimedout|timeout|socket|temporarily unavailable|http (?:408|425|429|5\d\d)\b/iu.test(message);
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | undefined {

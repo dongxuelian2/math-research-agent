@@ -40,10 +40,12 @@ export function createConfiguredProofRoleFactory(options: ConfiguredProofRoleFac
 		const verifier = await createRoleAgent("verifier", config, rolesDirectory, tools, targetGate);
 		const dynamicResearchers = new Map<string, Promise<ProofResearcher>>();
 		const agentFactory: ProofAgentFactory = (spec) => {
-			const existing = dynamicResearchers.get(spec.agentId);
+			const role = spec.role === "formalizer" ? "formalizer" : "worker";
+			const identity = `${role}:${spec.agentId}`;
+			const existing = dynamicResearchers.get(identity);
 			if (existing !== undefined) return existing;
-			const created = createRoleAgent("worker", config, rolesDirectory, tools, targetGate, spec.agentId).then(createAgentProofResearcher);
-			dynamicResearchers.set(spec.agentId, created);
+			const created = createRoleAgent(role, config, rolesDirectory, tools, targetGate, spec.agentId).then(createAgentProofResearcher);
+			dynamicResearchers.set(identity, created);
 			return created;
 		};
 		const baseRoles = createAgentProofRoles({ planner, researcher: worker, verifier, agentFactory });

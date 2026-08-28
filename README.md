@@ -94,7 +94,7 @@ Run 和结果，应得到相同的持久化产物。
 - `[proof]`：模式、并行 Worker 数、步骤上限；
 - `[research]`、`[budgets]` 与 `[corpus]`：长周期策略、检查点/停滞、执行预算和语义导入；
 - `[tools]`：统一工件访问、允许的受控执行能力与可执行文件；
-- `[formalization]` 与可选 literature adapter；
+- `[formalization]`：默认启用的 Lean 4 进程门及其 Lake project；用户只需提交数学命题，Formalizer 会生成或修复完整 Lean 源码，编译失败会回到动态修复任务；若调用方提供精确 Lean 目标，runtime 仍会严格保持该声明；
 - `[models.*]`：Provider、Model ID、Base URL、API key 环境变量名、推理强度、
   context window、最大输出长度和自定义请求参数；
 - `[roles.*]`：Planner、Worker、Verifier、Synthesizer、Formalizer、Literature

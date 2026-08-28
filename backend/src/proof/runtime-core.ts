@@ -7,6 +7,7 @@ import { ProofProviderError, ProofProtocolError } from "./agent-role.js";
 import { ProofRepository } from "./repository.js";
 import { withProofToolScope } from "./tool-scope.js";
 import type {
+	FormalVerificationAttempt,
 	FormalVerificationResult,
 	ProofAction,
 	ProofAgentFactory,
@@ -14,6 +15,8 @@ import type {
 	ProofBudgetOptions,
 	ProofBudgetState,
 	ProofCandidate,
+	ProofDecomposition,
+	ProofDecompositionUnit,
 	ProofEvent,
 	ProofExecutionPlan,
 	ProofPlanActionExecution,
@@ -124,6 +127,7 @@ export class ProofRuntime {
 	private readonly maxSteps: number;
 	private readonly historyLimit: number;
 	private readonly obligation: ProofObligation;
+	private readonly decomposition: ProofDecomposition;
 	private readonly runIdValue: string;
 	private readonly runDirectory: string;
 	private readonly repositoryValue: ProofRepository;
@@ -164,6 +168,7 @@ export class ProofRuntime {
 		this.maxSteps = Math.max(1, options.maxSteps ?? 32);
 		this.historyLimit = Math.max(1, options.historyLimit ?? 3);
 		this.obligation = options.obligation;
+		this.decomposition = analyzeProofDecomposition(this.obligation);
 		this.requestedMode = options.mode;
 		this.requestedWorkflowMode = options.workflowMode;
 		this.targetGate = options.targetGate;
@@ -199,6 +204,7 @@ export class ProofRuntime {
 			recentOutputs: [],
 			stepHistory: [],
 			executionPlans: [],
+			formalAttempts: [],
 			budget: createBudget(options.budget),
 		};
 		this.restoreFromSession();
@@ -250,9 +256,13 @@ export class ProofRuntime {
 					obligation: this.obligation,
 				});
 				await this.changeStatus("RUNNING");
-			} else if (this.stateValue.status !== "RUNNING") {
-				await this.changeStatus("RUNNING", "Resuming a durable proof run");
-			}
+				} else if (this.stateValue.status !== "RUNNING") {
+					await this.changeStatus("RUNNING", "Resuming a durable proof run");
+				}
+				if (this.stateValue.mode !== "prove" && this.formalVerifier === undefined) {
+					await this.changeStatus("BLOCKED_FORMAL", "Formal verification is required by this run but no Lean process verifier is configured.");
+					return this.result(this.stateValue.lastError);
+				}
 
 			const unfinishedPlan = [...this.stateValue.executionPlans].reverse().find((item) => item.status === "RUNNING");
 			const firstStep = unfinishedPlan?.step ?? this.stateValue.step + 1;
@@ -274,9 +284,10 @@ export class ProofRuntime {
 					else { await this.markPlanStale(persisted, invalidation); persisted = undefined; plan = { actions: [] }; }
 				} else plan = { actions: [] };
 				if (persisted === undefined) try {
-					if (!this.consumeBudget("plannerCalls")) { await this.changeStatus("PARTIAL", "Planner or wall-time budget exhausted"); await this.finishStep(step, stepDirectory, "interrupted", "Planner or wall-time budget exhausted"); return this.result("Planner or wall-time budget exhausted"); }
-					plan = await this.planner.plan(context, signal);
-					plan = this.ensureDynamicContinuations(plan);
+						if (!this.consumeBudget("plannerCalls")) { await this.changeStatus("PARTIAL", "Planner or wall-time budget exhausted"); await this.finishStep(step, stepDirectory, "interrupted", "Planner or wall-time budget exhausted"); return this.result("Planner or wall-time budget exhausted"); }
+						plan = await this.planner.plan(context, signal);
+						plan = this.ensureDynamicDecomposition(plan, context.decomposition);
+						plan = this.ensureDynamicContinuations(plan);
 					validatePlanTaskIdentities(plan);
 				} catch (error) {
 					const message = errorMessage(error);
@@ -296,17 +307,18 @@ export class ProofRuntime {
 				await this.executePlan(persisted, signal, stepDirectory);
 				await this.finishStep(step, stepDirectory, "completed", plan.summary ?? `Proof workflow step ${step} completed`);
 
-				if (["PROVED", "CANCELLED", "BLOCKED_PROVIDER"].includes(this.stateValue.status)) return this.result();
-				if (plan.actions.some((action) => action.action === "stop")) return this.result(this.stateValue.lastError);
+					if (["PROVED", "CANCELLED", "BLOCKED_PROVIDER", "BLOCKED_FORMAL"].includes(this.stateValue.status)) return this.result();
+				if (plan.actions.some((action) => action.action === "stop") && !this.formalWorkRequired()) return this.result(this.stateValue.lastError);
 			}
 
 			if (this.stateValue.status === "RUNNING") {
-				const hasVerifiedCandidate = this.hasVerifiedCandidate();
-				const hasFailedWork = this.stateValue.failedRoutes.length > 0 || this.stateValue.stepHistory.some((record) => record.status === "failed");
-				await this.changeStatus(
-					hasVerifiedCandidate ? "CANDIDATE_READY" : hasFailedWork ? "FAILED" : "PARTIAL",
-					hasVerifiedCandidate ? "A verified candidate is ready for submission" : hasFailedWork ? "No proof route passed independent verification" : "No verified candidate was produced",
-				);
+					const hasVerifiedCandidate = this.hasVerifiedCandidate();
+					const formalPending = this.stateValue.mode !== "prove" && this.stateValue.proofLeanPath === undefined;
+					const hasFailedWork = this.stateValue.failedRoutes.length > 0 || this.stateValue.stepHistory.some((record) => record.status === "failed");
+					await this.changeStatus(
+						formalPending ? "PARTIAL" : hasVerifiedCandidate ? "CANDIDATE_READY" : hasFailedWork ? "FAILED" : "PARTIAL",
+						formalPending ? "The configured runtime limit was reached before Lean verification passed" : hasVerifiedCandidate ? "A verified candidate is ready for submission" : hasFailedWork ? "No proof route passed independent verification" : "No verified candidate was produced",
+					);
 			}
 			return this.result(
 				this.stateValue.status === "CANDIDATE_READY" ? "A verified candidate is ready for submission" : undefined,
@@ -344,7 +356,8 @@ export class ProofRuntime {
 			maxSteps: this.maxSteps,
 			workflowMode: this.stateValue.workflowMode,
 			autoVerify: this.autoVerify,
-			formalVerification: this.formalVerifier !== undefined,
+				formalVerification: this.formalVerifier !== undefined,
+				formalTargetConfigured: this.leanTheorem !== undefined,
 		});
 		await this.persistState();
 	}
@@ -362,8 +375,9 @@ export class ProofRuntime {
 					workflowMode: this.requestedWorkflowMode ?? (isWorkflowMode(saved.workflowMode) ? saved.workflowMode : undefined) ?? this.stateValue.workflowMode,
 				tasks: (saved.tasks ?? []).map(normalizePersistedTask),
 				budget: { ...this.stateValue.budget, ...(saved.budget ?? {}), plannerCalls: saved.budget?.plannerCalls ?? 0 },
-				executionPlans: (saved.executionPlans ?? []).map(normalizeExecutionPlan),
-			};
+					executionPlans: (saved.executionPlans ?? []).map(normalizeExecutionPlan),
+					formalAttempts: saved.formalAttempts ?? [],
+				};
 			if (saved.submittedCandidateId !== undefined) {
 				this.proofPathValue = join(this.runDirectory, "PROOF.md");
 			}
@@ -439,6 +453,102 @@ export class ProofRuntime {
 	}
 
 	/**
+	 * Do not let a composite first obligation be admitted as one broad worker
+	 * task. The controller still chooses the route and receives the full
+	 * problem-derived unit list; this guard only supplies the missing fan-out
+	 * when the model collapses that list into a single task.
+	 */
+	private ensureDynamicDecomposition(plan: ProofPlan, decomposition: ProofDecomposition | undefined): ProofPlan {
+		if (this.workflowMode !== "dynamic" || decomposition?.complexity !== "COMPOSITE" || this.stateValue.tasks.length > 0) return plan;
+
+		const spawnIndex = plan.actions.findIndex((action) => action.action === "spawn");
+		const spawnedTasks = plan.actions.flatMap((action) => action.action === "spawn" ? [...action.tasks] : []);
+		const seed = spawnedTasks.length === 1 ? spawnedTasks[0] : undefined;
+		if (spawnedTasks.length > 1 || seed?.kind === "FORMALIZATION" || seed?.continuationOf !== undefined) return plan;
+
+		const baseId = seed?.taskId ?? this.runIdValue + ":decomposition";
+		const occupiedIds = new Set(plan.actions.flatMap((action) => action.action === "spawn" ? action.tasks.map((task) => task.taskId).filter((taskId): taskId is string => taskId !== undefined) : []));
+		const baseDependencies = [...new Set(seed?.dependsOn ?? [])];
+		const baseRoute = seed?.routeKey ?? seed?.description ?? decomposition.units.map((unit) => unit.unitId).join(",");
+		const baseAgentId = seed?.agent?.agentId ?? baseId + ":controller";
+		const supportTasks = decomposition.units.map((unit, index): ProofTaskInput => {
+			const taskId = uniquePlanTaskId(baseId + ":unit-" + (index + 1), occupiedIds);
+			return {
+				taskId,
+				summary: "Focused proof work: " + unit.label,
+				description: [
+					"Solve only decomposition unit " + unit.unitId + ": " + unit.label + ".",
+					unit.description,
+					"Return a rigorous, independently checkable result for this unit. Do not claim that a local result closes the full obligation.",
+				].join("\n\n"),
+				routeKey: baseRoute + "\nunit=" + unit.unitId,
+				scope: "CONTRIBUTION",
+				dependsOn: baseDependencies,
+				agent: {
+					agentId: baseAgentId + ":unit-" + (index + 1),
+					purpose: "Independently solve " + unit.label,
+					capabilities: ["focused-proof", "local-gap-detection"],
+					role: "worker",
+				},
+				successCriteria: "The " + unit.label + " sub-obligation is fully discharged, with every non-trivial inference stated and no unresolved dependency hidden behind a slogan.",
+				kind: "MATHEMATICAL",
+			};
+		});
+		const supportIds = supportTasks.map((task) => task.taskId as string);
+		const finalTaskId = seed?.taskId ?? uniquePlanTaskId(baseId + ":synthesis", occupiedIds);
+		const targetClaimId = this.targetGate?.targetClaimId ?? seed?.targetClaimId;
+		const finalTask: ProofTaskInput = {
+			taskId: finalTaskId,
+			summary: seed === undefined ? "Synthesize the complete proof from all decomposition units" : "Synthesize complete proof: " + seed.summary,
+			description: [
+				"Synthesize and close the complete original proof obligation from the independently solved decomposition units.",
+				"Required units: " + decomposition.units.map((unit) => unit.unitId + " (" + unit.label + ")").join(", ") + ".",
+				seed === undefined ? "The original controller did not provide a focused synthesis task; construct the final proof from the theorem and the verified dependency outputs." : "Preserved controller route intent:\n" + seed.description,
+				"Use the exact runtime dependency outputs, repair any gaps they expose, and return one complete self-contained proof for the original theorem.",
+			].join("\n\n"),
+			routeKey: baseRoute + "\nsynthesis=" + decomposition.units.map((unit) => unit.unitId).join(","),
+			scope: "TARGET",
+			...(targetClaimId === undefined ? {} : { targetClaimId }),
+			dependsOn: [...new Set([...baseDependencies, ...supportIds])],
+			agent: seed?.agent ?? {
+				agentId: baseAgentId + ":synthesis",
+				purpose: "Integrate independently solved units into the complete target proof",
+				capabilities: ["proof-synthesis", "dependency-integration"],
+				role: "worker",
+			},
+			successCriteria: "A complete, self-contained proof of the original obligation covers all " + decomposition.unitCount + " identified units and can be independently verified.",
+			kind: "MATHEMATICAL",
+		};
+		const decompositionActions: ProofAction[] = [
+			{ action: "spawn", tasks: supportTasks, summary: "Parallel focused work across " + decomposition.unitCount + " problem-derived units" },
+			{ action: "spawn", tasks: [finalTask], summary: "Synthesize and close the complete original obligation" },
+		];
+		const actions = [...plan.actions];
+		if (spawnIndex >= 0) actions.splice(spawnIndex, 1, ...decompositionActions);
+		else actions.unshift(...decompositionActions);
+		const hadStop = actions.some((action) => action.action === "stop");
+		const workflow: ProofPlan["workflow"] = {
+			strategy: plan.workflow?.strategy ?? "Problem-derived parallel decomposition followed by verified synthesis",
+			rationale: [
+				plan.workflow?.rationale,
+				"The runtime identified " + decomposition.unitCount + " independently addressable units and expanded the single-task plan into focused workers plus a synthesis task." + (hadStop ? " The initial stop was deferred until this required work completes." : ""),
+			].filter((part): part is string => part !== undefined && part.length > 0).join("\n\n"),
+			successCriteria: plan.workflow?.successCriteria ?? [finalTask.successCriteria as string],
+		};
+		this.addOutput(
+			"planner",
+			"Controller plan expanded into parallel decomposition",
+			decomposition.unitCount + " problem-derived units were assigned to independent logical agents, followed by " + finalTask.taskId + " as the synthesis task." + (hadStop ? " The planner stop was deferred." : ""),
+		);
+		return {
+			...plan,
+			actions: hadStop ? actions.filter((action) => action.action !== "stop") : actions,
+			summary: plan.summary ?? "Dynamic controller plan expanded into focused parallel work and final synthesis",
+			workflow,
+		};
+	}
+
+	/**
 	 * Keep the controller model-driven while making an incomplete worker result
 	 * impossible to lose between rounds. The planner still owns task boundaries,
 	 * descriptions, dependencies, and agent selection. This is only a durable
@@ -461,18 +571,28 @@ export class ProofRuntime {
 		const continuations = incomplete
 			.filter((task) => !plannedContinuations.has(task.taskId))
 			.map((task) => createContinuationTask(task, this.eventList, this.stateValue.tasks, plannedTaskIds));
-		if (continuations.length === 0) return plan;
+		const formalReady = this.formalWorkRequired();
+		const planHandlesFormalization = plan.actions.some((action) => action.action === "submit_lean_proof"
+			|| (action.action === "spawn" && action.tasks.some((task) => task.kind === "FORMALIZATION")));
+		const formalizationAlreadyOpen = this.stateValue.tasks.some((task) => task.kind === "FORMALIZATION"
+			&& (task.status === "PENDING" || task.status === "RUNNING"));
+		const formalContinuationScheduled = continuations.some((task) => task.kind === "FORMALIZATION");
+		const formalization = formalReady && !planHandlesFormalization && !formalizationAlreadyOpen && !formalContinuationScheduled
+			? [createFormalizationTask(this.stateValue, plannedTaskIds, this.leanTheorem !== undefined)]
+			: [];
+		const requiredTasks = [...continuations, ...formalization];
+		if (requiredTasks.length === 0) return plan;
 
 		const continuationAction: ProofAction = {
 			action: "spawn",
-			tasks: continuations,
-			summary: "Continue incomplete worker tasks",
+			tasks: requiredTasks,
+			summary: formalization.length > 0 ? "Continue required formal verification" : "Continue incomplete worker tasks",
 		};
 		const actions = [...plan.actions];
 		const spawnIndex = actions.findIndex((action) => action.action === "spawn");
 		if (spawnIndex >= 0) {
 			const spawn = actions[spawnIndex];
-			if (spawn?.action === "spawn") actions[spawnIndex] = { ...spawn, tasks: [...continuations, ...spawn.tasks] };
+			if (spawn?.action === "spawn") actions[spawnIndex] = { ...spawn, tasks: [...requiredTasks, ...spawn.tasks] };
 		} else {
 			actions.unshift(continuationAction);
 		}
@@ -484,10 +604,27 @@ export class ProofRuntime {
 		const normalizedActions = hadStop ? actions.filter((action) => action.action !== "stop") : actions;
 		this.addOutput(
 			"planner",
-			"Runtime scheduled continuations",
-			`${continuations.map((task) => `${task.taskId} ← ${task.continuationOf}`).join(", ")} are required to preserve incomplete worker output.${hadStop ? " The planner stop was deferred until the continuation is handled." : ""}`,
+			"Runtime scheduled required work",
+			`${requiredTasks.map((task) => task.kind === "FORMALIZATION" ? `${task.taskId} [Lean process gate]` : `${task.taskId} ← ${task.continuationOf}`).join(", ")} must complete before the run may stop.${hadStop ? " The planner stop was deferred." : ""}`,
 		);
 		return { ...plan, actions: normalizedActions };
+	}
+
+	/** A planner STOP cannot terminate a run while its mandatory Lean gate is open. */
+	private formalWorkRequired(): boolean {
+		const formalizableCandidate = this.decomposition.complexity === "COMPOSITE"
+			? this.hasVerifiedTargetCandidate()
+			: this.hasVerifiedCandidate();
+		return this.stateValue.mode !== "prove"
+			&& this.stateValue.proofLeanPath === undefined
+			&& (this.stateValue.mode === "formalize_only" || this.proofPathValue !== undefined || formalizableCandidate);
+	}
+
+	private async acceptedInformalProofMaterial(): Promise<string> {
+		if (this.proofPathValue !== undefined) return `# ACCEPTED INFORMAL PROOF\n\n${await readFile(this.proofPathValue, "utf8")}`;
+		const candidate = this.stateValue.candidates.find((item) => item.scope === "TARGET" && this.stateValue.verifications[item.candidateId]?.verdict === "CORRECT")
+			?? this.stateValue.candidates.find((item) => this.stateValue.verifications[item.candidateId]?.verdict === "CORRECT");
+		return candidate === undefined ? "" : `# VERIFIED INFORMAL CANDIDATE\n\n${candidate.content}`;
 	}
 
 	private async markPlanStale(plan: ProofExecutionPlan, reason: string): Promise<void> {
@@ -505,14 +642,21 @@ export class ProofRuntime {
 
 	private async executePlan(executionPlan: ProofExecutionPlan, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
 		const plan = executionPlan.plan; await writeJson(join(stepDirectory, "actions.json"), plan.actions);
+		let stopDeferred = false;
 		for (let ordinal = 0; ordinal < plan.actions.length; ordinal += 1) {
 			const action = plan.actions[ordinal] as ProofAction, current = this.actionExecution(executionPlan.planId, ordinal);
-			if (current?.status === "COMPLETED") { if (action.action === "stop") { await this.rehydrateTerminalAction(action, current); return; } continue; }
+			if (current?.status === "COMPLETED") {
+				if (action.action === "stop" && !this.formalWorkRequired()) {
+					await this.rehydrateTerminalAction(action, current);
+					return;
+				}
+				continue;
+			}
 			if (signal?.aborted) {
 				await this.changeStatus("CANCELLED", "Proof run was cancelled during action execution");
 				return;
 			}
-			if (["PROVED", "CANCELLED", "BLOCKED_PROVIDER"].includes(this.stateValue.status)) return;
+			if (["PROVED", "CANCELLED", "BLOCKED_PROVIDER", "BLOCKED_FORMAL"].includes(this.stateValue.status)) return;
 			this.setCurrentAction(action); const startedAt = new Date().toISOString(), before = actionResultCursor(this.stateValue, this.eventList);
 			await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "RUNNING", startedAt: item.startedAt ?? startedAt, error: undefined }));
 			try { switch (action.action) {
@@ -547,20 +691,25 @@ export class ProofRuntime {
 					await this.submitLeanProof(action, signal, stepDirectory);
 					break;
 				case "stop":
-					await this.changeStatus("PARTIAL", action.reason ?? "Planner stopped the run");
+					if (this.formalWorkRequired()) {
+						stopDeferred = true;
+						this.addOutput("stop", "Stop deferred", "Formal verification is still required; the runtime will schedule the Lean formalizer continuation.");
+					} else {
+						await this.changeStatus("PARTIAL", action.reason ?? "Planner stopped the run");
+					}
 					break;
 			} } catch (error) { await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "INTERRUPTED", error: errorMessage(error) })); throw error; }
 			if (signal?.aborted || this.stateValue.status === "CANCELLED") { await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "INTERRUPTED", error: "Action interrupted by cancellation" })); return; }
 			const completedAt = new Date().toISOString(), result = collectActionResult(action, before, this.stateValue, this.eventList);
 			await this.updateActionExecution(executionPlan.planId, ordinal, (item) => ({ ...item, status: "COMPLETED", completedAt, resultArtifactIds: result.resultArtifactIds, effectIds: result.effectIds, result: result.result }));
 			this.persistedActionReceipts += 1; if (this.faultAfterCompletedActionReceipts === this.persistedActionReceipts) throw new InjectedProofTaskFault(`Injected fault after completed action receipt ${this.persistedActionReceipts}`);
-			if (action.action === "stop") return;
+			if (action.action === "stop" && !stopDeferred) return;
 		}
 	}
 
 	private actionExecution(planId: string, ordinal: number): ProofPlanActionExecution | undefined { return this.stateValue.executionPlans.find((plan) => plan.planId === planId)?.actionExecutions.find((action) => action.ordinal === ordinal); }
 	private async updateActionExecution(planId: string, ordinal: number, update: (action: ProofPlanActionExecution) => ProofPlanActionExecution): Promise<void> { this.stateValue = { ...this.stateValue, executionPlans: this.stateValue.executionPlans.map((plan) => plan.planId === planId ? { ...plan, actionExecutions: plan.actionExecutions.map((action) => action.ordinal === ordinal ? update(action) : action) } : plan) }; await this.persistState(); }
-	private async rehydrateTerminalAction(action: Extract<ProofAction, { readonly action: "stop" }>, execution: ProofPlanActionExecution): Promise<void> { const status = execution.result?.terminalStatus, terminalStatus: ProofStatus = status === "PARTIAL" || status === "FAILED" || status === "CANCELLED" || status === "BLOCKED_PROVIDER" ? status : "PARTIAL", reason = typeof execution.result?.terminalReason === "string" ? execution.result.terminalReason : action.reason ?? "Planner stopped the run"; this.stateValue = { ...this.stateValue, status: terminalStatus, lastError: reason }; await this.persistState(); }
+	private async rehydrateTerminalAction(action: Extract<ProofAction, { readonly action: "stop" }>, execution: ProofPlanActionExecution): Promise<void> { const status = execution.result?.terminalStatus, terminalStatus: ProofStatus = status === "PARTIAL" || status === "FAILED" || status === "CANCELLED" || status === "BLOCKED_PROVIDER" || status === "BLOCKED_FORMAL" ? status : "PARTIAL", reason = typeof execution.result?.terminalReason === "string" ? execution.result.terminalReason : action.reason ?? "Planner stopped the run"; this.stateValue = { ...this.stateValue, status: terminalStatus, lastError: reason }; await this.persistState(); }
 
 	private setCurrentAction(action: ProofAction): void {
 		this.stateValue = {
@@ -706,13 +855,21 @@ export class ProofRuntime {
 			try {
 				const referencedMaterials = await this.repositoryValue.resolveWikilinks(task.description);
 				const continuation = task.continuationOf === undefined ? "" : formatContinuationMaterials(task.continuationOf, this.persistedResearchResult(task.continuationOf));
+				const formalizationMaterials = task.kind === "FORMALIZATION"
+					? [
+						this.leanTheorem === undefined
+							? "# NO PRECONFIGURED LEAN TARGET\n\nFormalizer must translate the original mathematical theorem into Lean."
+							: "# EXACT CONFIGURED LEAN TARGET\n\n" + this.leanTheorem,
+						await this.acceptedInformalProofMaterial(),
+					].filter((item) => item.length > 0).join("\n\n")
+					: "";
 				const context: ProofResearchContext = {
 					runId: this.runIdValue,
 					step: this.stateValue.step,
 					obligation: this.obligation,
 					whiteboard: this.stateValue.whiteboard,
 					task,
-					referencedMaterials: [referencedMaterials, continuation].filter((item) => item.length > 0).join("\n\n"),
+					referencedMaterials: [referencedMaterials, continuation, formalizationMaterials].filter((item) => item.length > 0).join("\n\n"),
 				};
 				// A dynamic plan may omit agent metadata for a simple task. It still
 				// needs an isolated logical worker: the shared fallback AgentCore is
@@ -768,6 +925,12 @@ export class ProofRuntime {
 				const candidate: ProofCandidate = restored ?? { ...materializedCandidate, evidence: reliedOnEvidence, bodyReadEvidence, discoveredEvidence, reliedOnArtifactIds: reliedOnIds };
 				const duplicate = restored === undefined ? this.duplicateCandidateReason(candidate) : undefined;
 				if (duplicate !== undefined) {
+					if (work.task.kind === "FORMALIZATION") {
+						const reason = `${duplicate} Return changed Lean source that addresses the latest process feedback.`;
+						await this.updateTaskStatus(work.task.taskId, "FAILED_RETRYABLE", reason);
+						this.addOutput("formalization", work.task.summary, reason);
+						continue;
+					}
 					await this.rejectCandidate(candidate, work.task, duplicate);
 					continue;
 				}
@@ -776,7 +939,12 @@ export class ProofRuntime {
 					slug: `candidates/${candidate.candidateId}`,
 					content: candidate.content,
 					summary: candidate.strategy,
+					...(work.task.kind === "FORMALIZATION" ? { format: "lean" as const } : {}),
 				});
+				if (work.task.kind === "FORMALIZATION") {
+					await this.verifyFormalCandidate(work.task, candidate, signal, stepDirectory);
+					continue;
+				}
 				candidates.push({ task: work.task, candidate });
 				continue;
 			}
@@ -991,6 +1159,10 @@ export class ProofRuntime {
 			this.addOutput("submit_proof", "Submission rejected", "The candidate has no independent CORRECT verification.");
 			return;
 		}
+		if (this.stateValue.candidates.some((item) => item.scope === "TARGET" && this.stateValue.verifications[item.candidateId]?.verdict === "CORRECT") && candidate.scope !== "TARGET") {
+			this.addOutput("submit_proof", "Submission rejected", "A decomposition produced an exact-target candidate; supporting contributions cannot be submitted as the final proof.");
+			return;
+		}
 		if (!this.noveltyGate(candidate)) {
 			this.addOutput("submit_proof", "Submission rejected", "Candidate novelty gate rejected the candidate's text, claim, or route.");
 			return;
@@ -1059,6 +1231,84 @@ export class ProofRuntime {
 		await this.checkCompletion("Exact research target submission passed the tactical gate.");
 	}
 
+	private async verifyFormalCandidate(task: ProofTask, candidate: ProofCandidate, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
+		const existing = this.stateValue.formalAttempts.find((attempt) => attempt.candidateId === candidate.candidateId);
+		if (existing !== undefined) {
+			if (!existing.result.ok) await this.updateTaskStatus(task.taskId, "FAILED_RETRYABLE", existing.result.feedback);
+			return;
+		}
+		if (this.formalVerifier === undefined) {
+			await this.updateTaskStatus(task.taskId, "BLOCKED", "No Lean process verifier is configured.");
+			await this.changeStatus("BLOCKED_FORMAL", "No Lean process verifier is configured.");
+			return;
+		}
+		const source = normalizeLeanCandidate(candidate.content);
+		let result: FormalVerificationResult;
+		try {
+			result = await this.formalVerifier.verify(source, {
+				runId: this.runIdValue,
+				step: this.stateValue.step,
+				obligation: this.obligation,
+				theoremText: this.leanTheorem,
+				workDirectory: join(stepDirectory, "lean"),
+			}, signal);
+		} catch (error) {
+			result = { ok: false, feedback: errorMessage(error), failureKind: "UNAVAILABLE" };
+		}
+		await mkdir(join(stepDirectory, "lean"), { recursive: true });
+		await writeFile(join(stepDirectory, "lean", `candidate_${slugify(candidate.candidateId)}.lean`), source, "utf8");
+		await writeJson(join(stepDirectory, "lean", `candidate_${slugify(candidate.candidateId)}_result.json`), result);
+		await this.recordFormalAttempt({
+			sourceId: candidate.candidateId,
+			taskId: task.taskId,
+			candidateId: candidate.candidateId,
+			result,
+		});
+		if (!result.ok) {
+			this.addOutput("formalization", `Lean process gate failed for ${task.taskId}`, result.feedback);
+			if (result.failureKind === "UNAVAILABLE") {
+				await this.updateTaskStatus(task.taskId, "BLOCKED", result.feedback);
+				await this.changeStatus("BLOCKED_FORMAL", result.feedback);
+				return;
+			}
+			if (result.failureKind === "ABORTED" && signal?.aborted) {
+				await this.updateTaskStatus(task.taskId, "BLOCKED", result.feedback);
+				await this.changeStatus("CANCELLED", result.feedback);
+				return;
+			}
+			await this.updateTaskStatus(task.taskId, "FAILED_RETRYABLE", result.feedback);
+			return;
+		}
+		const proofLeanPath = join(this.runDirectory, "PROOF.lean");
+		await writeFile(proofLeanPath, source, "utf8");
+		this.stateValue = { ...this.stateValue, proofLeanPath };
+		await this.updateTaskStatus(task.taskId, "COMPLETED");
+		await this.checkCompletion(`PROOF.lean accepted from ${task.taskId}; Lean process verification passed.`);
+	}
+
+	private async recordFormalAttempt(input: Omit<FormalVerificationAttempt, "attempt" | "step" | "timestamp">): Promise<FormalVerificationAttempt> {
+		const attempt: FormalVerificationAttempt = {
+			...input,
+			attempt: this.stateValue.formalAttempts.length + 1,
+			step: this.stateValue.step,
+			timestamp: Date.now(),
+		};
+		this.stateValue = { ...this.stateValue, formalAttempts: [...this.stateValue.formalAttempts, attempt] };
+		await this.emit({
+			type: "proof/formal_verification_result",
+			eventId: randomUUID(),
+			runId: this.runIdValue,
+			timestamp: attempt.timestamp,
+			step: attempt.step,
+			attempt,
+			...(attempt.proofSlug === undefined ? {} : { proofSlug: attempt.proofSlug }),
+			...(attempt.taskId === undefined ? {} : { taskId: attempt.taskId }),
+			...(attempt.candidateId === undefined ? {} : { candidateId: attempt.candidateId }),
+			result: attempt.result,
+		});
+		return attempt;
+	}
+
 	private async submitLeanProof(action: Extract<ProofAction, { action: "submit_lean_proof" }>, signal: AbortSignal | undefined, stepDirectory: string): Promise<void> {
 		if (this.stateValue.mode === "prove") {
 			this.addOutput("submit_lean_proof", "Submission rejected", "The current mode only requests an informal proof.");
@@ -1075,12 +1325,13 @@ export class ProofRuntime {
 			return;
 		}
 		if (this.formalVerifier === undefined) {
-			await this.changeStatus("BLOCKED_PROVIDER", "submit_lean_proof requires a configured formal verifier.");
+			await this.changeStatus("BLOCKED_FORMAL", "submit_lean_proof requires a configured formal verifier.");
 			return;
 		}
+		const source = normalizeLeanCandidate(item.content);
 		let result: FormalVerificationResult;
 		try {
-			result = await this.formalVerifier.verify(item.content, {
+			result = await this.formalVerifier.verify(source, {
 				runId: this.runIdValue,
 				step: this.stateValue.step,
 				obligation: this.obligation,
@@ -1088,27 +1339,19 @@ export class ProofRuntime {
 				workDirectory: join(stepDirectory, "lean"),
 			}, signal);
 		} catch (error) {
-			await this.changeStatus("BLOCKED_PROVIDER", `Formal verifier failed: ${errorMessage(error)}`);
-			return;
+			result = { ok: false, feedback: errorMessage(error), failureKind: "UNAVAILABLE" };
 		}
 		await mkdir(join(stepDirectory, "lean"), { recursive: true });
-		await writeFile(join(stepDirectory, "lean", "proof_attempt.lean"), item.content, "utf8");
+		await writeFile(join(stepDirectory, "lean", "proof_attempt.lean"), source, "utf8");
 		await writeJson(join(stepDirectory, "lean", "proof_result.json"), result);
-		await this.emit({
-			type: "proof/formal_verification_result",
-			eventId: randomUUID(),
-			runId: this.runIdValue,
-			timestamp: Date.now(),
-			step: this.stateValue.step,
-			proofSlug,
-			result,
-		});
+		await this.recordFormalAttempt({ sourceId: proofSlug, proofSlug, result });
 		if (!result.ok) {
 			this.addOutput("submit_lean_proof", `Formal verification failed for [[${proofSlug}]]`, result.feedback);
+			if (result.failureKind === "UNAVAILABLE") await this.changeStatus("BLOCKED_FORMAL", result.feedback);
 			return;
 		}
 		const proofLeanPath = join(this.runDirectory, "PROOF.lean");
-		await writeFile(proofLeanPath, item.content, "utf8");
+		await writeFile(proofLeanPath, source, "utf8");
 		this.stateValue = { ...this.stateValue, proofLeanPath };
 		await this.checkCompletion(`PROOF.lean written from [[${proofSlug}]] (formal verification passed).`);
 	}
@@ -1154,12 +1397,14 @@ export class ProofRuntime {
 			repositoryIndex: await this.repositoryValue.formatIndex(),
 			candidates: [...this.stateValue.candidates],
 			tasks: [...this.stateValue.tasks],
-			failedRoutes: [...this.stateValue.failedRoutes],
-			recentOutputs: [...this.stateValue.recentOutputs],
-			stepHistory: [...this.stateValue.stepHistory],
-			budget: this.stateValue.budget,
-			artifacts: this.artifactStatus(),
-			...(this.tacticalDirective === undefined ? {} : { tacticalDirective: this.tacticalDirective }),
+				failedRoutes: [...this.stateValue.failedRoutes],
+				recentOutputs: [...this.stateValue.recentOutputs],
+				stepHistory: [...this.stateValue.stepHistory],
+				decomposition: this.decomposition,
+				budget: this.stateValue.budget,
+				artifacts: this.artifactStatus(),
+				formalAttempts: [...this.stateValue.formalAttempts],
+				...(this.tacticalDirective === undefined ? {} : { tacticalDirective: this.tacticalDirective }),
 		};
 	}
 
@@ -1180,10 +1425,10 @@ export class ProofRuntime {
 		const routeKey = input.routeKey ?? input.description;
 		const dependsOn = [...new Set(input.dependsOn ?? [])];
 		if (dependsOn.includes(taskId)) throw new ProofProtocolError(`Task ${taskId} cannot depend on itself`);
-		return {
-			taskId,
-			summary: input.summary,
-			description: input.description,
+			return {
+				taskId,
+				summary: input.summary,
+				description: input.description,
 			routeFingerprint: fingerprint(`${this.obligation.theorem}\n${routeKey}`),
 			scope: input.scope ?? "CONTRIBUTION",
 			...(input.routeKey === undefined ? {} : { routeKey: input.routeKey }),
@@ -1192,8 +1437,9 @@ export class ProofRuntime {
 			dependsOn,
 			...(input.agent === undefined ? {} : { agent: input.agent }),
 			...(input.successCriteria === undefined ? {} : { successCriteria: input.successCriteria }),
-			...(input.continuationOf === undefined ? {} : { continuationOf: input.continuationOf }),
-			status: "PENDING",
+				...(input.continuationOf === undefined ? {} : { continuationOf: input.continuationOf }),
+				kind: input.kind ?? "MATHEMATICAL",
+				status: "PENDING",
 			attempt: 0,
 			updatedAt: new Date().toISOString(),
 		};
@@ -1294,6 +1540,10 @@ export class ProofRuntime {
 		return this.stateValue.candidates.some((candidate) => this.stateValue.verifications[candidate.candidateId]?.verdict === "CORRECT");
 	}
 
+	private hasVerifiedTargetCandidate(): boolean {
+		return this.stateValue.candidates.some((candidate) => candidate.scope === "TARGET" && this.stateValue.verifications[candidate.candidateId]?.verdict === "CORRECT");
+	}
+
 	private async changeStatus(status: ProofStatus, reason?: string): Promise<void> {
 		this.stateValue = {
 			...this.stateValue,
@@ -1328,7 +1578,9 @@ export class ProofRuntime {
 	}
 
 	private result(reason?: string): ProofRunResult {
-		const candidate = this.stateValue.candidates.find((item) => this.stateValue.verifications[item.candidateId]?.verdict === "CORRECT");
+		const candidate = (this.stateValue.submittedCandidateId === undefined ? undefined : this.stateValue.candidates.find((item) => item.candidateId === this.stateValue.submittedCandidateId))
+			?? this.stateValue.candidates.find((item) => item.scope === "TARGET" && this.stateValue.verifications[item.candidateId]?.verdict === "CORRECT")
+			?? this.stateValue.candidates.find((item) => this.stateValue.verifications[item.candidateId]?.verdict === "CORRECT");
 		return {
 			runId: this.runIdValue,
 			status: this.stateValue.status,
@@ -1386,7 +1638,25 @@ export class ProofRuntime {
 					this.proofPathValue = event.proofPath;
 					break;
 				case "proof/formal_verification_result":
-					if (event.result.ok) this.stateValue = { ...this.stateValue, proofLeanPath: join(this.runDirectory, "PROOF.lean") };
+					{
+						const attempt = event.attempt ?? {
+							attempt: this.stateValue.formalAttempts.length + 1,
+							step: event.step,
+							sourceId: event.proofSlug ?? event.candidateId ?? `legacy-formal-attempt-${event.step}`,
+							...(event.proofSlug === undefined ? {} : { proofSlug: event.proofSlug }),
+							...(event.taskId === undefined ? {} : { taskId: event.taskId }),
+							...(event.candidateId === undefined ? {} : { candidateId: event.candidateId }),
+							result: event.result,
+							timestamp: event.timestamp,
+						};
+					this.stateValue = {
+						...this.stateValue,
+						formalAttempts: this.stateValue.formalAttempts.some((item) => item.attempt === attempt.attempt)
+							? this.stateValue.formalAttempts
+							: [...this.stateValue.formalAttempts, attempt],
+						...(event.result.ok ? { proofLeanPath: join(this.runDirectory, "PROOF.lean") } : {}),
+					};
+					}
 					break;
 				case "proof/obligation_created":
 				case "proof/repository_updated":
@@ -1482,6 +1752,7 @@ function snapshotState(state: ProofState): ProofState {
 		recentOutputs: [...state.recentOutputs],
 		stepHistory: [...state.stepHistory],
 		executionPlans: [...state.executionPlans],
+		formalAttempts: [...state.formalAttempts],
 		budget: { ...state.budget },
 	};
 }
@@ -1496,6 +1767,94 @@ function normalize(value: string): string {
 
 function formatTheorem(obligation: ProofObligation): string {
 	return [obligation.theorem, obligation.context ?? ""].filter((part) => part.length > 0).join("\n\n");
+}
+
+function analyzeProofDecomposition(obligation: ProofObligation): ProofDecomposition {
+	const source = formatTheorem(obligation).trim();
+	const explicitUnits = extractProblemUnits(source, problemHeadingLabel);
+	if (explicitUnits.length >= 2) {
+		return {
+			complexity: "COMPOSITE",
+			unitCount: explicitUnits.length,
+			recommendedMinimumTasks: explicitUnits.length + 1,
+			signals: [
+				explicitUnits.length + " explicit problem sections detected",
+				"each section receives focused work before final synthesis",
+			],
+			units: explicitUnits,
+		};
+	}
+	const numberedUnits = extractProblemUnits(source, numberedProblemHeadingLabel);
+	if (numberedUnits.length >= 2) {
+		return {
+			complexity: "COMPOSITE",
+			unitCount: numberedUnits.length,
+			recommendedMinimumTasks: numberedUnits.length + 1,
+			signals: [
+			numberedUnits.length + " top-level numbered requirements detected",
+			"numbered requirements are independently assignable before final synthesis",
+		],
+			units: numberedUnits,
+		};
+	}
+	const requirementCount = (source.match(/prove|show|establish|derive|compute|classify|verify|construct|证明|证明出|推导|计算|分类|验证|构造/giu) ?? []).length;
+	if (source.length >= 1800 || (source.length >= 900 && requirementCount >= 4)) {
+		const units: ProofDecompositionUnit[] = [
+			{
+				unitId: "primary-route",
+				label: "Independent primary proof route",
+				description: "Develop a complete proof route for the original obligation, making the key lemmas, definitions, and dependency chain explicit.",
+			},
+			{
+				unitId: "adversarial-audit",
+				label: "Adversarial edge-case and gap audit",
+				description: "Independently inspect the original obligation for hidden assumptions, boundary cases, counterexamples, and missing justifications; supply repairs or precise constraints.",
+			},
+		];
+		return {
+			complexity: "COMPOSITE",
+			unitCount: units.length,
+			recommendedMinimumTasks: units.length + 1,
+			signals: [
+				"long or multi-requirement obligation detected",
+				"independent derivation and adversarial audit are required before synthesis",
+			],
+			units,
+		};
+	}
+	return {
+		complexity: "SIMPLE",
+		unitCount: 1,
+		recommendedMinimumTasks: 1,
+		signals: ["no independent decomposition signal detected"],
+		units: [{ unitId: "whole-obligation", label: "Whole obligation", description: "Solve the original obligation completely and self-containedly." }],
+	};
+}
+
+function extractProblemUnits(source: string, labelOf: (line: string) => string | undefined): ProofDecompositionUnit[] {
+	const lines = source.split(/\r?\n/u);
+	const starts = lines.flatMap((line, lineIndex) => {
+		const label = labelOf(line);
+		return label === undefined ? [] : [{ lineIndex, label }];
+	});
+	return starts.map((start, index) => {
+		const end = starts[index + 1]?.lineIndex ?? lines.length;
+		return {
+			unitId: "unit-" + (index + 1),
+			label: start.label,
+			description: lines.slice(start.lineIndex, end).join("\\n").trim(),
+		};
+	});
+}
+
+function problemHeadingLabel(line: string): string | undefined {
+	const trimmed = line.trim().replace(/^#{1,6}\s*/u, "");
+	return /^(?:第[0-9一二三四五六七八九十百千万]+\s*问|Question\s+\d+)(?:\s|[:：.)、-]|$)/iu.test(trimmed) ? trimmed : undefined;
+}
+
+function numberedProblemHeadingLabel(line: string): string | undefined {
+	const trimmed = line.trim().replace(/^#{1,6}\s*/u, "");
+	return /^(?:\(?\d+\)?[.)、:：-])\s+\S+/u.test(trimmed) ? trimmed : undefined;
 }
 
 function initialWhiteboard(obligation: ProofObligation, mode: ProofMode): string {
@@ -1592,13 +1951,16 @@ function createContinuationTask(
 	return {
 		taskId,
 		summary: `Continue incomplete task: ${task.summary}`,
-		description: [
-			`Continue the incomplete task ${task.taskId} from its preserved worker result.`,
-			`Original task description:\n${task.description}`,
-			task.successCriteria === undefined ? "" : `Original success criteria:\n${task.successCriteria}`,
-			suggestedNext === undefined ? "" : `Worker continuation hint:\n${suggestedNext}`,
-			"Return a complete candidate or a clearly delimited contribution. Preserve valid work from the previous result and finish the missing portion.",
-		].filter((part) => part.length > 0).join("\n\n"),
+			description: [
+				`Continue the incomplete task ${task.taskId} from its preserved worker result.`,
+				`Original task description:\n${task.description}`,
+				task.successCriteria === undefined ? "" : `Original success criteria:\n${task.successCriteria}`,
+				task.lastError === undefined ? "" : `Failure feedback that must be repaired:\n${task.lastError}`,
+				suggestedNext === undefined ? "" : `Worker continuation hint:\n${suggestedNext}`,
+				task.kind === "FORMALIZATION"
+					? "Return a complete replacement Lean source file in candidate.content. Preserve the exact configured theorem declaration, remove every sorry/admit, and repair the compiler error."
+					: "Return a complete candidate or a clearly delimited contribution. Preserve valid work from the previous result and finish the missing portion.",
+			].filter((part) => part.length > 0).join("\n\n"),
 		routeKey: `${task.routeKey ?? task.description}\ncontinuationOf=${task.taskId}`,
 		scope: task.scope,
 		...(task.targetClaimId === undefined ? {} : { targetClaimId: task.targetClaimId }),
@@ -1606,9 +1968,50 @@ function createContinuationTask(
 		dependsOn: task.dependsOn,
 		// Reuse the same logical identity when the original task relied on the
 		// runtime's implicit agent. Explicit model-selected agents are preserved.
-		agent: task.agent ?? { agentId: task.taskId, purpose: task.summary },
-		...(task.successCriteria === undefined ? {} : { successCriteria: task.successCriteria }),
-		continuationOf: task.taskId,
+			agent: task.agent ?? { agentId: task.taskId, purpose: task.summary },
+			...(task.successCriteria === undefined ? {} : { successCriteria: task.successCriteria }),
+			continuationOf: task.taskId,
+			kind: task.kind,
+		};
+}
+
+function createFormalizationTask(state: ProofState, occupiedIds: Set<string>, hasConfiguredTarget: boolean): ProofTaskInput {
+	let ordinal = state.formalAttempts.length + 1;
+	let taskId = `formal-proof-attempt-${ordinal}`;
+	const knownIds = new Set([...state.tasks.map((task) => task.taskId), ...occupiedIds]);
+	while (knownIds.has(taskId)) {
+		ordinal += 1;
+		taskId = `formal-proof-attempt-${ordinal}`;
+	}
+	occupiedIds.add(taskId);
+	const previous = state.formalAttempts.at(-1);
+	const targetInstructions = hasConfiguredTarget
+		? [
+			"Produce one complete Lean 4 source file for the exact configured THEOREM.lean declaration.",
+			"Replace only the declared `sorry` proof hole. Do not add axioms, constants, opaque declarations, `sorry`, or `admit`.",
+			"Preserve the configured theorem statement exactly; compiler feedback is authoritative.",
+		]
+		: [
+			"Translate the original mathematical theorem into a precise Lean 4 declaration and prove that declaration in one complete source file.",
+			"You own the first formal target because the user supplied mathematics, not Lean code. Do not weaken, replace, or trivialize the theorem while translating it.",
+			"Include only ordinary definitions/imports needed to express the stated theorem. Do not add axioms, constants, opaque declarations, `sorry`, or `admit`.",
+			"The local Lean process is the authoritative checker for the generated source; return the entire source file in candidate.content, without Markdown fences.",
+		];
+	return {
+		taskId,
+		summary: previous === undefined ? "Formalize the accepted proof in Lean 4" : "Repair the Lean proof after process verification failed",
+		description: [
+			...targetInstructions,
+			"Use the accepted informal proof as guidance.",
+			previous?.result.ok === false ? `Latest Lean process feedback:\n${previous.result.feedback}` : "",
+		].filter((part) => part.length > 0).join("\n\n"),
+		routeKey: `formalization-process-attempt-${ordinal}`,
+		scope: "TARGET",
+		agent: { agentId: "formalizer", purpose: "Draft and repair the exact Lean 4 proof", capabilities: ["lean4", "compiler-feedback-repair"], role: "formalizer" },
+		successCriteria: hasConfiguredTarget
+			? "The full source preserves THEOREM.lean exactly, contains no trust escape hatch, and exits successfully under the configured Lean process verifier."
+			: "The generated Lean declaration faithfully encodes the original theorem, contains no trust escape hatch, and exits successfully under the configured Lean process verifier.",
+		kind: "FORMALIZATION",
 	};
 }
 
@@ -1618,6 +2021,13 @@ function nextContinuationTaskId(taskId: string, existingTasks: readonly ProofTas
 		const candidate = `${taskId}:continuation-${attempt}`;
 		if (!knownIds.has(candidate)) return candidate;
 	}
+}
+
+function uniquePlanTaskId(baseId: string, occupiedIds: Set<string>): string {
+	let candidate = baseId;
+	for (let suffix = 2; occupiedIds.has(candidate); suffix += 1) candidate = `${baseId}-${suffix}`;
+	occupiedIds.add(candidate);
+	return candidate;
 }
 
 function latestResearchResult(events: readonly ProofEvent[], taskId: string): ResearchResult | undefined {
@@ -1665,6 +2075,7 @@ function normalizePersistedTask(task: ProofTask): ProofTask {
 	const status = isTaskStatus(raw.status) ? raw.status : "PENDING";
 	return {
 		...task,
+		kind: raw.kind === "FORMALIZATION" ? "FORMALIZATION" : "MATHEMATICAL",
 		dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn.filter((item): item is string => typeof item === "string") : [],
 		status,
 		attempt: Number.isInteger(raw.attempt) && (raw.attempt as number) >= 0 ? raw.attempt as number : 0,
@@ -1690,6 +2101,12 @@ function isProviderFailure(error: unknown): boolean {
 
 function isMissingFile(error: unknown): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function normalizeLeanCandidate(content: string): string {
+	const trimmed = content.trim();
+	const fenced = trimmed.match(/^```(?:lean)?\s*\n([\s\S]*?)\n```$/u);
+	return `${(fenced?.[1] ?? trimmed).trim()}\n`;
 }
 
 async function ensureTextFile(path: string, content: string): Promise<void> {

@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -28,6 +28,7 @@ function task(taskId: string, summary: string, extra: Partial<ProofTask> = {}): 
 		status: "RUNNING",
 		attempt: 1,
 		updatedAt: new Date(0).toISOString(),
+		kind: "MATHEMATICAL",
 		...extra,
 	};
 }
@@ -236,6 +237,73 @@ test("dynamic runtime preserves and resumes a partial task when the controller o
 	if (continuationPlan?.action === "spawn") assert.equal(continuationPlan.tasks[0]?.continuationOf, "long-task");
 });
 
+test("dynamic formalization retries compiler failures until the Lean process gate passes", async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), "math-agent-proof-formal-repair-"));
+	t.after(async () => rm(directory, { recursive: true, force: true }));
+	const session = await Session.create({ projectId: "dynamic-formal-repair", cwd: directory, directory });
+	const planner = {
+		async plan(context: { readonly step: number }): Promise<ProofPlan> {
+			if (context.step === 1) {
+				return { actions: [{ action: "spawn", tasks: [{ taskId: "informal", summary: "Prove the target", description: "Give the complete informal proof." }] }] };
+			}
+			if (context.step === 2) return { actions: [{ action: "submit_proof", candidateId: "informal-candidate" }, { action: "stop", reason: "The controller mistakenly tried to stop before formalization." }] };
+			return { actions: [{ action: "stop", reason: "The controller has no more work." }] };
+		},
+	};
+	const researcher: ProofResearcher = {
+		async research(context) {
+			if (context.task.kind === "FORMALIZATION") {
+				assert.match(context.task.description, /translate the original mathematical theorem/iu);
+				return {
+					kind: "candidate",
+					candidate: {
+						taskId: context.task.taskId,
+						strategy: "lean-repair",
+						content: context.task.continuationOf === undefined
+							? "theorem sample : True := by\n  exact False.elim (by contradiction)"
+							: "theorem sample : True := by\n  trivial",
+					},
+				};
+			}
+			return { kind: "candidate", candidate: { taskId: context.task.taskId, strategy: "direct", content: "True is inhabited by its constructor." } };
+		},
+	};
+	const verifier = { async verify() { return { verdict: "CORRECT" as const, feedback: "The informal proof is correct." }; } };
+	const checkedSources: string[] = [];
+	const formalVerifier = {
+		async verify(content: string) {
+			checkedSources.push(content);
+			return content.includes("trivial")
+				? { ok: true, feedback: "Lean verification passed." }
+				: { ok: false, feedback: "unknown tactic contradiction", failureKind: "REJECTED" as const };
+		},
+	};
+	const runtime = new ProofRuntime({
+		session,
+		obligation: { obligationId: "formal-repair", theorem: "True." },
+		mode: "prove_and_formalize",
+		planner,
+		researcher,
+		verifier,
+		formalVerifier,
+		agentFactory: async () => researcher,
+		maxSteps: 4,
+		maxWorkers: 1,
+	});
+
+	const result = await runtime.run();
+
+	assert.equal(result.status, "PROVED");
+	assert.equal(checkedSources.length, 2);
+	assert.equal(runtime.state.formalAttempts.length, 2);
+	assert.equal(runtime.state.formalAttempts[0]?.result.ok, false);
+	assert.equal(runtime.state.formalAttempts[1]?.result.ok, true);
+	assert.equal(runtime.state.tasks.filter((item) => item.kind === "FORMALIZATION").length, 2);
+	assert.equal(runtime.state.tasks.find((item) => item.taskId === "formal-proof-attempt-1")?.status, "FAILED_RETRYABLE");
+	assert.equal(runtime.state.tasks.find((item) => item.continuationOf === "formal-proof-attempt-1")?.status, "COMPLETED");
+	assert.match(await readFile(result.proofLeanPath ?? "", "utf8"), /trivial/u);
+});
+
 test("model output truncation becomes a resumable partial result instead of a candidate", async () => {
 	const researcher = createAgentProofResearcher(fakeAgent(assistantResult('{"kind":"candidate","candidate":{"content":"unfinished proof', "length")));
 	const context: ProofResearchContext = {
@@ -258,6 +326,52 @@ test("model output truncation becomes a resumable partial result instead of a ca
 	const turnLimitedResult = await turnLimited.research(context);
 	assert.equal(turnLimitedResult.kind, "partial");
 	if (turnLimitedResult.kind === "partial") assert.match(turnLimitedResult.reason, /turn budget/iu);
+});
+
+test("dynamic worker accepts the dedicated formalizer lean response shape", async () => {
+	const researcher = createAgentProofResearcher(fakeAgent(assistantResult('{"lean":"theorem sample : True := by\\n  trivial","notes":"checked by the process gate next"}')));
+	const result = await researcher.research({
+		runId: "run",
+		step: 1,
+		obligation: { obligationId: "o", theorem: "True" },
+		whiteboard: "",
+		task: task("formal", "Formalize the target", { kind: "FORMALIZATION", scope: "TARGET" }),
+		referencedMaterials: "",
+	});
+
+	assert.equal(result.kind, "candidate");
+	if (result.kind === "candidate") {
+		assert.equal(result.candidate.strategy, "lean-formalization");
+		assert.match(result.candidate.content, /theorem sample : True/u);
+	}
+});
+
+test("proof roles retry transient provider failures before surfacing a block", async () => {
+	let calls = 0;
+	const transientAgent: Agent = {
+		state: { status: "idle", messages: [] },
+		async prompt() {
+			calls += 1;
+			if (calls === 1) return { ...assistantResult(""), stopReason: "model_error", error: { name: "TypeError", message: "fetch failed" } };
+			return assistantResult('{"kind":"candidate","candidate":{"content":"True is inhabited.","strategy":"direct"}}');
+		},
+		steer() {},
+		followUp() {},
+		async abort() {},
+		subscribe() { return () => {}; },
+	};
+	const researcher = createAgentProofResearcher(transientAgent);
+	const result = await researcher.research({
+		runId: "run",
+		step: 1,
+		obligation: { obligationId: "o", theorem: "True" },
+		whiteboard: "",
+		task: task("retry", "Prove the target"),
+		referencedMaterials: "",
+	});
+
+	assert.equal(calls, 2);
+	assert.equal(result.kind, "candidate");
 });
 
 test("planner parser tolerates legacy singular task responses while exposing a normalized task", () => {
