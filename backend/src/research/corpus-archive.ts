@@ -155,7 +155,7 @@ export class ResearchCorpusProjector {
 		const configured = this.options.config.localCheckout.trim();
 		if (configured.length === 0) return operation();
 		const checkout = resolve(configured), lockPath = publisherLockPath(checkout), token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`, pollMs = this.options.writerLockPollMs ?? 25, staleMs = this.options.writerLockStaleMs ?? 30_000;
-		await mkdir(dirname(checkout), { recursive: true });
+		if (!await fileExists(dirname(checkout))) await mkdir(dirname(checkout), { recursive: true });
 		for (;;) {
 			try {
 				await mkdir(lockPath); await writeFile(join(lockPath, "owner.json"), `${JSON.stringify({ pid: process.pid, token, acquiredAt: new Date().toISOString() })}\n`, { encoding: "utf8", flag: "wx" });
