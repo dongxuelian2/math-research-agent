@@ -12,7 +12,8 @@ PROJECT_ID="${CLOUD_RUN_PROJECT:-${GOOGLE_CLOUD_PROJECT:-$(gcloud config get-val
 SERVICE_NAME="${CLOUD_RUN_SERVICE:-math-research-agent}"
 REGION="${CLOUD_RUN_REGION:-us-central1}"
 VERTEX_LOCATION="${GOOGLE_CLOUD_LOCATION:-global}"
-MAX_INSTANCES="${CLOUD_RUN_MAX_INSTANCES:-2}"
+MAX_INSTANCES="${CLOUD_RUN_MAX_INSTANCES:-10}"
+CONCURRENCY="${CLOUD_RUN_CONCURRENCY:-8}"
 DEPLOY_MODE="${CLOUD_RUN_DEPLOY_MODE:-image}"
 BUILD_REGION="${CLOUD_RUN_BUILD_REGION:-global}"
 CLOUD_CONFIG_PATH="${CLOUD_RUN_CONFIG_PATH:-/app/configs/math-agent-cloud-run.toml}"
@@ -31,6 +32,10 @@ if [[ ! "$MAX_INSTANCES" =~ ^[1-9][0-9]*$ ]]; then
   printf '%s\n' 'CLOUD_RUN_MAX_INSTANCES must be a positive integer.' >&2
   exit 2
 fi
+if [[ ! "$CONCURRENCY" =~ ^[1-9][0-9]*$ || "$CONCURRENCY" -gt 1000 ]]; then
+  printf '%s\n' 'CLOUD_RUN_CONCURRENCY must be an integer between 1 and 1000.' >&2
+  exit 2
+fi
 if [[ "$DEPLOY_MODE" != "image" && "$DEPLOY_MODE" != "source" ]]; then
   printf '%s\n' 'CLOUD_RUN_DEPLOY_MODE must be image or source.' >&2
   exit 2
@@ -44,7 +49,7 @@ deploy_args=(
   --allow-unauthenticated
   --min 0
   --max "$MAX_INSTANCES"
-  --concurrency 1
+  --concurrency "$CONCURRENCY"
   --memory 1Gi
   --cpu 1
   --timeout 900
@@ -94,7 +99,7 @@ if [[ -n "${CLOUD_RUN_SERVICE_ACCOUNT:-}" ]]; then
   deploy_args+=(--service-account "$CLOUD_RUN_SERVICE_ACCOUNT")
 fi
 
-printf '%s\n' "Deploying $SERVICE_NAME to Cloud Run in $REGION (mode: $DEPLOY_MODE, min instances: 0, max instances: $MAX_INSTANCES)"
+printf '%s\n' "Deploying $SERVICE_NAME to Cloud Run in $REGION (mode: $DEPLOY_MODE, min instances: 0, max instances: $MAX_INSTANCES, concurrency: $CONCURRENCY)"
 gcloud run deploy "${deploy_args[@]}"
 
 SERVICE_URL="$(gcloud run services describe "$SERVICE_NAME" --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')"

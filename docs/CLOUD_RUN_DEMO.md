@@ -42,10 +42,13 @@ service identity is used. By default the script submits the repository
 Dockerfile to Cloud Build in `global`, pushes a uniquely tagged image to the
 existing `cloud-run-source-deploy` Artifact Registry repository, and deploys
 that image. This avoids waiting on a regional `gcloud run deploy --source`
-queue. It sets `--min 0` and a bounded service-level `--max` (default `2`),
-starts the same-origin GUI/API container, and prints the deployed URL plus a
-live `/health` response. Set `CLOUD_RUN_DEPLOY_MODE=source` only when the
-regional source-build path is intentionally desired.
+queue. It sets `--min 0`, a bounded service-level `--max` (default `10`), and
+maximum per-instance concurrency `8` (override with
+`CLOUD_RUN_MAX_INSTANCES` or `CLOUD_RUN_CONCURRENCY`). The higher concurrency
+leaves room for the GUI's static requests, API calls, and long-lived SSE
+stream while the max-instance bound still limits cost. Set
+`CLOUD_RUN_DEPLOY_MODE=source` only when the regional source-build path is
+intentionally desired.
 
 ## Video/demo proof
 
