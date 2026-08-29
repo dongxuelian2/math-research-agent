@@ -31,7 +31,9 @@ pnpm start:api
 TypeScript proof API 和 `apps/proof-workbench`，不需要任何外部 Harness checkout。
 
 GUI 源码在 [`apps/proof-workbench`](apps/proof-workbench)。其中 `web/` 可以独立交给
-任意静态服务器托管；`server/main.mjs` 只负责本地静态文件服务和连接 proof API。
+任意静态服务器托管；`server/main.mjs` 本地默认使用独立 API/静态服务器，Cloud Run
+使用 `--cloud-run` 时则把 GUI 和 proof API 合并到同一个公开端口与同源地址。
+`scripts/deploy-cloud-run.sh` 默认通过 global Cloud Build 构建并推送镜像，再直接更新 Cloud Run，避开区域性 source build 队列阻塞。
 
 ## 完整证明链路
 
@@ -94,7 +96,7 @@ Run 和结果，应得到相同的持久化产物。
 - `[proof]`：模式、并行 Worker 数、步骤上限；
 - `[research]`、`[budgets]` 与 `[corpus]`：长周期策略、检查点/停滞、执行预算和语义导入；
 - `[tools]`：统一工件访问、允许的受控执行能力与可执行文件；
-- `[formalization]`：默认启用的 Lean 4 进程门及其 Lake project；用户只需提交数学命题，Formalizer 会生成或修复完整 Lean 源码，编译失败会回到动态修复任务；若调用方提供精确 Lean 目标，runtime 仍会严格保持该声明；
+- `[formalization]`：完整源码配置中的 Lean 4 进程门及其 Lake project；每个 session 建立时可创建独立项目并固定 Mathlib 包/导入，用户只需提交数学命题，Formalizer 会生成或修复完整 Lean 源码，编译失败会回到动态修复任务。Cloud Run 使用单独的 `configs/math-agent-cloud-run.toml`，明确关闭该门以保持镜像轻量；
 - `[models.*]`：Provider、Model ID、Base URL、API key 环境变量名、推理强度、
   context window、最大输出长度和自定义请求参数；
 - `[roles.*]`：Planner、Worker、Verifier、Synthesizer、Formalizer、Literature
@@ -145,7 +147,11 @@ Cloud Run service identity 的 ADC；项目 ID 和模型区域分别由
 读取或签名仓库里的 GCP JSON 文件。对应项目必须启用 Vertex AI API，并授予
 运行身份调用模型所需的 IAM 权限。
 
-Cloud Run 部署与演示见 [`docs/CLOUD_RUN_DEMO.md`](docs/CLOUD_RUN_DEMO.md)。
+Cloud Run 部署与演示见 [`docs/CLOUD_RUN_DEMO.md`](docs/CLOUD_RUN_DEMO.md)。完整 Lean 源码、session 项目管理器和上游 skill 仍保留在仓库中；它们不随 Cloud Run 轻量镜像安装工具链。
+
+Formalizer 使用仓库内固定 revision 的上游
+[Lean 4 skill](https://github.com/cameronfreer/lean4-skills) 作为工作规范，
+但最终是否接受代码只由 session 项目中的 `lake env lean` 进程决定。
 
 ## 开发检查
 

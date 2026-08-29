@@ -25,21 +25,29 @@ const proofApi = new ProofApiServer({
 });
 
 const apiOnly = args.has("--api-only");
+const cloudRunMode = args.has("--cloud-run") || process.env.MATH_AGENT_CLOUD_RUN === "1" || process.env.K_SERVICE !== undefined;
+const unifiedMode = cloudRunMode && !apiOnly;
 const cloudPort = apiOnly && process.env.PORT !== undefined ? parsePort(process.env.PORT, configService.config.runtime.proofApiPort) : configService.config.runtime.proofApiPort;
-const apiHost = process.env.MATH_AGENT_PROOF_API_HOST ?? (apiOnly && process.env.PORT !== undefined ? "0.0.0.0" : configService.config.runtime.host);
-const apiPort = parsePort(process.env.MATH_AGENT_PROOF_API_PORT, cloudPort);
+const apiHost = unifiedMode ? "127.0.0.1" : process.env.MATH_AGENT_PROOF_API_HOST ?? (apiOnly && process.env.PORT !== undefined ? "0.0.0.0" : configService.config.runtime.host);
+const apiPort = unifiedMode ? 0 : parsePort(process.env.MATH_AGENT_PROOF_API_PORT, cloudPort);
 const apiUrl = await proofApi.start({ host: apiHost, port: apiPort });
 let webServer;
 let shuttingDown = false;
 
 if (!apiOnly) {
-  const webHost = process.env.MATH_AGENT_WEB_HOST ?? configService.config.runtime.host;
-  const webPort = parsePort(process.env.MATH_AGENT_WEB_PORT, configService.config.runtime.webPort);
-  webServer = createServer((request, response) => { void serveWeb(request, response, apiUrl); });
+  const webHost = process.env.MATH_AGENT_WEB_HOST ?? (unifiedMode && process.env.PORT !== undefined ? "0.0.0.0" : configService.config.runtime.host);
+  const webPort = unifiedMode && process.env.PORT !== undefined
+    ? parsePort(process.env.PORT, configService.config.runtime.webPort)
+    : parsePort(process.env.MATH_AGENT_WEB_PORT, configService.config.runtime.webPort);
+  const apiOrigin = unifiedMode ? "" : apiUrl;
+  webServer = createServer((request, response) => {
+    if (unifiedMode && isApiPath(request.url)) void proofApi.handleRequest(request, response);
+    else void serveWeb(request, response, apiOrigin);
+  });
   await listen(webServer, webHost, webPort);
-  console.log(`math-proof: GUI ready at http://${webHost}:${webPort}`);
+  console.log(`math-proof: ${unifiedMode ? "GUI + API" : "GUI"} ready at http://${webHost}:${webPort}`);
 }
-console.log(`math-proof: API ready at ${apiUrl}`);
+if (!unifiedMode) console.log(`math-proof: API ready at ${apiUrl}`);
 
 async function shutdown(exitCode = 0) {
   if (shuttingDown) return;
@@ -100,6 +108,11 @@ async function serveWeb(request, response, apiOrigin) {
       response.end("Not Found");
     } else response.destroy();
   }
+}
+
+function isApiPath(requestUrl) {
+  const pathname = new URL(requestUrl ?? "/", "http://127.0.0.1").pathname;
+  return pathname === "/health" || pathname === "/v1" || pathname.startsWith("/v1/");
 }
 
 function contentType(extension) {

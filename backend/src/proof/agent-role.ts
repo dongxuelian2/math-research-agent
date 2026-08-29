@@ -105,7 +105,7 @@ class AgentProofResearcher implements ProofResearcher {
 		throwIfAborted(signal);
 		const result = await promptWithProviderRetry(this.agent, [
 				context.task.kind === "FORMALIZATION"
-					? "You are the Lean formalizer in a dynamic proof workflow. Produce or repair the exact full Lean 4 source requested by the focused task."
+					? "You are the Lean formalizer in a dynamic proof workflow. Use the pinned upstream Lean 4 skill and produce or repair the exact full Lean 4 source requested by the focused task. The session's lake env lean process, not your explanation, is authoritative."
 					: "You are one independent mathematical worker in a planner/worker proof workflow.",
 				"Solve only the focused task below. Do not spawn other agents. Use the available corpus/search/computation/scratch tools when evidence or computation is needed.",
 				"Search results are discovery only. Read every proof-critical artifact body. Declare reliedOnArtifactIds, which must be a subset of artifacts actually read.",
@@ -117,7 +117,10 @@ class AgentProofResearcher implements ProofResearcher {
 				context.task.scope === "TARGET" ? "This task is TARGET-scoped: return a complete proof of the exact theorem, mark candidate.scope as TARGET, and omit candidate.contribution unless you can use one of the declared contribution kinds exactly." : "This task is CONTRIBUTION-scoped: do not claim that a lemma or local observation proves the whole target.",
 				context.task.agent === undefined ? "Logical agent: the default mathematical worker." : `Logical agent: ${context.task.agent.agentId}\nPurpose: ${context.task.agent.purpose}${context.task.agent.capabilities === undefined ? "" : `\nCapabilities: ${context.task.agent.capabilities.join(", ")}`}`,
 				context.task.successCriteria === undefined ? "" : `Success criteria:\n${context.task.successCriteria}`,
-				context.task.continuationOf === undefined ? "" : `This is a continuation of partial task ${context.task.continuationOf}. Preserve valid work and complete the missing portion; do not restart without explaining why.`,
+					context.task.continuationOf === undefined ? "" : `This is a continuation of partial task ${context.task.continuationOf}. Preserve valid work and change the smallest region that addresses the latest compiler feedback; do not restart without explaining why.`,
+					context.task.kind === "FORMALIZATION" && context.leanProject !== undefined
+						? `Use exactly this session Lean project: ${context.leanProject.projectDirectory}\nToolchain: ${context.leanProject.toolchain}\nPackages: ${context.leanProject.packages.join(", ") || "none"}\nImports validated at setup: ${context.leanProject.imports.join(", ") || "none"}`
+						: "",
 				`Theorem:\n${context.obligation.theorem}`,
 				context.obligation.context === undefined ? "" : `Theorem context:\n${context.obligation.context}`,
 				`Focused task:\n${context.task.description}`,

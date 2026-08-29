@@ -60,6 +60,17 @@ export type MathAgentConfig = {
 	readonly formalization: {
 		readonly enabled: boolean;
 		readonly projectDir?: string;
+		/** Directory containing the per-session Lean projects. */
+		readonly sessionProjectsDir?: string;
+		/** Proof packages installed into each generated Lake project. */
+		readonly packages?: readonly string[];
+		/** Imports compiled during session initialization as a dependency probe. */
+		readonly defaultImports?: readonly string[];
+		/** If true, create and validate the Lean project during POST /sessions. */
+		readonly setupOnSessionCreate?: boolean;
+		readonly setupTimeoutSeconds?: number;
+		/** Optional repository-local or container path for a package source. */
+		readonly packageRoot?: string;
 		readonly command?: string;
 	};
 	readonly models: Readonly<Record<string, ModelProfile>>;
@@ -131,6 +142,12 @@ export const DEFAULT_CONFIG: MathAgentConfig = {
 	},
 	formalization: {
 		enabled: false,
+		projectDir: "formalization",
+		sessionProjectsDir: "lean-projects",
+		packages: ["mathlib"],
+		defaultImports: ["Mathlib.Data.Nat.Basic"],
+		setupOnSessionCreate: false,
+		setupTimeoutSeconds: 180,
 	},
 	models: {
 		mock: { provider: "mock", model: "math-proof-offline" },
@@ -392,6 +409,8 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 	const corpus = record(value.corpus) ?? {};
 	const corpusIndexCommand = corpus.index_command ?? corpus.indexCommand;
 	const tools = record(value.tools) ?? {};
+	const leanPackages = configuredLeanPackages(formalization.packages) ?? DEFAULT_CONFIG.formalization.packages ?? [];
+	const leanImports = configuredLeanImports(formalization.default_imports ?? formalization.defaultImports) ?? DEFAULT_CONFIG.formalization.defaultImports ?? [];
 	const modelValues = record(value.models) ?? {};
 	const roleValues = record(value.roles) ?? {};
 	const models: Record<string, ModelProfile> = {};
@@ -424,6 +443,12 @@ function normalizeConfig(value: Record<string, unknown>): MathAgentConfig {
 		formalization: {
 			enabled: booleanValue(formalization.enabled, DEFAULT_CONFIG.formalization.enabled),
 			...(stringValueOrUndefined(formalization.project_dir ?? formalization.projectDir) === undefined ? {} : { projectDir: stringValueOrUndefined(formalization.project_dir ?? formalization.projectDir) }),
+			...(stringValueOrUndefined(formalization.session_projects_dir ?? formalization.sessionProjectsDir) === undefined ? {} : { sessionProjectsDir: stringValueOrUndefined(formalization.session_projects_dir ?? formalization.sessionProjectsDir) }),
+			packages: leanPackages,
+			defaultImports: leanImports,
+			setupOnSessionCreate: booleanValue(formalization.setup_on_session_create ?? formalization.setupOnSessionCreate, DEFAULT_CONFIG.formalization.setupOnSessionCreate ?? false),
+			setupTimeoutSeconds: positiveInteger(formalization.setup_timeout_seconds ?? formalization.setupTimeoutSeconds, DEFAULT_CONFIG.formalization.setupTimeoutSeconds ?? 180),
+			...(stringValueOrUndefined(formalization.package_root ?? formalization.packageRoot) === undefined ? {} : { packageRoot: stringValueOrUndefined(formalization.package_root ?? formalization.packageRoot) }),
 			...(stringValueOrUndefined(formalization.command) === undefined ? {} : { command: stringValueOrUndefined(formalization.command) }),
 		},
 		models,
@@ -479,6 +504,12 @@ function normalizeRole(value: Record<string, unknown>): RoleProfile {
 export function stringifyMathAgentConfig(config: MathAgentConfig): string {
 	const lines = [`version = ${config.version}`, "", "[runtime]", `host = ${quote(config.runtime.host)}`, `web_port = ${config.runtime.webPort}`, `proof_api_port = ${config.runtime.proofApiPort}`, `data_dir = ${quote(config.runtime.dataDir)}`, "", "[proof]", `default_mode = ${quote(config.proof.defaultMode)}`, `workflow_mode = ${quote(config.proof.workflowMode)}`, `max_workers = ${config.proof.maxWorkers}`, `max_steps = ${config.proof.maxSteps}`, `history_limit = ${config.proof.historyLimit}`, "", "[formalization]", `enabled = ${config.formalization.enabled}`];
 	if (config.formalization.projectDir !== undefined) lines.push(`project_dir = ${quote(config.formalization.projectDir)}`);
+	if (config.formalization.sessionProjectsDir !== undefined) lines.push(`session_projects_dir = ${quote(config.formalization.sessionProjectsDir)}`);
+	if (config.formalization.packages !== undefined) lines.push(`packages = [${config.formalization.packages.map(quote).join(", ")}]`);
+	if (config.formalization.defaultImports !== undefined) lines.push(`default_imports = [${config.formalization.defaultImports.map(quote).join(", ")}]`);
+	if (config.formalization.setupOnSessionCreate !== undefined) lines.push(`setup_on_session_create = ${config.formalization.setupOnSessionCreate}`);
+	if (config.formalization.setupTimeoutSeconds !== undefined) lines.push(`setup_timeout_seconds = ${config.formalization.setupTimeoutSeconds}`);
+	if (config.formalization.packageRoot !== undefined) lines.push(`package_root = ${quote(config.formalization.packageRoot)}`);
 	if (config.formalization.command !== undefined) lines.push(`command = ${quote(config.formalization.command)}`);
 	lines.push("", "[literature]", `enabled = ${config.literature.enabled}`);
 	lines.push("", "[research]", `max_cycles = ${config.research.maxCycles}`, `checkpoint_interval = ${config.research.checkpointInterval}`, `stall_threshold = ${config.research.stallThreshold}`, `structural_probe_budget = ${config.research.structuralProbeBudget}`, `max_active_obligations = ${config.research.maxActiveObligations}`);
@@ -708,6 +739,23 @@ function configuredCapabilityNames(value: unknown): readonly string[] {
 	const allowed = ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"], invalid = value.filter((item) => !allowed.includes(item));
 	if (invalid.length > 0) throw new Error(`Unsupported research capability/capabilities: ${invalid.join(", ")}`);
 	return [...new Set(value)];
+}
+
+function configuredLeanPackages(value: unknown): readonly string[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.trim().length > 0)) throw new Error("formalization.packages must be an array of non-empty package names");
+	const allowed = ["mathlib"], normalized = value.map((item) => item.trim().toLocaleLowerCase()), invalid = normalized.filter((item) => !allowed.includes(item));
+	if (invalid.length > 0) throw new Error(`Unsupported Lean package(s): ${[...new Set(invalid)].join(", ")}`);
+	return [...new Set(normalized)];
+}
+
+function configuredLeanImports(value: unknown): readonly string[] | undefined {
+	if (value === undefined) return undefined;
+	if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.trim().length > 0)) throw new Error("formalization.default_imports must be an array of non-empty module names");
+	const normalized = value.map((item) => item.trim());
+	const invalid = normalized.filter((item) => !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/u.test(item));
+	if (invalid.length > 0) throw new Error(`Invalid Lean import module(s): ${[...new Set(invalid)].join(", ")}`);
+	return [...new Set(normalized)];
 }
 
 function stringValueOrUndefined(value: unknown): string | undefined {

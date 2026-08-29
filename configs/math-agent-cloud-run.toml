@@ -1,3 +1,9 @@
+# Cloud Run demo profile.
+#
+# The repository still contains the complete Lean/Lake formalization source and
+# the pinned upstream Lean skill. This profile deliberately does not enable the
+# process-backed formalization gate because the Cloud Run image is kept free of
+# the Lean toolchain and Mathlib package.
 version = 1
 
 [runtime]
@@ -7,20 +13,17 @@ proof_api_port = 43100
 data_dir = ".math-agent"
 
 [proof]
-default_mode = "prove_and_formalize"
+default_mode = "prove"
 workflow_mode = "dynamic"
 max_workers = 2
 max_steps = 8
 history_limit = 8
 
 [formalization]
-enabled = true
-project_dir = "formalization"
-session_projects_dir = "lean-projects"
-packages = ["mathlib"]
-default_imports = ["Mathlib.Data.Nat.Basic"]
-setup_on_session_create = true
-setup_timeout_seconds = 180
+enabled = false
+packages = []
+default_imports = []
+setup_on_session_create = false
 
 [literature]
 enabled = true
@@ -55,7 +58,7 @@ index_command = ["python", "tools/update-research-index.py"]
 [tools]
 enabled = true
 allowed_capabilities = ["artifact_search", "artifact_read", "artifact_metadata", "corpus_read", "corpus_search", "scratch_read", "scratch_write", "controlled_computation"]
-allowed_executables = ["node", "python", "lean", "lake"]
+allowed_executables = ["node"]
 execution_boundary = "CONTROLLED_COMMAND_RUNNER"
 
 [models.gemini37]
@@ -89,7 +92,7 @@ enabled = true
 
 [roles.formalizer]
 model = "gemini37"
-enabled = true
+enabled = false
 
 [roles.literature_researcher]
 model = "gemini37"

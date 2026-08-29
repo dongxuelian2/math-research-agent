@@ -26,6 +26,7 @@ import type {
 	ProofMode,
 	ProofObligation,
 	ProofOutput,
+	ProofLeanProjectContext,
 	ProofPlan,
 	ProofPlanner,
 	ProofPlannerContext,
@@ -70,6 +71,10 @@ export interface ProofRuntimeOptions {
 	readonly tools?: readonly ProofTool[];
 	readonly leanTheorem?: string;
 	readonly formalVerifier?: ProofFormalVerifier;
+	/** Concrete per-session Lean environment supplied by the API adapter. */
+	readonly leanProject?: ProofLeanProjectContext;
+	/** Pinned upstream Lean skill text supplied only to formalization workers. */
+	readonly formalizerSkill?: string;
 	readonly verifyLeanItems?: boolean;
 	readonly budget?: ProofBudgetOptions;
 	/** Secret-free launch configuration captured for durable resume. */
@@ -135,6 +140,8 @@ export class ProofRuntime {
 	private readonly tools: readonly ProofTool[];
 	private readonly leanTheorem?: string;
 	private readonly formalVerifier?: ProofFormalVerifier;
+	private readonly leanProject?: ProofLeanProjectContext;
+	private readonly formalizerSkill?: string;
 	private readonly verifyLeanItems: boolean;
 	private readonly runConfigValue: JsonObject;
 	private readonly requestedMode?: ProofMode;
@@ -186,6 +193,8 @@ export class ProofRuntime {
 		this.tools = options.tools ?? [];
 		this.leanTheorem = options.leanTheorem;
 		this.formalVerifier = options.formalVerifier;
+		this.leanProject = options.leanProject;
+		this.formalizerSkill = options.formalizerSkill;
 		this.verifyLeanItems = options.verifyLeanItems ?? false;
 		this.runConfigValue = options.runConfig ?? {};
 		this.stateValue = {
@@ -354,11 +363,12 @@ export class ProofRuntime {
 			mode: this.stateValue.mode,
 			maxWorkers: this.maxWorkers,
 			maxSteps: this.maxSteps,
-			workflowMode: this.stateValue.workflowMode,
-			autoVerify: this.autoVerify,
-				formalVerification: this.formalVerifier !== undefined,
-				formalTargetConfigured: this.leanTheorem !== undefined,
-		});
+				workflowMode: this.stateValue.workflowMode,
+				autoVerify: this.autoVerify,
+					formalVerification: this.formalVerifier !== undefined,
+					formalTargetConfigured: this.leanTheorem !== undefined,
+					...(this.leanProject === undefined ? {} : { leanProject: this.leanProject }),
+			});
 		await this.persistState();
 	}
 
@@ -859,23 +869,38 @@ export class ProofRuntime {
 			}
 			try {
 				const referencedMaterials = await this.repositoryValue.resolveWikilinks(task.description);
-				const continuation = task.continuationOf === undefined ? "" : formatContinuationMaterials(task.continuationOf, this.persistedResearchResult(task.continuationOf));
-				const formalizationMaterials = task.kind === "FORMALIZATION"
-					? [
-						this.leanTheorem === undefined
-							? "# NO PRECONFIGURED LEAN TARGET\n\nFormalizer must translate the original mathematical theorem into Lean."
-							: "# EXACT CONFIGURED LEAN TARGET\n\n" + this.leanTheorem,
-						await this.acceptedInformalProofMaterial(),
-					].filter((item) => item.length > 0).join("\n\n")
+					const continuation = task.continuationOf === undefined ? "" : formatContinuationMaterials(task.continuationOf, this.persistedResearchResult(task.continuationOf));
+					const formalizationMaterials = task.kind === "FORMALIZATION"
+						? [
+							this.leanProject === undefined
+								? "# NO SESSION LEAN PROJECT\n\nThe configured session did not provide a validated Lean project; do not claim compilation."
+								: [
+									"# SESSION LEAN PROJECT",
+									`Project directory: ${this.leanProject.projectDirectory}`,
+									`Lean toolchain: ${this.leanProject.toolchain}`,
+									`Packages: ${this.leanProject.packages.join(", ") || "none"}`,
+									`Validated imports: ${this.leanProject.imports.join(", ") || "none"}`,
+									this.leanProject.packageSources === undefined ? "" : `Package sources: ${JSON.stringify(this.leanProject.packageSources)}`,
+								].filter((item) => item.length > 0).join("\n"),
+							this.leanTheorem === undefined
+								? "# NO PRECONFIGURED LEAN TARGET\n\nFormalizer must translate the original mathematical theorem into Lean."
+								: "# EXACT CONFIGURED LEAN TARGET\n\n" + this.leanTheorem,
+							this.formalizerSkill === undefined || this.formalizerSkill.length === 0
+								? "# LEAN SKILL\n\nNo upstream skill text was available; rely on the compiler and project files."
+								: `# PINNED UPSTREAM LEAN 4 SKILL\n\n${this.formalizerSkill}`,
+							await this.acceptedInformalProofMaterial(),
+						].filter((item) => item.length > 0).join("\n\n")
 					: "";
-				const context: ProofResearchContext = {
+					const context: ProofResearchContext = {
 					runId: this.runIdValue,
 					step: this.stateValue.step,
 					obligation: this.obligation,
 					whiteboard: this.stateValue.whiteboard,
-					task,
-					referencedMaterials: [referencedMaterials, continuation, formalizationMaterials].filter((item) => item.length > 0).join("\n\n"),
-				};
+						task,
+						referencedMaterials: [referencedMaterials, continuation, formalizationMaterials].filter((item) => item.length > 0).join("\n\n"),
+						...(task.kind === "FORMALIZATION" && this.leanProject !== undefined ? { leanProject: this.leanProject } : {}),
+						...(task.kind === "FORMALIZATION" && this.formalizerSkill !== undefined ? { formalizerSkill: this.formalizerSkill } : {}),
+					};
 				// A dynamic plan may omit agent metadata for a simple task. It still
 				// needs an isolated logical worker: the shared fallback AgentCore is
 				// not safe to run concurrently and would make the model-generated

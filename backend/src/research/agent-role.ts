@@ -7,6 +7,7 @@ import type { CorpusBootstrapper, SemanticFileAnalysis } from "./corpus.js";
 import type { DirectorProjectSnapshot, DirectorProposal, ModelResearchDirector } from "./runtime.js";
 import type { BootstrapDependencyProposal, BootstrapProposal, TrustReceipt } from "./types.js";
 import type { LiteratureCandidate } from "./literature.js";
+import type { ProofLeanProjectContext } from "../proof/types.js";
 import { BOOTSTRAP_ANALYSIS_SCHEMA, BOOTSTRAP_REVIEW_SCHEMA, BOOTSTRAP_SCHEMA_VERSION, BootstrapSchemaValidationError, BootstrapStructuredOutputParseError, bootstrapSchemaInstructions, parseBootstrapAnalysisText } from "./bootstrap-schema.js";
 
 export class ResearchRoleProtocolError extends Error {
@@ -108,10 +109,12 @@ export class AgentLiteratureApplicability {
 /** The model may draft Lean, but only a process-backed verifier may certify it. */
 export class AgentFormalizerRole {
 	constructor(private readonly agentFactory: () => Promise<Agent>) {}
-	async formalize(request: { readonly rootStatement: string; readonly informalProof: string; readonly existingLean?: string }): Promise<{ readonly lean: string; readonly notes: string }> {
+	async formalize(request: { readonly rootStatement: string; readonly informalProof: string; readonly existingLean?: string; readonly leanProject?: ProofLeanProjectContext; readonly formalizerSkill?: string }): Promise<{ readonly lean: string; readonly notes: string }> {
 		const agent = await this.agentFactory();
 		const text = await prompt(agent, [
-			"Draft a Lean proof for the exact root statement. Your output is an untrusted candidate and will be checked by the configured Lean process.",
+			"Use the pinned upstream Lean 4 skill below to draft a complete Lean proof for the exact root statement. Your output is an untrusted candidate and will be checked by the configured Lean process; never claim compilation succeeded.",
+			...(request.leanProject === undefined ? [] : [`Session Lean project (authoritative):\n${JSON.stringify(request.leanProject, null, 2)}`]),
+			...(request.formalizerSkill === undefined ? [] : [`Pinned upstream Lean 4 skill:\n${request.formalizerSkill}`]),
 			`Root statement:\n${request.rootStatement}`,
 			`Verified informal proof:\n${request.informalProof}`,
 			...(request.existingLean === undefined ? [] : [`Existing Lean source to repair:\n${request.existingLean}`]),

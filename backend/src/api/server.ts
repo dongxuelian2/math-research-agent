@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createUserMessage } from "../models/index.js";
 import { ConfigConflictError, corpusPublishingConfigOf, type ConfigUpdate, type MathAgentConfig, type MathAgentConfigService, type ProofRole } from "../config.js";
 import type { Agent } from "../agent/types.js";
@@ -10,6 +11,7 @@ import type { RuntimeTool } from "../models/tools.js";
 import { Session } from "../session/index.js";
 import { ProofWorkflow } from "../proof/runtime.js";
 import { CommandProofFormalVerifier } from "../proof/formal.js";
+import { LeanProjectManager, LeanProjectSetupError, loadLean4Skill, parseLeanProjectRequest, type LeanProjectDescriptor, type LeanProjectRequest } from "../proof/index.js";
 import { activeAuthorityForClaim, AgentCorpusBootstrapper, AgentFinalAuditRole, AgentFormalizerRole, AgentLiteratureApplicability, AgentResearchDirector, AgentSynthesisRole, CorpusArchiveCoordinator, CorpusService, LiteratureService, OpenAlexLiteratureProvider, ResearchEvidenceRecorder, ResearchInvariantValidator, ResearchRetrievalService, ResearchRuntime, ResearchStore, RootClosureService, createResearchTools, researchFrontier, rootSynthesisReadiness, stableId, type LiteratureProvider, type TacticalProofRequest, type TacticalResearchResult, type TrustReceipt, type VerifiedResearchContribution } from "../research/index.js";
 import { createAgentProofVerifier, type AgentProofRoles } from "../proof/agent-role.js";
 import type {
@@ -56,6 +58,8 @@ type SessionRecord = {
 	pendingLeanTheorem?: string;
 	mode?: ProofMode;
 	readonly runs: Map<string, RunRecord>;
+	leanProject?: LeanProjectDescriptor;
+	leanProjectError?: string;
 };
 
 type RunRecord = {
@@ -80,6 +84,7 @@ export class ProofApiServer {
 	private readonly defaultMode: ProofMode;
 	private readonly defaultMaxWorkers: number;
 	private readonly defaultMaxSteps: number;
+	private readonly leanProjectManager: LeanProjectManager;
 	private readonly researchProofFaultAfterWorkerResults?: number;
 	private readonly sessions = new Map<string, SessionRecord>();
 	private readonly researchStore: ResearchStore;
@@ -92,15 +97,17 @@ export class ProofApiServer {
 	private readonly sseRunResponses = new Map<RunRecord, Set<ServerResponse>>();
 	private server: Server | undefined;
 	private baseUrlValue: string | undefined;
+	private formalizerSkill: string | undefined;
 
 	constructor(options: ProofApiServerOptions) {
 		this.rootDirectory = resolve(options.rootDirectory);
-		this.repositoryDirectory = resolve(options.repositoryDirectory ?? process.cwd());
+		this.repositoryDirectory = resolve(options.repositoryDirectory ?? discoverRepositoryDirectory(process.cwd()));
 		this.createRoles = options.createRoles;
 		this.configService = options.configService;
 		this.defaultMode = options.defaultMode ?? "prove";
 		this.defaultMaxWorkers = Math.max(1, options.defaultMaxWorkers ?? 3);
 		this.defaultMaxSteps = Math.max(1, options.defaultMaxSteps ?? 32);
+		this.leanProjectManager = new LeanProjectManager({ rootDirectory: this.rootDirectory, repositoryDirectory: this.repositoryDirectory });
 		this.researchProofFaultAfterWorkerResults = options.researchProofFaultAfterWorkerResults;
 		this.researchStore = new ResearchStore(join(this.rootDirectory, "research"));
 		this.researchCorpus = new CorpusService(this.researchStore);
@@ -151,6 +158,7 @@ export class ProofApiServer {
 			await this.configService.startWatching();
 			this.researchRuntime = this.buildResearchRuntime();
 		}
+		this.formalizerSkill = await loadLean4Skill(this.repositoryDirectory);
 		await this.discoverPersistedSessions();
 		const host = options.host ?? "127.0.0.1";
 		const port = options.port ?? 0;
@@ -396,11 +404,19 @@ export class ProofApiServer {
 			return { state, status: "BLOCKED_FORMAL", feedback: "The root objective must contain the exact Lean theorem/lemma declaration; refusing to certify an unrelated formal theorem." };
 		}
 		await this.researchStore.transaction(projectId, (draft) => { (draft as { -readonly [K in keyof typeof draft]: typeof draft[K] }).formalizationStatus = "PENDING"; });
-		const runId = stableId("formalization", projectId, finalRef.contentHash), agent = new AgentFormalizerRole(() => this.createResearchAgent("formalizer", projectId, runId));
+		const runId = stableId("formalization", projectId, finalRef.contentHash);
+		let leanProject: LeanProjectDescriptor;
+		try {
+			leanProject = await this.leanProjectManager.prepare(projectId, config);
+		} catch (error) {
+			state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = `FORMAL_ERROR: ${errorMessage(error)}`; })).state;
+			return { state, status: "BLOCKED_FORMAL", feedback: errorMessage(error) };
+		}
+		const agent = new AgentFormalizerRole(() => this.createResearchAgent("formalizer", projectId, runId));
 		let draft;
-		try { draft = await agent.formalize({ rootStatement: root.statement, informalProof: (await this.researchStore.resolveArtifact(projectId, finalRef)).body, ...(existingLean === undefined ? {} : { existingLean }) }); }
+		try { draft = await agent.formalize({ rootStatement: root.statement, informalProof: (await this.researchStore.resolveArtifact(projectId, finalRef)).body, ...(existingLean === undefined ? {} : { existingLean }), leanProject, ...(this.formalizerSkill === undefined ? {} : { formalizerSkill: this.formalizerSkill }) }); }
 		catch (error) { state = (await this.researchStore.transaction(projectId, (project) => { const mutable = project as { -readonly [K in keyof typeof project]: typeof project[K] }; mutable.formalizationStatus = "BLOCKED_FORMAL"; mutable.lastError = `FORMAL_ERROR: ${errorMessage(error)}`; })).state; return { state, status: "BLOCKED_FORMAL", feedback: errorMessage(error) }; }
-		const source = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_SOURCE", body: draft.lean, provenance: "configured-formalizer-untrusted-draft", references: [finalRef], metadata: { notes: draft.notes, mode } }), formalDirectory = resolve(this.repositoryDirectory, config.formalization.projectDir ?? join(this.researchStore.projectDirectory(projectId), "formalization")); await mkdir(formalDirectory, { recursive: true });
+		const source = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_SOURCE", body: draft.lean, provenance: "configured-formalizer-untrusted-draft", references: [finalRef], metadata: { notes: draft.notes, mode, leanProject: leanProjectMetadata(leanProject) } }), formalDirectory = leanProject.projectDirectory;
 		const command = config.formalization.command ?? "lake", verifier = new CommandProofFormalVerifier({ projectDirectory: formalDirectory, command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
 		const checked = await verifier.verify(draft.lean, { runId, step: 1, obligation: { obligationId: stableId("formal-obligation", projectId, root.claimId), theorem: root.statement }, theoremText: root.statement, workDirectory: formalDirectory });
 		const certificate = await this.researchStore.putArtifact(projectId, { artifactType: "LEAN_CERTIFICATE", body: `${JSON.stringify(checked, null, 2)}\n`, provenance: "CommandProofFormalVerifier", references: [source] });
@@ -479,19 +495,44 @@ export class ProofApiServer {
 		const sessionId = requestedId ?? randomUUID();
 		if (!/^[A-Za-z0-9_-]{1,100}$/u.test(sessionId)) throw new ApiHttpError(400, "sessionId must contain only letters, numbers, '_' or '-'");
 		if (this.sessions.has(sessionId)) throw new ApiHttpError(409, `Session already exists: ${sessionId}`);
+		const config = this.configService?.config;
+		let leanProject: LeanProjectDescriptor | undefined;
+		if (config?.formalization.enabled === true && config.formalization.setupOnSessionCreate === true) {
+			leanProject = await this.initializeLeanProject(sessionId, config, leanProjectRequestOf(body));
+		}
 		const session = await Session.create({
 			projectId: sessionId,
 			sessionId,
 			cwd: this.rootDirectory,
 			directory: join(this.rootDirectory, "sessions"),
+			...(leanProject === undefined ? {} : { metadata: { leanProject: leanProjectMetadata(leanProject) } }),
 		});
-		this.sessions.set(sessionId, { session, runs: new Map() });
+		this.sessions.set(sessionId, { session, runs: new Map(), ...(leanProject === undefined ? {} : { leanProject }) });
 		this.send(response, 201, {
 			sessionId,
 			projectId: session.projectId,
 			filePath: session.filePath,
 			status: "OPEN",
+			...(leanProject === undefined ? {} : { leanProject }),
 		});
+	}
+
+	private async initializeLeanProject(sessionId: string, config: MathAgentConfig, request?: LeanProjectRequest): Promise<LeanProjectDescriptor> {
+		try {
+			return await this.leanProjectManager.prepare(sessionId, config, request);
+		} catch (error) {
+			const message = error instanceof LeanProjectSetupError ? error.message : errorMessage(error);
+			throw new ApiHttpError(503, `Lean project setup failed: ${message}`, "LEAN_PROJECT_UNAVAILABLE");
+		}
+	}
+
+	private async ensureLeanProject(sessionId: string, record: SessionRecord, config: MathAgentConfig): Promise<LeanProjectDescriptor> {
+		if (record.leanProject !== undefined) return record.leanProject;
+		const leanProject = await this.initializeLeanProject(sessionId, config);
+		record.leanProject = leanProject;
+		record.leanProjectError = undefined;
+		await record.session.updateMetadata({ leanProject: leanProjectMetadata(leanProject) });
+		return leanProject;
 	}
 
 	private async submitTheorem(sessionId: string, record: SessionRecord, request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -526,6 +567,10 @@ export class ProofApiServer {
 		const config = this.configService?.config;
 		const requestedMode = parseMode(body.mode) ?? record.mode ?? config?.proof.defaultMode ?? this.defaultMode;
 		const mode = effectiveProofMode(requestedMode, config);
+		if (mode !== "prove" && config !== undefined && config.formalization.enabled !== true) throw new ApiHttpError(409, "Formalization is disabled in this runtime; use mode=prove.", "FORMALIZATION_DISABLED");
+		const leanProject = config?.formalization.enabled === true && mode !== "prove"
+			? await this.ensureLeanProject(sessionId, record, config)
+			: record.leanProject;
 		const runId = optionalString(body.runId) ?? randomUUID();
 		if (!/^[A-Za-z0-9_-]{1,100}$/u.test(runId)) throw new ApiHttpError(400, "runId must contain only letters, numbers, '_' or '-'");
 		const existing = record.runs.get(runId);
@@ -548,11 +593,13 @@ export class ProofApiServer {
 			maxWorkers,
 			maxSteps,
 			historyLimit: config?.proof.historyLimit,
-			workspaceDirectory: join(this.rootDirectory, "proof-runs", sessionId, runId),
-			runId,
-			...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
-				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(this.rootDirectory, "proof-runs", sessionId, runId), this.repositoryDirectory) } : {}),
-			...(config === undefined ? {} : { runConfig: { config: jsonObjectOf(config) } }),
+				workspaceDirectory: join(this.rootDirectory, "proof-runs", sessionId, runId),
+				runId,
+				...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
+				...(config?.formalization.enabled === true && mode !== "prove" && leanProject !== undefined ? { formalVerifier: configuredProofFormalVerifier(config, leanProject.projectDirectory) } : {}),
+				...(leanProject === undefined ? {} : { leanProject }),
+				...(this.formalizerSkill === undefined ? {} : { formalizerSkill: this.formalizerSkill }),
+				...(config === undefined ? {} : { runConfig: { config: jsonObjectOf(config) } }),
 		});
 		const run: RunRecord = { runId, workflow, controller: new AbortController(), startedAt: Date.now() };
 		record.runs.set(runId, run);
@@ -691,7 +738,12 @@ export class ProofApiServer {
 			if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
 			const filePath = join(sessionDirectory, entry.name);
 			const session = await Session.resume(filePath);
-			const record: SessionRecord = { session, runs: new Map() };
+			const persistedLeanProject = leanProjectOf(session.metadata.leanProject);
+			const record: SessionRecord = {
+				session,
+				runs: new Map(),
+				...(persistedLeanProject === undefined ? {} : { leanProject: persistedLeanProject }),
+			};
 			const theorem = [...session.customEntries("proof-api")].reverse().find((item) => item.type === "theorem_submitted");
 			if (theorem !== undefined && isRecord(theorem.payload) && typeof theorem.payload.theorem === "string") {
 				record.pendingObligation = {
@@ -700,8 +752,17 @@ export class ProofApiServer {
 					...(typeof theorem.payload.context === "string" ? { context: theorem.payload.context } : {}),
 				};
 				record.pendingLeanTheorem = typeof theorem.payload.leanTheorem === "string" ? theorem.payload.leanTheorem : undefined;
-				record.mode = parseMode(theorem.payload.mode) ?? this.defaultMode;
-			}
+					record.mode = parseMode(theorem.payload.mode) ?? this.defaultMode;
+				}
+				const config = this.configService?.config;
+				if (record.leanProject === undefined && config?.formalization.enabled === true && config.formalization.setupOnSessionCreate === true) {
+					try {
+						record.leanProject = await this.initializeLeanProject(session.sessionId, config);
+						await session.updateMetadata({ leanProject: leanProjectMetadata(record.leanProject) });
+					} catch (error) {
+						record.leanProjectError = errorMessage(error);
+					}
+				}
 			this.sessions.set(session.sessionId, record);
 			await this.discoverRuns(session.sessionId, record);
 		}
@@ -717,10 +778,19 @@ export class ProofApiServer {
 			const runConfig = await readJsonFile(join(directory, entry.name, "run_config.json"));
 			if (runConfig === undefined) continue;
 			const runId = entry.name;
-			const mode = parseMode(runConfig.mode) ?? record.mode ?? this.defaultMode;
-			const config = mathAgentConfigOf(runConfig.config);
-			const workflowMode = parseWorkflowMode(runConfig.workflowMode) ?? config?.proof.workflowMode;
-			const roles = await this.createRoles({ session: record.session, sessionId, runId, obligation: record.pendingObligation, mode, ...(config === undefined ? {} : { config }) });
+				const mode = parseMode(runConfig.mode) ?? record.mode ?? this.defaultMode;
+				const config = mathAgentConfigOf(runConfig.config);
+				const workflowMode = parseWorkflowMode(runConfig.workflowMode) ?? config?.proof.workflowMode;
+				let leanProject = record.leanProject ?? leanProjectOf(runConfig.leanProject);
+				if (record.leanProject === undefined && leanProject !== undefined) record.leanProject = leanProject;
+				if (leanProject === undefined && config?.formalization.enabled === true && mode !== "prove") {
+					try {
+						leanProject = await this.ensureLeanProject(sessionId, record, config);
+					} catch (error) {
+						record.leanProjectError = errorMessage(error);
+					}
+				}
+				const roles = await this.createRoles({ session: record.session, sessionId, runId, obligation: record.pendingObligation, mode, ...(config === undefined ? {} : { config }) });
 			const workflow = new ProofWorkflow({
 				session: record.session,
 				obligation: record.pendingObligation,
@@ -730,10 +800,12 @@ export class ProofApiServer {
 				maxWorkers: positiveInteger(runConfig.maxWorkers) ?? this.defaultMaxWorkers,
 				maxSteps: positiveInteger(runConfig.maxSteps) ?? this.defaultMaxSteps,
 				historyLimit: config?.proof.historyLimit,
-				workspaceDirectory: join(directory, runId),
-				runId,
-				...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
-				...(config?.formalization.enabled === true && mode !== "prove" ? { formalVerifier: configuredProofFormalVerifier(config, join(directory, runId), this.repositoryDirectory) } : {}),
+					workspaceDirectory: join(directory, runId),
+					runId,
+					...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
+					...(config?.formalization.enabled === true && mode !== "prove" && leanProject !== undefined ? { formalVerifier: configuredProofFormalVerifier(config, leanProject.projectDirectory) } : {}),
+					...(leanProject === undefined ? {} : { leanProject }),
+					...(this.formalizerSkill === undefined ? {} : { formalizerSkill: this.formalizerSkill }),
 				runConfig: jsonObjectOf(runConfig),
 			});
 			await workflow.hydrate();
@@ -759,6 +831,7 @@ export class ProofApiServer {
 			...(record.pendingObligation === undefined ? {} : { obligation: record.pendingObligation }),
 			...(record.pendingLeanTheorem === undefined ? {} : { leanTheorem: record.pendingLeanTheorem }),
 			...(record.mode === undefined ? {} : { mode: record.mode }),
+			...(record.leanProject === undefined && record.leanProjectError === undefined ? {} : { leanProject: record.leanProject ?? { status: "UNAVAILABLE", error: record.leanProjectError ?? "Lean project has not been initialized." } }),
 			runs: [...record.runs.values()].map((run) => this.runView(sessionId, run)),
 		};
 	}
@@ -771,6 +844,7 @@ export class ProofApiServer {
 			theorem: record.pendingObligation?.theorem,
 			runCount: record.runs.size,
 			latestStatus: [...record.runs.values()].at(-1)?.workflow.state.status ?? "OPEN",
+			leanProjectStatus: record.leanProject?.status ?? (record.leanProjectError === undefined ? "NOT_INITIALIZED" : "UNAVAILABLE"),
 		};
 	}
 
@@ -969,6 +1043,16 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function discoverRepositoryDirectory(start: string): string {
+	let candidate = resolve(start);
+	for (;;) {
+		if (existsSync(join(candidate, "formalization", "lean-toolchain"))) return candidate;
+		const parent = dirname(candidate);
+		if (parent === candidate) return resolve(start);
+		candidate = parent;
+	}
+}
+
 function jsonObjectOf(value: unknown): JsonObject {
 	const cloned: unknown = JSON.parse(JSON.stringify(value)) as unknown;
 	return isRecord(cloned) ? cloned as JsonObject : {};
@@ -992,9 +1076,50 @@ function researchLinks(projectId: string): Readonly<Record<string, string>> {
 	return { status: base, audit: `${base}/audit`, frontier: `${base}/frontier`, claims: `${base}/claims`, dependencies: `${base}/dependencies`, coverage: `${base}/coverage`, routes: `${base}/routes`, artifacts: `${base}/artifacts`, literature: `${base}/literature`, corpusArchive: `${base}/corpus-archive`, bootstrapReport: `${base}/bootstrap-report`, checkpoints: `${base}/checkpoints`, events: `${base}/events`, rootReadiness: `${base}/root-readiness`, synthesis: `${base}/synthesis`, formalization: `${base}/formalization`, result: `${base}/result`, resume: `${base}/resume` };
 }
 
-function configuredProofFormalVerifier(config: MathAgentConfig, fallbackDirectory: string, repositoryDirectory: string): CommandProofFormalVerifier {
+function configuredProofFormalVerifier(config: MathAgentConfig, projectDirectory: string): CommandProofFormalVerifier {
 	const command = config.formalization.command ?? "lake";
-	return new CommandProofFormalVerifier({ projectDirectory: resolve(repositoryDirectory, config.formalization.projectDir ?? fallbackDirectory), command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
+	return new CommandProofFormalVerifier({ projectDirectory, command, args: command.toLocaleLowerCase().endsWith("lean") ? [] : ["env", "lean"], timeoutMs: Math.max(1, config.roles.formalizer.timeoutSeconds ?? 300) * 1000 });
+}
+
+function leanProjectRequestOf(body: Record<string, unknown>): LeanProjectRequest | undefined {
+	try {
+		return parseLeanProjectRequest(body.leanProject ?? body.lean_project);
+	} catch (error) {
+		throw new ApiHttpError(400, errorMessage(error), "INVALID_LEAN_PROJECT");
+	}
+}
+
+function leanProjectMetadata(project: LeanProjectDescriptor): JsonObject {
+	return {
+		sessionId: project.sessionId,
+		projectDirectory: project.projectDirectory,
+		toolchain: project.toolchain,
+		packages: [...project.packages],
+		imports: [...project.imports],
+		packageSources: Object.fromEntries(Object.entries(project.packageSources ?? {})),
+		projectFile: project.projectFile,
+		importsFile: project.importsFile,
+		status: project.status,
+		setupCommand: project.setupCommand,
+	};
+}
+
+function leanProjectOf(value: unknown): LeanProjectDescriptor | undefined {
+	if (!isRecord(value) || value.status !== "READY" || typeof value.sessionId !== "string" || typeof value.projectDirectory !== "string" || typeof value.toolchain !== "string" || typeof value.projectFile !== "string" || typeof value.importsFile !== "string" || typeof value.setupCommand !== "string" || !Array.isArray(value.packages) || !value.packages.every((item) => typeof item === "string") || !Array.isArray(value.imports) || !value.imports.every((item) => typeof item === "string")) return undefined;
+	const packageSources = value.packageSources;
+	if (packageSources !== undefined && (!isRecord(packageSources) || !Object.values(packageSources).every((item) => typeof item === "string"))) return undefined;
+	return {
+		sessionId: value.sessionId,
+		projectDirectory: value.projectDirectory,
+		toolchain: value.toolchain,
+		packages: value.packages,
+		imports: value.imports,
+		...(packageSources === undefined ? {} : { packageSources: packageSources as Record<string, string> }),
+		projectFile: value.projectFile,
+		importsFile: value.importsFile,
+		status: "READY",
+		setupCommand: value.setupCommand,
+	};
 }
 
 function configuredImportAuthority(value: string | undefined): import("../research/index.js").ImportAuthority {

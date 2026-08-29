@@ -1,5 +1,7 @@
 export * from "./agent-role.js";
 export * from "./formal.js";
+export * from "./lean-project.js";
+export * from "./lean-skill.js";
 export * from "./repository.js";
 export * from "./runtime.js";
 export * from "./types.js";

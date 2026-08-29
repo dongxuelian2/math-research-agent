@@ -85,6 +85,15 @@ export type ProofObligation = {
 	readonly context?: string;
 };
 
+/** The concrete Lean environment selected for one session/run. */
+export type ProofLeanProjectContext = {
+	readonly projectDirectory: string;
+	readonly toolchain: string;
+	readonly packages: readonly string[];
+	readonly imports: readonly string[];
+	readonly packageSources?: Readonly<Record<string, string>>;
+};
+
 export type ProofTaskInput = {
 	readonly taskId?: string;
 	readonly summary: string;
@@ -325,6 +334,10 @@ export type ProofResearchContext = {
 	readonly whiteboard: string;
 	readonly task: ProofTask;
 	readonly referencedMaterials: string;
+	/** Available only to formalization tasks; ordinary workers do not need it. */
+	readonly leanProject?: ProofLeanProjectContext;
+	/** Text of the pinned upstream Lean skill used by the Formalizer. */
+	readonly formalizerSkill?: string;
 };
 
 export type ProofVerifierContext = {
