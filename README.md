@@ -1,175 +1,484 @@
-# Math Research Agent
+<div align="center">
+  <img src="docs/assets/math-research-agent-logo.png" alt="Math Research Agent" width="680" />
+  <p><strong>Proof-oriented execution for difficult mathematics.</strong><br />A persistent runtime for planning, verifying, formalizing, and auditing mathematical work.</p>
+  <p>
+    <a href="#quick-start">Quick start</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#api">API</a> ·
+    <a href="#development">Development</a>
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white" alt="Node.js 22+" />
+    <img src="https://img.shields.io/badge/pnpm-11%2B-F69220?logo=pnpm&logoColor=white" alt="pnpm 11+" />
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/license-MIT-1f883d" alt="MIT License" />
+    </a>
+  </p>
+</div>
 
-Math Research Agent 是一个 Proof-first 数学证明工作台。当前运行时已经硬切换为
-TypeScript：`backend` 是唯一证明核心，`apps/proof-workbench` 是独立的浏览器 GUI，
-浏览器只通过 HTTP/SSE 访问证明 API。GUI 不依赖 DeepSeek Harness，也不把 Harness
-的 CLI、插件、工具、沙箱、MCP、Python SDK 或研究运行时带进来。
+> Math Research Agent treats a theorem as a durable execution job rather than a single model request. Runtime-owned state, independent verification, formal process gates, and evidence receipts determine what can be accepted.
 
-## 快速启动
+## Table of contents
 
-需要 Node.js 22+ 和 pnpm 11+：
+<details>
+<summary>Expand</summary>
 
-```bash
+- [Overview](#overview)
+- [Hackathon submission](#hackathon-submission)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Core capabilities](#core-capabilities)
+- [Proof execution model](#proof-execution-model)
+- [Durability and evidence](#durability-and-evidence)
+- [Runtime states](#runtime-states)
+- [API](#api)
+- [Formal verification](#formal-verification)
+- [Long-running research](#long-running-research)
+- [Configuration](#configuration)
+- [Cloud Run](#cloud-run)
+- [Repository layout](#repository-layout)
+- [Development](#development)
+- [Documentation](#documentation)
+- [Design invariants](#design-invariants)
+- [License](#license)
+
+</details>
+
+## Overview
+
+Math Research Agent is a TypeScript system for persistent mathematical proof execution. It accepts a theorem, creates a session, plans work, dispatches focused tasks, records intermediate artifacts, verifies candidate arguments independently, and exposes the result through an HTTP/SSE API.
+
+The project has two execution scales:
+
+| Scale | Runtime | Purpose |
+| --- | --- | --- |
+| Tactical | <code>ProofRuntime</code> / <code>ProofWorkflow</code> | Solve and verify a single proof obligation |
+| Strategic | <code>ResearchRuntime</code> | Maintain a long-running research project with claims, evidence, routes, checkpoints, and root closure |
+
+The model supplies mathematical work and planning proposals. The runtime owns task dependencies, persistence, recovery, provider boundaries, evidence metadata, and submission gates.
+
+## Hackathon submission
+
+<p align="center">
+  <a href="https://allthingsagentichackathon.devpost.com/">
+    <img src="docs/assets/all-things-agentic-hackathon-logo.png" alt="All Things Agentic Hackathon" width="220" />
+  </a>
+</p>
+
+This project is submitted as an entry to the [All Things Agentic Hackathon](https://allthingsagentichackathon.devpost.com/). The submission uses Gemini through Google Vertex AI and includes a Google Cloud Run deployment profile for the hosted demonstration.
+
+## Quick start
+
+### Requirements
+
+- Node.js 22 or later
+- pnpm 11 or later
+- Google Cloud CLI and Vertex AI access for real model calls
+- Lean 4, Lake, and the pinned Mathlib environment for local formalization
+
+### Install and run
+
+~~~bash
+git clone https://github.com/dongxuelian2/math-research-agent.git
+cd math-research-agent
+
 bash scripts/install.sh
 bash scripts/start.sh
-```
+~~~
 
-浏览器访问 `http://127.0.0.1:3080`。Windows 使用：
+The installer runs a frozen pnpm install and builds the TypeScript backend. Open:
 
-```powershell
-.\scripts\install.ps1
-.\scripts\start.ps1
-```
+- Workbench: [http://127.0.0.1:3080](http://127.0.0.1:3080)
+- Proof API: [http://127.0.0.1:43100](http://127.0.0.1:43100)
+- Health: [http://127.0.0.1:43100/health](http://127.0.0.1:43100/health)
 
-API-only 模式适合前端开发和自动化测试：
+To run only the proof API:
 
-```bash
+~~~bash
 pnpm start:api
-```
+~~~
 
-仓库当前配置的 API 地址是 `http://127.0.0.1:43100`（以启动输出和 TOML 为准）。启动链路只包含 Node、pnpm、
-TypeScript proof API 和 `apps/proof-workbench`，不需要任何外部 Harness checkout。
+For Windows, use <code>scripts/install.ps1</code> and <code>scripts/start.ps1</code>.
 
-GUI 源码在 [`apps/proof-workbench`](apps/proof-workbench)。其中 `web/` 可以独立交给
-任意静态服务器托管；`server/main.mjs` 本地默认使用独立 API/静态服务器，Cloud Run
-使用 `--cloud-run` 时则把 GUI 和 proof API 合并到同一个公开端口与同源地址。
-`scripts/deploy-cloud-run.sh` 默认通过 global Cloud Build 构建并推送镜像，再直接更新 Cloud Run，避开区域性 source build 队列阻塞。
+### Local credentials
 
-## 完整证明链路
+The default profile uses Google Vertex AI through <code>@google/genai</code>. Authenticate with Application Default Credentials:
 
-```text
-Session → theorem → Proof Run
-              ↓
-Planner → 并行 Worker → 独立 Verifier
-              ↓              ↓
-        repository/白板 ← 合并反馈
-              ↓
-       submission gate → answer/proof
-```
+~~~bash
+gcloud auth application-default login
+~~~
 
-工作流按 `doc1-why-not-openprover.md` 中的 OpenProver 行为重新编排，包含
-Planner action protocol、步骤工件、并行 Worker/Verifier、失败路线、候选去重、
-白板、恢复和提交门。浏览器不会直接导入 `ProofWorkflow`。
+Credential values are read at runtime. Configuration stores environment-variable names, not credential JSON or private-key material.
 
-证明状态严格分为：
+## Architecture
 
-`CANDIDATE_READY`（候选已独立验证但未提交）、`PARTIAL`（预算耗尽）、
-`PROVED`（提交门通过）、`BLOCKED_PROVIDER`（Provider 或形式化依赖不可用）、
-`FAILED`（工作流失败）和 `CANCELLED`（调用方取消）。只有提交门通过后才会
-返回 `PROVED`。
+<p align="center">
+  <a href="docs/architecture/proof-ai-orchestration-architecture.pdf">
+    <img src="docs/architecture/proof-ai-orchestration-architecture.png" alt="Proof and AI orchestration architecture" width="100%" />
+  </a>
+</p>
 
-## HTTP/SSE API
+<p align="center">
+  <sub>Click the diagram to open the original PDF reference.</sub>
+</p>
 
-典型客户端流程：
+The architecture is organized around six boundaries:
 
-```text
-POST /v1/sessions
-POST /v1/sessions/:sessionId/theorem
-POST /v1/sessions/:sessionId/proof-runs
-GET  /v1/sessions/:sessionId/proof-runs/:runId/events   # SSE
-GET  /v1/sessions/:sessionId/proof-runs/:runId
-GET  /v1/sessions/:sessionId/proof-runs/:runId/result
-```
+| Layer | Main components | Responsibility |
+| --- | --- | --- |
+| **Experience** | Proof Workbench, CLI/API clients, local mode, Cloud Run mode | Accept theorem requests and present proof state |
+| **API control plane** | Proof API Server, session lifecycle, event stream, ConfigService | Expose stable HTTP resources and configuration snapshots |
+| **Core execution** | ResearchRuntime, ProofRuntime, dynamic planner, workers, verifier pool, formalizer, state reducer | Execute proof and research state transitions |
+| **Tool plane** | Role Factory, Agent Core, scoped tools, Provider Registry | Construct configured roles and constrain model/tool access |
+| **External systems** | OpenAlex, Git remote, Cloud Identity | Literature, optional corpus publication, and cloud authentication |
+| **Durable data and trust** | Session Store, Run Workspace, Research Store, evidence receipts, corpus archive | Persist state, artifacts, verification evidence, and controlled projections |
 
-此外还提供：
+The original reference is available as [PNG](docs/architecture/proof-ai-orchestration-architecture.png) and [PDF](docs/architecture/proof-ai-orchestration-architecture.pdf).
 
-- `GET /v1/sessions`、Session 读取和运行列表；
-- `POST .../cancel` 取消运行；
-- `GET /v1/config`、`GET /v1/config/document`、`PUT /v1/config`；
-- `GET /v1/config/models` 脱敏模型目录。
+## Core capabilities
 
-一个最小命题是：
+| Capability | Implementation |
+| --- | --- |
+| Dynamic task planning | Planner action protocol with <code>spawn</code>, dependency edges, success criteria, and continuation tasks |
+| Ready-frontier execution | Only tasks whose dependencies are complete are dispatched; independent tasks can run concurrently up to <code>maxWorkers</code> |
+| Independent verification | Worker results are inspected by a separate verifier pool before candidate submission |
+| Proof repository | Candidates, merged feedback, failed routes, and whiteboard state remain available across planning rounds |
+| Durable recovery | Sessions, runs, configuration snapshots, step state, and partial outputs survive process restarts |
+| Formal process gate | Lean source is checked by the configured <code>lake env lean</code> process before formal acceptance |
+| Evidence-aware research | Research tools record artifact reads, searches, references, and trust receipts |
+| Provider isolation | Provider adapters are selected by configuration; role definitions do not grant arbitrary tool permissions |
+| HTTP/SSE integration | The GUI uses the public API and event stream without importing proof runtime internals |
+| Controlled corpus projection | Canonical corpus publishing is a separate, opt-in outbox and reconciliation path |
 
-```text
-1 + 3 + ... + (2n - 1) = n²，n ≥ 1
-```
+## Proof execution model
 
-API-only 的完整验收应创建 Session、提交这条命题、启动 Proof Run、读取 SSE、
-轮询结果并确认 `PROVED` 与归纳证明文本；重启服务后再次读取同一个 Session、
-Run 和结果，应得到相同的持久化产物。
+### End-to-end lifecycle
 
-## TOML 配置与模型角色
+~~~mermaid
+flowchart LR
+  theorem["Theorem"] --> session["Session"]
+  session --> api["Proof API"]
+  api --> planner["Planner"]
+  planner --> frontier["Ready frontier"]
+  frontier --> workers["Parallel workers"]
+  workers --> verifiers["Independent verifiers"]
+  verifiers --> candidate["Verified candidate"]
+  candidate --> submission["Submission gate"]
+  submission --> result["Proof result"]
+  submission -. "prove_and_formalize" .-> formalizer["Formalizer"]
+  formalizer --> lean["lake env lean"]
+  lean --> result
+  result --> artifacts["Durable artifacts"]
+  artifacts --> planner
+~~~
 
-唯一权威配置是 [`configs/math-agent.toml`](configs/math-agent.toml)，包含：
+### Planner and task graph
 
-- `[runtime]`：Host、Web/API 端口、数据目录；
-- `[proof]`：模式、并行 Worker 数、步骤上限；
-- `[research]`、`[budgets]` 与 `[corpus]`：长周期策略、检查点/停滞、执行预算和语义导入；
-- `[tools]`：统一工件访问、允许的受控执行能力与可执行文件；
-- `[formalization]`：完整源码配置中的 Lean 4 进程门及其 Lake project；每个 session 建立时可创建独立项目并固定 Mathlib 包/导入，用户只需提交数学命题，Formalizer 会生成或修复完整 Lean 源码，编译失败会回到动态修复任务。Cloud Run 使用单独的 `configs/math-agent-cloud-run.toml`，明确关闭该门以保持镜像轻量；
-- `[models.*]`：Provider、Model ID、Base URL、API key 环境变量名、推理强度、
-  context window、最大输出长度和自定义请求参数；
-- `[roles.*]`：Planner、Worker、Verifier、Synthesizer、Formalizer、Literature
-  Researcher，以及 Research Director、Corpus Bootstrapper、Secondary Auditor 的模型映射和运行参数。
+The default workflow mode is <code>dynamic</code>. A planner round receives the theorem, whiteboard, repository index, previous outputs, failed routes, budget, and current task graph. It returns typed actions that the runtime validates before execution.
 
-## 自主研究 API
+Each task may declare:
 
-`/v1/research/projects` 提供持久化的 MRR v1 研究链路：语义 corpus bootstrap、模型驱动策略、
-类型化中间数学贡献、严格 target-proof 门、统一跨周期工件检索、自动证据回执、路线/覆盖图、
-任务级恢复、文献、root readiness、综合、独立终审和可选 Lean 进程门。完整协议、硬不变量和外部
-Proof-as-Test 启动说明见：
+- <code>dependsOn</code> — predecessor task IDs that must complete first;
+- <code>successCriteria</code> — the local result required from the task;
+- <code>continuationOf</code> — the previous task when work is partial or retryable;
+- a scope and contribution kind — for example a local lemma, route analysis, or synthesis task.
 
-- [`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)
-- [`docs/MRR_V1_INVARIANTS.md`](docs/MRR_V1_INVARIANTS.md)
-- [`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)
-- [`docs/CORPUS_ARCHIVE_PROTOCOL.md`](docs/CORPUS_ARCHIVE_PROTOCOL.md)
-- [`docs/CORPUS_ARCHIVE_INTEGRATION_MAP.md`](docs/CORPUS_ARCHIVE_INTEGRATION_MAP.md)
+The runtime computes the ready frontier, runs independent tasks in bounded batches, sends merged worker/verifier feedback into the next planner round, and persists every transition. <code>maxWorkers</code> limits concurrency; it does not decide how a theorem should be decomposed.
 
-长期研究语料发布是一个独立、默认关闭的投影层。只有已持久化的语义 effect，或带有当前
-`FinalProofAuthority` 的严格结论，才可进入配置的 canonical Git corpus；Planner/Worker/
-Verifier 原始输出、scratch、candidate proof 与 audit JSON 均不会直接发布。`[corpus]` 中的
-`publishing_enabled`、`repository_url`、`local_checkout`、`branch`、`auto_push`、
-`index_command` 和可选 `node_path` 控制该层。Git 或 push 失败不会回滚研究真值。
+<code>legacy</code> mode remains available for compatibility with the fixed Planner/Worker/Verifier workflow.
 
-构建后可用以下命令检查/恢复 outbox，无需直接打开状态 JSON：
+### Role separation
 
-```bash
-pnpm run build:proof
-pnpm run corpus -- status --project <project-id>
-pnpm run corpus -- pending --project <project-id>
-pnpm run corpus -- inspect --project <project-id> --intent <intent-id>
-pnpm run corpus -- retry --project <project-id> --intent <intent-id>
-pnpm run corpus -- publish --project <project-id> --intent <intent-id>
-pnpm run corpus -- reconcile --project <project-id>
-```
+| Role | Responsibility |
+| --- | --- |
+| Planner | Select the next proof actions and task graph |
+| Worker | Produce a focused mathematical contribution or candidate proof |
+| Verifier | Independently check the worker result and report a verdict |
+| Synthesizer | Assemble accepted contributions into a final research or proof artifact |
+| Formalizer | Produce or repair complete Lean source |
+| Research Director | Select strategic research actions and target obligations |
+| Corpus Bootstrapper | Import configured mathematical corpus material |
+| Secondary Auditor | Re-check final research evidence and closure conditions |
 
-Web 设置页“模型与证明角色”和高级 TOML 编辑器共用一个 `ConfigService`。
-修改使用修订号、串行化并发更新、文件锁语义和临时文件原子替换；正在运行的
-Proof Run 使用启动时配置快照，新配置只影响后续运行。密钥只保存环境变量名，
-不写入配置文件、不显示、不返回；Provider 仅在真实运行时按环境变量读取。
+The role factory resolves model profiles and tools from trusted configuration. A task description can state what an agent is for, but it does not itself grant access to tools.
 
-当前默认配置的 `gemini37` 使用 `google-vertex` provider 和
-`gemini-3.7-flash`。Provider adapter 已改为 Google 官方
-`@google/genai` SDK：本地通过 Application Default Credentials（例如
-`gcloud auth application-default login`）认证，部署到 Cloud Run 时直接使用
-Cloud Run service identity 的 ADC；项目 ID 和模型区域分别由
-`GOOGLE_CLOUD_PROJECT`、`GOOGLE_CLOUD_LOCATION` 提供。启动脚本和后端不会扫描、
-读取或签名仓库里的 GCP JSON 文件。对应项目必须启用 Vertex AI API，并授予
-运行身份调用模型所需的 IAM 权限。
+## Durability and evidence
 
-Cloud Run 部署与演示见 [`docs/CLOUD_RUN_DEMO.md`](docs/CLOUD_RUN_DEMO.md)。完整 Lean 源码、session 项目管理器和上游 skill 仍保留在仓库中；它们不随 Cloud Run 轻量镜像安装工具链。
+### Proof-run workspace
 
-Formalizer 使用仓库内固定 revision 的上游
-[Lean 4 skill](https://github.com/cameronfreer/lean4-skills) 作为工作规范，
-但最终是否接受代码只由 session 项目中的 `lake env lean` 进程决定。
+Each proof run has its own workspace under <code>.math-agent/proof-runs/</code>:
 
-## 开发检查
+~~~text
+.math-agent/
+├── sessions/
+│   └── <session-id>.jsonl
+├── proof-runs/
+│   └── <session-id>/<run-id>/
+│       ├── THEOREM.md
+│       ├── THEOREM.lean
+│       ├── WHITEBOARD.md
+│       ├── run_config.json
+│       ├── state.json
+│       ├── PROOF.md
+│       ├── PROOF.lean
+│       ├── repo/
+│       └── steps/
+│           └── step_NNN/
+│               ├── planner_context.json
+│               ├── planner_response.txt
+│               ├── planner_plan.json
+│               ├── actions.json
+│               ├── worker_*_output.md
+│               ├── verifier_*.json
+│               └── step_status.json
+└── research/
+    └── <project-id>/
+        ├── state.json
+        └── artifacts/
+~~~
 
-研究运行时文档：[`docs/MATHEMATICAL_RESEARCH_RUNTIME.md`](docs/MATHEMATICAL_RESEARCH_RUNTIME.md)。
-Critical Layer 启动与就绪边界：[`docs/MRR_CRITICAL_LAYER_READINESS.md`](docs/MRR_CRITICAL_LAYER_READINESS.md)。
+The session JSONL contains typed lifecycle entries. The run workspace contains the full theorem, plans, prompts, outputs, verifier records, whiteboard, repository, and formal attempts needed for recovery and audit.
 
-```bash
+### Evidence and authority
+
+Research artifacts carry content hashes, provenance, references, and authority classifications. Tool use is recorded separately from the mathematical result. A worker may discover or read evidence, but a claim becomes authoritative only through the configured verification, reduction, and closure path.
+
+The corpus archive is a projection layer. Raw planner, worker, verifier, scratch, candidate, and audit outputs are not published directly to the canonical Git corpus.
+
+## Runtime states
+
+| State | Meaning |
+| --- | --- |
+| <code>CANDIDATE_READY</code> | A candidate passed independent verification and is waiting for the submission gate |
+| <code>PARTIAL</code> | A budget or step limit was reached while resumable work remains |
+| <code>PROVED</code> | The configured submission path passed; formalization also passed when required by the selected mode |
+| <code>FAILED</code> | The workflow ended without an accepted route |
+| <code>BLOCKED_FORMAL</code> | The formalization project or Lean process is unavailable |
+| <code>BLOCKED_PROVIDER</code> | A model, literature, or remote tool provider is unavailable |
+| <code>CANCELLED</code> | The caller cancelled the run |
+
+<code>CANDIDATE_READY</code> is not a final proof state. A model label, a generated file, or a successful worker response is not sufficient for <code>PROVED</code>.
+
+## API
+
+### Health and configuration
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| <code>GET</code> | <code>/health</code> | Runtime and deployment health evidence |
+| <code>GET</code> | <code>/v1/config</code> | Read the effective configuration |
+| <code>GET</code> | <code>/v1/config/document</code> | Read the editable TOML document |
+| <code>PUT</code> | <code>/v1/config</code> | Apply a revision-checked configuration update |
+| <code>GET</code> | <code>/v1/config/models</code> | Read the redacted model catalog |
+
+### Proof resources
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| <code>POST</code> | <code>/v1/sessions</code> | Create a session |
+| <code>GET</code> | <code>/v1/sessions</code> | List sessions |
+| <code>GET</code> | <code>/v1/sessions/:sessionId</code> | Read session state |
+| <code>POST</code> | <code>/v1/sessions/:sessionId/theorem</code> | Submit a theorem |
+| <code>POST</code> | <code>/v1/sessions/:sessionId/proof-runs</code> | Start a proof run |
+| <code>GET</code> | <code>/v1/sessions/:sessionId/proof-runs</code> | List runs for a session |
+| <code>GET</code> | <code>/v1/sessions/:sessionId/proof-runs/:runId</code> | Read run state |
+| <code>GET</code> | <code>/v1/sessions/:sessionId/proof-runs/:runId/events</code> | Stream typed events over SSE |
+| <code>GET</code> | <code>/v1/sessions/:sessionId/proof-runs/:runId/result</code> | Read the final result |
+| <code>POST</code> | <code>/v1/sessions/:sessionId/proof-runs/:runId/cancel</code> | Request cancellation |
+
+### Minimal API flow
+
+~~~bash
+API_URL=http://127.0.0.1:43100
+SESSION_ID=demo-session
+
+curl -fsS -X POST "$API_URL/v1/sessions" \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"demo-session"}'
+
+curl -fsS -X POST "$API_URL/v1/sessions/$SESSION_ID/theorem" \
+  -H 'content-type: application/json' \
+  -d '{"theorem":"For every integer n >= 1, 1 + 3 + ... + (2n - 1) = n^2."}'
+
+curl -fsS -X POST "$API_URL/v1/sessions/$SESSION_ID/proof-runs" \
+  -H 'content-type: application/json' \
+  -d '{"mode":"prove"}'
+~~~
+
+Copy the returned <code>runId</code> and inspect the stream, state, and result:
+
+~~~bash
+RUN_ID=<run-id>
+
+curl -N "$API_URL/v1/sessions/$SESSION_ID/proof-runs/$RUN_ID/events"
+curl -fsS "$API_URL/v1/sessions/$SESSION_ID/proof-runs/$RUN_ID"
+curl -fsS "$API_URL/v1/sessions/$SESSION_ID/proof-runs/$RUN_ID/result"
+~~~
+
+## Formal verification
+
+### Proof-run modes
+
+| Mode | Required output |
+| --- | --- |
+| <code>prove</code> | A candidate that passes the informal submission path |
+| <code>formalize_only</code> | A process-verified <code>PROOF.lean</code> |
+| <code>prove_and_formalize</code> | An accepted informal proof and a process-verified Lean proof |
+
+The full local profile enables formalization. A Formalizer may generate a Lean declaration and proof, or preserve a caller-provided exact declaration and fill its proof. The result is stored as an untrusted draft first; the configured Lean process is the acceptance authority.
+
+The runtime uses <code>lake env lean</code> in the session project. Compilation failure is persisted as a formal attempt and routed back into the workflow for repair. Proof-local <code>sorry</code>, <code>admit</code>, <code>axiom</code>, <code>constant</code>, and <code>opaque</code> escapes are rejected.
+
+Run the repository formalization project directly:
+
+~~~bash
+cd formalization
+lake env lean MathResearchAgentFormalization.lean
+~~~
+
+See [<code>formalization/README.md</code>](formalization/README.md) and [<code>docs/PROOF_WORKFLOW.md</code>](docs/PROOF_WORKFLOW.md) for the complete formalization contract.
+
+## Long-running research
+
+<code>ResearchRuntime</code> is the strategic layer above tactical proof runs:
+
+~~~text
+Research project
+  -> corpus bootstrap
+  -> research director
+  -> tactical directive
+  -> ProofRuntime
+  -> evidence receipts
+  -> ResearchStateReducer
+  -> root readiness
+  -> synthesis and independent audit
+~~~
+
+Research projects persist:
+
+- root objective contracts and claims with revision history;
+- dependencies, support edges, routes, coverage, and open obligations;
+- corpus documents and bootstrap reports;
+- execution plans, task attempts, artifacts, and evidence receipts;
+- trust receipts, authority receipts, checkpoints, and final-proof history;
+- formalization status and root-closure readiness.
+
+Core research routes include:
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| <code>POST</code> | <code>/v1/research/projects</code> | Create a research project |
+| <code>GET</code> | <code>/v1/research/projects</code> | List research projects |
+| <code>POST</code> | <code>/v1/research/projects/:projectId/root</code> | Set the root objective contract |
+| <code>POST</code> | <code>/v1/research/projects/:projectId/start</code> | Start a research campaign |
+| <code>POST</code> | <code>/v1/research/projects/:projectId/resume</code> | Resume a campaign |
+| <code>GET</code> | <code>/v1/research/projects/:projectId/frontier</code> | Read the current research frontier |
+| <code>GET</code> | <code>/v1/research/projects/:projectId/root-readiness</code> | Check root closure readiness |
+| <code>POST</code> | <code>/v1/research/projects/:projectId/synthesis</code> | Run root synthesis and audit |
+| <code>GET</code> | <code>/v1/research/projects/:projectId/audit</code> | Validate persisted research invariants |
+
+Corpus publishing is disabled by default. Its outbox, reconciliation, retry, and optional Git projection are controlled independently from research truth.
+
+## Configuration
+
+Configuration is TOML-based and revisioned. An active proof run keeps the configuration snapshot created at run start; later edits affect subsequent runs.
+
+| Profile | Use | Formalization |
+| --- | --- | --- |
+| [<code>configs/math-agent.toml</code>](configs/math-agent.toml) | Full local runtime | Enabled; creates session Lean projects |
+| [<code>configs/math-agent-cloud-run.toml</code>](configs/math-agent-cloud-run.toml) | Lightweight Cloud Run demo | Disabled; uses non-formal <code>prove</code> mode |
+
+The configuration controls:
+
+- runtime host, web/API ports, and data directory;
+- proof mode, workflow mode, worker concurrency, and step limits;
+- formalization, literature, research, budget, and corpus policies;
+- scoped tool capabilities and allowed executables;
+- provider profiles, model parameters, and role mappings;
+- corpus roots, import authority, archive behavior, and optional publication.
+
+The provider registry includes Google Vertex AI, Google, OpenAI-compatible, OpenRouter, DeepSeek, Anthropic, Codex CLI, and Mock adapters. The default profile uses Google Vertex AI with <code>gemini-3.7-flash</code>.
+
+## Cloud Run
+
+The Cloud Run deployment runs the GUI and proof API in one service and exposes them from one <code>run.app</code> origin. The service routes <code>/health</code> and <code>/v1/...</code> to the in-process API and serves the Workbench from the same port.
+
+~~~bash
+export CLOUD_RUN_PROJECT="your-gcp-project-id"
+export CLOUD_RUN_REGION="us-central1"
+export GOOGLE_CLOUD_LOCATION="global"
+bash scripts/deploy-cloud-run.sh
+~~~
+
+The deployment uses [<code>docs/CLOUD_RUN_DEMO.md</code>](docs/CLOUD_RUN_DEMO.md). Cloud Run storage is temporary, so this profile is for a bounded demonstration rather than a durable multi-instance research archive.
+
+## Repository layout
+
+~~~text
+.
+├── apps/
+│   └── proof-workbench/       Browser Workbench and thin static server
+├── backend/
+│   ├── src/agent/             Agent core and role execution
+│   ├── src/api/               HTTP API and resource routes
+│   ├── src/proof/             ProofRuntime, planning, verification, and formalization
+│   ├── src/providers/         Provider adapters and registry
+│   └── src/research/          ResearchRuntime, evidence, closure, and corpus
+├── configs/                   Local and Cloud Run TOML profiles
+├── docs/                      Workflow, runtime, deployment, and architecture docs
+├── formalization/             Lean 4/Lake project
+├── projects/                  Local example and runtime project data
+└── scripts/                   Install, start, deploy, and repository utilities
+~~~
+
+## Development
+
+Install dependencies and run the main checks:
+
+~~~bash
 pnpm install --frozen-lockfile
 pnpm run typecheck
 pnpm run test:proof
 pnpm run build
-```
+~~~
 
-核心测试覆盖 TOML 解析、角色/模型校验、密钥脱敏、请求参数、原子写入、并发
-修订、ProofWorkflow、SSE/HTTP API、OpenProver parity 和 Session 恢复。
+Useful commands:
 
-目录中的旧研究资料和历史实现仅作为迁移参考，不属于当前启动链路；活动入口
-只有 `scripts/install.*`、`scripts/start.*`、`package.json`、`backend/`、
-`apps/proof-workbench/` 和上述 HTTP API。
+| Command | Purpose |
+| --- | --- |
+| <code>pnpm run build:proof</code> | Compile the backend |
+| <code>pnpm run build:gui</code> | Check the Workbench and server entrypoints |
+| <code>pnpm run typecheck</code> | Run the backend TypeScript typecheck |
+| <code>pnpm run test:proof</code> | Build and run backend proof/research tests |
+| <code>pnpm run corpus -- status --project &lt;project-id&gt;</code> | Inspect the corpus archive outbox |
+| <code>pnpm start:api</code> | Start only the proof API |
+| <code>pnpm start</code> | Start the local Workbench and API |
 
-MIT License.
+The backend tests cover configuration parsing, role and model validation, provider behavior, persistence, proof planning, dynamic dependencies, continuations, formal gates, HTTP/SSE resources, research reduction, authority receipts, and restart recovery.
+
+## Documentation
+
+| Document | Scope |
+| --- | --- |
+| [<code>docs/PROOF_WORKFLOW.md</code>](docs/PROOF_WORKFLOW.md) | Tactical proof workflow, planner protocol, artifacts, states, and formal gate |
+| [<code>docs/WORKFLOW_RUNTIME_V2.md</code>](docs/WORKFLOW_RUNTIME_V2.md) | Dynamic DAG execution, ready frontiers, dependencies, and recovery |
+| [<code>docs/MATHEMATICAL_RESEARCH_RUNTIME.md</code>](docs/MATHEMATICAL_RESEARCH_RUNTIME.md) | Strategic research runtime and project lifecycle |
+| [<code>docs/MRR_V1_INVARIANTS.md</code>](docs/MRR_V1_INVARIANTS.md) | Research truth, evidence, authority, and closure invariants |
+| [<code>docs/CORPUS_ARCHIVE_PROTOCOL.md</code>](docs/CORPUS_ARCHIVE_PROTOCOL.md) | Corpus outbox, reconciliation, and publication policy |
+| [<code>apps/proof-workbench/README.md</code>](apps/proof-workbench/README.md) | Browser Workbench boundary and local serving model |
+| [<code>formalization/README.md</code>](formalization/README.md) | Lean toolchain and process verification |
+| [<code>docs/CLOUD_RUN_DEMO.md</code>](docs/CLOUD_RUN_DEMO.md) | Cloud Run deployment and runtime evidence |
+
+## Design invariants
+
+1. Model prose is input to the runtime, not the authority for truth.
+2. A worker result must pass independent verification before candidate submission.
+3. <code>PROVED</code> is emitted only after the configured submission and formal gates pass.
+4. Provider failure, formal-tool failure, and mathematical failure remain distinct states.
+5. A resumed run uses its persisted configuration and artifacts rather than silently mixing current settings into old state.
+6. Research claims require evidence and authority receipts; a verified subtask is not automatically a proof of the root objective.
+7. Corpus publication is an explicit projection and cannot rewrite research truth when Git or remote publication fails.
+
+## License
+
+Math Research Agent is released under the [MIT License](LICENSE).

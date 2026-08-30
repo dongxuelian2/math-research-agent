@@ -328,6 +328,55 @@ test("model output truncation becomes a resumable partial result instead of a ca
 	if (turnLimitedResult.kind === "partial") assert.match(turnLimitedResult.reason, /turn budget/iu);
 });
 
+test("worker returns plain mathematical text and the runtime owns the result envelope", async () => {
+	let capturedPrompt = "";
+	const proof = String.raw`Let \(S = \{1,2,\ldots,n\}\). Since \(\pi\) is a permutation, the two sides are equal.`;
+	const agent: Agent = {
+		state: { status: "idle", messages: [] },
+		async prompt(input) {
+			capturedPrompt = input as string;
+			return assistantResult(proof);
+		},
+		steer() {},
+		followUp() {},
+		async abort() {},
+		subscribe() { return () => {}; },
+	};
+	const researcher = createAgentProofResearcher(agent);
+	const result = await researcher.research({
+		runId: "run",
+		step: 1,
+		obligation: { obligationId: "o", theorem: "A theorem with a LaTeX proof." },
+		whiteboard: "",
+		task: task("plain-text", "Write the proof"),
+		referencedMaterials: "",
+	});
+
+	assert.equal(result.kind, "candidate");
+	if (result.kind === "candidate") {
+		assert.equal(result.candidate.taskId, "plain-text");
+		assert.equal(result.candidate.content, proof);
+		assert.equal(result.candidate.strategy, "agent-reasoning");
+	}
+	assert.match(capturedPrompt, /Return only the generated result body as plain text/u);
+	assert.doesNotMatch(capturedPrompt, /Return JSON when possible/u);
+});
+
+test("invalid JSON-looking worker text is preserved as proof text instead of downgraded to partial", async () => {
+	const malformedJson = String.raw`{"kind":"candidate","candidate":{"content":"Proof with LaTeX \{x\}"}}`;
+	const result = await createAgentProofResearcher(fakeAgent(assistantResult(malformedJson))).research({
+		runId: "run",
+		step: 1,
+		obligation: { obligationId: "o", theorem: "T" },
+		whiteboard: "",
+		task: task("malformed-json", "Preserve the proof"),
+		referencedMaterials: "",
+	});
+
+	assert.equal(result.kind, "candidate");
+	if (result.kind === "candidate") assert.equal(result.candidate.content, malformedJson);
+});
+
 test("dynamic worker accepts the dedicated formalizer lean response shape", async () => {
 	const researcher = createAgentProofResearcher(fakeAgent(assistantResult('{"lean":"theorem sample : True := by\\n  trivial","notes":"checked by the process gate next"}')));
 	const result = await researcher.research({

@@ -34,3 +34,6 @@ backups/
 
 # Legacy Harness metadata, if an old checkout recreates it
 deepseek-harness/.git.harness-archive/
+
+# Local presentation source and exports
+/ppt/

@@ -66,7 +66,7 @@ provider = "google-vertex"
 model = "gemini-3.7-flash"
 reasoning_effort = "high"
 context_window = 1048576
-max_tokens = 8192
+max_tokens = 65536
 
 [roles.planner]
 model = "gemini37"

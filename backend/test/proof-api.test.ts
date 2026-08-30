@@ -89,7 +89,7 @@ test("completes a proof through the HTTP session, theorem, run, and result API",
 				model: model(),
 				provider: new MockProvider([
 					textResponse(
-						'{"kind":"candidate","candidate":{"strategy":"induction","content":"For n = 1, the sum is 1 = 1^2. Assume 1 + 3 + ... + (2n - 1) = n^2. Adding the next odd number gives n^2 + (2n + 1) = (n + 1)^2, so the identity holds for n + 1. Therefore the formula holds for every n >= 1."}}',
+						"For n = 1, the sum is 1 = 1^2. Assume 1 + 3 + ... + (2n - 1) = n^2. Adding the next odd number gives n^2 + (2n + 1) = (n + 1)^2, so the identity holds for n + 1. Therefore the formula holds for every n >= 1.",
 					),
 				]),
 			}),

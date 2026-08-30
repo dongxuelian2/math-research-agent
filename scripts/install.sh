@@ -14,7 +14,7 @@ fi
 
 cd "$ROOT_DIR"
 printf '%s\n' '→ installing the locked TypeScript workspace'
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --ignore-scripts
 
 printf '%s\n' '→ building the TypeScript proof core and standalone GUI'
 pnpm run build

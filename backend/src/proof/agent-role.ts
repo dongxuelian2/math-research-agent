@@ -108,13 +108,14 @@ class AgentProofResearcher implements ProofResearcher {
 					? "You are the Lean formalizer in a dynamic proof workflow. Use the pinned upstream Lean 4 skill and produce or repair the exact full Lean 4 source requested by the focused task. The session's lake env lean process, not your explanation, is authoritative."
 					: "You are one independent mathematical worker in a planner/worker proof workflow.",
 				"Solve only the focused task below. Do not spawn other agents. Use the available corpus/search/computation/scratch tools when evidence or computation is needed.",
-				"Search results are discovery only. Read every proof-critical artifact body. Declare reliedOnArtifactIds, which must be a subset of artifacts actually read.",
-				"Return JSON when possible: {kind: \"candidate\", candidate: {strategy, claim?, content, assumptions?:string[], dependencyClaims?:string[], reliedOnArtifactIds?:string[]}}; or {kind: \"observation\", content}; or {kind: \"blocked\", reason}.",
-				"For research contributions return candidate.contribution={kind,statement,relationshipToTarget,claimId?,assumptions,dependencyClaims,childClaims?,coverageScope?,coverageAssertion?,closedCaseClaimId?,closureReason?,targetScope?,counterexampleScope?}. Reductions require >=1 unique non-self child; case splits require >=2 plus explicit scope/exhaustiveness; counterexamples require target and witness scopes. Do not label a lemma or local case as the target.",
+				"Search results are discovery only. Read every proof-critical artifact body; the runtime records exact evidence from the tool calls.",
+				"Return only the generated result body as plain text. Do not return JSON, YAML, TOML, metadata envelopes, or a JSON/Markdown wrapper around the result. The runtime constructs the result envelope, candidate id, task scope, strategy, and evidence from this task and the tool trace.",
 				context.task.kind === "FORMALIZATION"
-					? "Return JSON with candidate.content containing the entire Lean source and no Markdown fences. If an exact configured Lean declaration is supplied, preserve it and replace only its sorry hole; otherwise translate the original mathematical theorem into a precise Lean declaration yourself. Never weaken or trivialize the theorem, and never add axiom/constant/opaque/sorry/admit escape hatches. Compiler feedback is authoritative."
-					: "A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
-				context.task.scope === "TARGET" ? "This task is TARGET-scoped: return a complete proof of the exact theorem, mark candidate.scope as TARGET, and omit candidate.contribution unless you can use one of the declared contribution kinds exactly." : "This task is CONTRIBUTION-scoped: do not claim that a lemma or local observation proves the whole target.",
+					? "Return only the entire Lean source with no Markdown fences or explanatory text. If an exact configured Lean declaration is supplied, preserve it and replace only its sorry hole; otherwise translate the original mathematical theorem into a precise Lean declaration yourself. Never weaken or trivialize the theorem, and never add axiom/constant/opaque/sorry/admit escape hatches. Compiler feedback is authoritative."
+					: context.task.contributionKind === "STRUCTURAL_OBSERVATION"
+						? "Report only the bounded structural observation in plain text; do not claim that an observation proves the whole target."
+						: "Use clean Markdown with LaTeX for mathematics. A candidate must be a complete, self-contained proof or a clearly delimited sub-proof; do not hide a gap behind a slogan.",
+				context.task.scope === "TARGET" ? "This task is TARGET-scoped: generate a complete proof of the exact theorem." : "This task is CONTRIBUTION-scoped: do not claim that a lemma or local observation proves the whole target.",
 				context.task.agent === undefined ? "Logical agent: the default mathematical worker." : `Logical agent: ${context.task.agent.agentId}\nPurpose: ${context.task.agent.purpose}${context.task.agent.capabilities === undefined ? "" : `\nCapabilities: ${context.task.agent.capabilities.join(", ")}`}`,
 				context.task.successCriteria === undefined ? "" : `Success criteria:\n${context.task.successCriteria}`,
 					context.task.continuationOf === undefined ? "" : `This is a continuation of partial task ${context.task.continuationOf}. Preserve valid work and change the smallest region that addresses the latest compiler feedback; do not restart without explaining why.`,
@@ -139,7 +140,7 @@ class AgentProofResearcher implements ProofResearcher {
 				suggestedNext: `Create a continuation task for ${context.task.taskId} and preserve this partial output.`,
 			};
 		}
-		return parseResearchResult(text, context.task.taskId);
+		return parseResearchResult(text, context);
 	}
 }
 
@@ -216,8 +217,19 @@ export function parseVerification(text: string): VerificationResult {
 	return { verdict: "INCONCLUSIVE", feedback: text || "Verifier returned no verdict" };
 }
 
-function parseResearchResult(text: string, taskId: string): ResearchResult {
+function parseResearchResult(text: string, context: ProofResearchContext): ResearchResult {
+	// The current worker contract is plain text. Keep the old envelope parser as
+	// a compatibility bridge for persisted tests/runs and older model adapters,
+	// but an invalid or unexpected JSON-looking response is still just worker
+	// text and must not be mislabeled as a partial result.
+	const legacy = parseLegacyResearchResult(text, context.task.taskId);
+	if (legacy !== undefined) return legacy;
+	return buildRuntimeResearchResult(text, context);
+}
+
+function parseLegacyResearchResult(text: string, taskId: string): ResearchResult | undefined {
 	const parsed = parseJsonObject(text);
+	if (parsed === undefined) return undefined;
 	if (parsed !== undefined && parsed.kind === "blocked" && typeof parsed.reason === "string") {
 		return { kind: "blocked", reason: parsed.reason };
 	}
@@ -259,20 +271,24 @@ function parseResearchResult(text: string, taskId: string): ResearchResult {
 			},
 		};
 	}
+	return undefined;
+}
+
+function buildRuntimeResearchResult(text: string, context: ProofResearchContext): ResearchResult {
 	if (text.length === 0) {
 		return { kind: "blocked", reason: "Researcher returned an empty response" };
 	}
-	if (looksLikeStructuredResearchResponse(text)) {
-		return {
-			kind: "partial",
-			content: text,
-			reason: "Researcher returned an incomplete structured response; it was not promoted to a candidate.",
-			suggestedNext: `Continue task ${taskId} with the preserved partial response.`,
-		};
+	if (context.task.contributionKind === "STRUCTURAL_OBSERVATION") {
+		return { kind: "observation", content: text };
 	}
 	return {
 		kind: "candidate",
-		candidate: { taskId, content: text, strategy: "agent-reasoning" },
+		candidate: {
+			taskId: context.task.taskId,
+			content: text,
+			strategy: context.task.kind === "FORMALIZATION" ? "lean-formalization" : context.task.agent?.agentId ?? "agent-reasoning",
+			scope: context.task.scope,
+		},
 	};
 }
 
@@ -727,11 +743,6 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-function looksLikeStructuredResearchResponse(text: string): boolean {
-	const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-	return trimmed.startsWith("{") && /["']kind["']\s*:/u.test(trimmed);
 }
 
 function isVerdict(value: unknown): value is VerificationResult["verdict"] {

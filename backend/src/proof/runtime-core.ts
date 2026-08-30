@@ -1513,7 +1513,11 @@ export class ProofRuntime {
 		const claim = result.candidate.claim;
 		const declaredEvidence = result.candidate.evidence ?? [];
 		if (result.candidate.scope !== undefined && result.candidate.scope !== task.scope) throw new ProofProtocolError(`Worker scope ${result.candidate.scope} disagrees with Planner task scope ${task.scope}`);
-		if (task.contributionKind !== undefined && result.candidate.contribution?.kind !== task.contributionKind) throw new ProofProtocolError(`Worker contribution kind disagrees with Planner task kind ${task.contributionKind}`);
+		// Plain-text workers do not emit semantic contribution metadata. When a
+		// legacy structured result does provide it, keep validating its kind; a
+		// missing optional contribution must not turn the new text-only contract
+		// into a protocol failure.
+		if (task.contributionKind !== undefined && result.candidate.contribution !== undefined && result.candidate.contribution.kind !== task.contributionKind) throw new ProofProtocolError(`Worker contribution kind disagrees with Planner task kind ${task.contributionKind}`);
 		return {
 			candidateId: result.candidate.candidateId ?? `${task.taskId}-candidate`,
 			taskId: task.taskId,
