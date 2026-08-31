@@ -1,0 +1,1311 @@
+{
+  "schemaVersion": 1,
+  "runId": "matharena-20260830180925",
+  "createdAt": "2026-08-30T18:09:25.667Z",
+  "model": {
+    "provider": "google-vertex",
+    "model": "gemini-3.7-flash",
+    "reasoningEffort": "high",
+    "contextWindow": 1048576,
+    "maxTokens": 65536
+  },
+  "datasets": [
+    {
+      "competition": "aime_2026",
+      "name": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "count": 30
+    },
+    {
+      "competition": "hmmt_feb_2026",
+      "name": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "count": 33
+    },
+    {
+      "competition": "apex_2025",
+      "name": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "count": 12
+    },
+    {
+      "competition": "apex_shortlist",
+      "name": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "count": 47
+    }
+  ],
+  "selectedCount": 122,
+  "tracks": [
+    "direct",
+    "agent"
+  ],
+  "concurrency": 20,
+  "agentWorkers": 1,
+  "agentSteps": 3,
+  "maxAttempts": 2,
+  "outputDirectory": "/home/xia/code/math-research-agent/benchmarks/matharena-20260831",
+  "promptContract": "MathArena official final-answer instruction; only the last boxed answer is scored.",
+  "problems": [
+    {
+      "id": "aime_2026-001",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 1,
+      "answer": "277",
+      "problem": "Patrick started walking at a constant rate along a straight road from school to the park. One hour after Patrick left, Tanya started running along the same road from school to the park. One hour after Tanya left, Jose started bicycling along the same road from school to the park. Tanya ran at a constant rate of $2$ miles per hour faster than Patrick walked, Jose bicycled at a constant rate of $7$ miles per hour faster than Tanya ran, and all three arrived at the park at the same time. The distance from the school to the park is $\\frac{m}{n}$ miles, where $m$ and $n$ are relatively prime positive integers. Find $m + n$."
+    },
+    {
+      "id": "aime_2026-002",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 2,
+      "answer": "62",
+      "problem": "Find the number of positive integer palindromes written in base $10$ with no zero digits, and whose digits add up to $13$. For example, $42124$ has these properties. Recall that a palindrome is a number whose representation reads the same from left to right as from right to left."
+    },
+    {
+      "id": "aime_2026-003",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 3,
+      "answer": "79",
+      "problem": "A hemisphere with radius $200$ sits on top of a horizontal circular disk with radius $200,$ and the hemisphere and disk have the same center. Let $\\mathcal T$ be the region of points P in the disk such that a sphere of radius $42$ can be placed on top of the disk at $P$ and lie completely inside the hemisphere. The area of $\\mathcal T$ divided by the area of the disk is $\\tfrac pq,$ where $p$ and $q$ are relatively prime positive integers. Find $p+q.$"
+    },
+    {
+      "id": "aime_2026-004",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 4,
+      "answer": "70",
+      "problem": "Find the number of integers less than or equal to 100 that are equal to $a+b+ab$ for some choice of distinct positive integers a and b."
+    },
+    {
+      "id": "aime_2026-005",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 5,
+      "answer": "65",
+      "problem": "A plane contains points $A$ and $B$ with $AB = 1$. Point $A$ is rotated in the plane counterclockwise through an acute angle $\\theta$ around point $B$ to point $A^\\prime$. Then $B$ is rotated in the plane clockwise through angle $\\theta$ around point $A^\\prime$ to point $B^\\prime$. Suppose that $AB^\\prime = \\frac{4}{3}$. The value of $\\cos \\theta$ can be written as $\\frac{m}{n}$ , where $m$ and $n$ are relatively prime positive integers. Find $m + n$."
+    },
+    {
+      "id": "aime_2026-006",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 6,
+      "answer": "441",
+      "problem": "A real number $x$ satisfies $\\sqrt[20]{x^{\\log_{2026}x}}=26x$. What is the number of positive divisors of the product of all possible positive values of $x$?"
+    },
+    {
+      "id": "aime_2026-007",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 7,
+      "answer": "396",
+      "problem": "\nFind the number of functions $\\pi$ mapping the set $A =\\{1,2,3,4,5,6\\}$ onto $A$ such that for every $a \\in A,$\n\\[\n\\pi(\\pi(\\pi(\\pi(\\pi(\\pi(a)))))) = a.\n\\]"
+    },
+    {
+      "id": "aime_2026-008",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 8,
+      "answer": "244",
+      "problem": "Let $N$ be the number of positive integer divisors of $17017^{17}$ that leave a remainder of $5$ when divided by $12$. Find the remainder when $N$ is divided by $1000$."
+    },
+    {
+      "id": "aime_2026-009",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 9,
+      "answer": "29",
+      "problem": "Joanne has a blank fair six-sided die and six stickers each displaying a different integer from 1 to 6. Joanne rolls the die and then places the sticker labeled 1 on the top face of the die. She then rolls the die again, places the sticker labeled 2 on the top face, and continues this process to place the rest of the stickers in order. If the die ever lands with a sticker already on its top face, the new sticker is placed to cover the old sticker. Let $p$ be the conditional probability that at the end of the process exactly one face has been left blank, given that all the even-numbered stickers are visible on faces of the die. Then $p$ can be written as $\\tfrac mn,$ where $m$ and $n$ are relatively prime positive integers. Find $m + n.$"
+    },
+    {
+      "id": "aime_2026-010",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 10,
+      "answer": "156",
+      "problem": "Let $\\triangle ABC$ have side lengths $AB = 13, BC = 14,$ and $CA = 15.$ Triangle $\\triangle A'B'C'$ is obtained by rotating $\\triangle ABC$ about its circumcenter so that ${}\\overline{AC}$ is perpendicular $\\overline{BC},$ with $A'$ and $B$ not on the same side of line $B'C'.$ Find the integer closest to the area of hexagon $AA'CC'BB'.$"
+    },
+    {
+      "id": "aime_2026-011",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 11,
+      "answer": "896",
+      "problem": "The integers from $1$ to $64$ are placed in some order into an $8 \\times 8$ grid of cells with one number in each cell. Let $a_{i,j}$ be the number placed in the cell in row $i$ and column $j,$ and let $M$ be the sum of the absolute differences between adjacent cells. That is,\n\\[\nM = \\sum^8_{i=1} \\sum^7_{j=1} (|a_{i,j+1} - a_{i,j}| + |a_{j+1,i} - a_{j,i}|).\n\\]\nFind the remainder when the maximum possible value of $M$ is divided by $1000.$"
+    },
+    {
+      "id": "aime_2026-012",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 12,
+      "answer": "161",
+      "problem": "Triangle $\\triangle ABC$ lies in plane $\\mathcal P$ with $AB = 6, AC = 4,$ and $\\angle BAC = 90^\\circ.$ Let $D$ be the reflection across $\\overline{BC}$ of the centroid of $\\triangle ABC. {}$ Four spheres, all on the same side of $\\mathcal P,$ have radii $1, 2, 3,$ and $r$ and are tangent to $\\mathcal P$ at points $A, B, C,$ and $D,$ respectively. The four spheres are also each tangent to a second plane $\\mathcal T$ and are all on the same side of $\\mathcal T.$ The value of $r$ can be written as $\\tfrac mn,$ where $m$ and $n$ are relatively prime positive integers. Find $m+n.$"
+    },
+    {
+      "id": "aime_2026-013",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 13,
+      "answer": "39",
+      "problem": "For each positive integer $r$ less than $502,$ define\n\\[\nS_r=\\sum_{m\\ge 0}\\dbinom{10000}{502n+r},\n\\]\nwhere $\\binom{10000}{n}$ is defined to be $0$ when $n>10000.$ That is, $S_r$ is the sum of all binomial coefficients of the form $\\binom{10000}{k}$ for which $0\\le k\\le 10000$ and $k-r$ is a multiple of $502.$ Find the number of integers in the list $S_0,S_1,\\dots,S_{501}$ that are multiples of the prime number $503.$"
+    },
+    {
+      "id": "aime_2026-014",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 14,
+      "answer": "681",
+      "problem": "In an equiangular pentagon, the sum of the squares of the side lengths equals $308,$ and the sum of the squares of the diagonal lengths equals $800.$ The square of the perimeter of the pentagon can be expressed as $m \\sqrt n,$ where $m$ and $n$ are positive integers and $n$ is not divisible by the square of any prime. Find $m + n.$"
+    },
+    {
+      "id": "aime_2026-015",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 15,
+      "answer": "83",
+      "problem": "Let $a, b,$ and $n$ be positive integers with both $a$ and $b$ greater than or equal to $2$ and less than or equal to $2n$. Define an $a \\times b$ cell loop in a $2n \\times 2n$ grid of cells to be the $2a + 2b - 4$ cells that surround an $(a - 2) \\times (b - 2)$ (possibly empty) rectangle of cells in the grid. For example, the following diagram shows a way to partition a $6 \\times 6$ grid of cells into $4$ cell loops.\n\n| P   P P   P | Y   Y |\n| P | R R | P | Y | Y |\n| P | R R | P | Y | Y |\n| P   P P   P | Y | Y |\n| G   G G   G | Y | Y |\n| G   G G   G | Y   Y |\n\nFind the number of ways to partition a $10 \\times 10$ grid of cells into $5$ cell loops so that every cell of the grid belongs to exactly one cell loop."
+    },
+    {
+      "id": "aime_2026-016",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 16,
+      "answer": "178",
+      "problem": "Find the sum of the $10$th terms of all arithmetic sequences of integers that have first term equal to $4$ and include both $24$ and $34$ as terms."
+    },
+    {
+      "id": "aime_2026-017",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 17,
+      "answer": "243",
+      "problem": "The figure below shows a grid of $10$ squares in a row. Each square has a diagonal connecting its lower left vertex to its upper right vertex. A bug moves along the line segments from vertex to vertex, never traversing the same segment twice and never moving from right to left along a horizontal or diagonal segment. Let $N$ be the number of paths the bug can take from the lower left corner ($A$) to the upper right corner ($B$). One such path from $A$ to $B$ is shown by the thick line segments in the figure. Find $\\sqrt{N}$.\n\n[asy]\nsize(12cm);\ndraw((0, 0)--(0, 1));\nfor (int i = 0; i <= 9; i += 1)\n{\ndraw((i, 1)--(i + 1, 1)--(i + 1, 0)--(i, 0)--(i + 1, 1));\n}\ndraw((0, 0)--(0, 1)--(2, 1)--(2, 0)--(3, 1)--(3, 0)--(4, 1)--(4, 0)--(5, 0)--(5, 1)--(6, 1)--(6, 0)--(7, 1)--(8, 1)--(8, 0)--(10, 0)--(10, 1), red + linewidth(2));\nlabel(\"$A$\", (0, 0), dir(180));\nlabel(\"$B$\", (10, 1), dir(0));\n[/asy]"
+    },
+    {
+      "id": "aime_2026-018",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 18,
+      "answer": "503",
+      "problem": "Let $ABCDE$ be a nonconvex pentagon with internal angles $\\angle A = \\angle E = 90^\\circ$ and $\\angle B = \\angle D = 45^\\circ.$ Suppose that $DE < AB, AE = 20, BC = 14\\sqrt2,$ and points $B,C,$ and $D$ lie on the same side of line $AE.$ Suppose further that $AB$ is an integer with $AB < 2026$ and the area of pentagon $ABCDE$ is an integer multiple of $16.$ Find the number of possible values of $AB.$"
+    },
+    {
+      "id": "aime_2026-019",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 19,
+      "answer": "279",
+      "problem": "For each positive integer $n$ let $f(n)$ be the value of the base-ten numeral $n$ viewed in base $b$, where $b$ is the least integer greater than the greatest digit in $n$. For example, if $n=72$, then $b=8$, and $72$ as a numeral in base $8$ equals $7\\cdot 8+2=58$; therefore $f(72)=58$. Find the number of positive integers $n$ less than $1000$ such that $f(n)=n$."
+    },
+    {
+      "id": "aime_2026-020",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 20,
+      "answer": "190",
+      "problem": "An urn contains $n$ marbles. Each marble is either red or blue, and there are at least $7$ marbles of each color. When $7$ marbles are drawn randomly from the urn without replacement, the probability that exactly $4$ of them are red equals the probability that exactly $5$ of them are red. Find the sum of the five least values of $n$ for which this is possible."
+    },
+    {
+      "id": "aime_2026-021",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 21,
+      "answer": "50",
+      "problem": "Find the sum of all real numbers $r$ such that there is at least one point where the circle with radius $r$ centered at $(4, 39)$ is tangent to the parabola with equation $2y = x^2 - 8x + 12.$"
+    },
+    {
+      "id": "aime_2026-022",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 22,
+      "answer": "754",
+      "problem": "A standard fair six-sided die is rolled repeatedly. Each time the die reads 1 or 2, Alice gets a coin; each time it reads 3 or 4, Bob gets a coin; and each time it reads 5 or 6, Carol gets a coin. The probability that Alice and Bob each receive at least two coins before Carol receives any coins can be written as $\\tfrac{m}{n},$ where $m$ and $n$ are relatively prime positive integers. Find $100m+n.$"
+    },
+    {
+      "id": "aime_2026-023",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 23,
+      "answer": "245",
+      "problem": "Isosceles triangle $\\triangle ABC$ has $AB = BC.$ Let $I$ be the incenter of $\\triangle ABC.$ The perimeters of $\\triangle ABC$ and $\\triangle AIC$ are in the ratio $125:6,$ and all the sides of both triangles have integer lengths. Find the minimum possible value of $AB.$"
+    },
+    {
+      "id": "aime_2026-024",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 24,
+      "answer": "669",
+      "problem": "Let $S$ denote the value of the infinite sum\n\\[\n\\frac{1}{9} + \\frac{1}{99} + \\frac{1}{999} + \\frac{1}{9999}  + \\cdots\n\\]\nFind the remainder when the greatest integer less than or equal to $10^{100} S$ is divided by $1000.$"
+    },
+    {
+      "id": "aime_2026-025",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 25,
+      "answer": "850",
+      "problem": "Let $\\triangle ABC$ be a triangle with $D$ on $\\overline{BC}$ such that $\\overline{AD}$ bisects $\\angle BAC.$ Let $\\omega$ be the circle that passes through $A$ and is tangent to segment $\\overline{BC}$ at $D.$ Let $E \\neq A$ and $F \\neq A$ be the intersections of $\\omega$ with segments $\\overline{AB}$ and $\\overline{AC},$ respectively. Suppose that $AB = 200, AC = 225,$ and all of $AE, AF, BD,$ and $CD$ are positive integers. Find the sum of all possible values of $BC.$"
+    },
+    {
+      "id": "aime_2026-026",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 26,
+      "answer": "132",
+      "problem": "Find the greatest integer $n$ such that the cubic polynomial\n\\[\nx^{3} - \\displaystyle\\frac{n}{6}x^{2} + (n - 11)x - 400\n\\]\nhas roots $\\alpha^{2}$, $\\beta^{2}$, and $\\gamma^{2}$, where $\\alpha$, $\\beta$, and $\\gamma$ are complex numbers, and there are exactly seven different possible values for $\\alpha + \\beta + \\gamma$."
+    },
+    {
+      "id": "aime_2026-027",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 27,
+      "answer": "223",
+      "problem": "Consider a tetrahedron with two isosceles triangle faces with side lengths $5\\sqrt{10}, 5\\sqrt{10},$ and $10$ and two isosceles triangle faces with side lengths $5\\sqrt{10}, 5\\sqrt{10},$ and $18.$ The four vertices of the tetrahedron lie on a sphere with center $S,$ and the four faces of the tetrahedron are tangent to a sphere with center $R.$ The distance $RS$ can be written as $\\tfrac{m}{n},$ where $m$ and $n$ are relatively prime positive integers. Find $m + n.$"
+    },
+    {
+      "id": "aime_2026-028",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 28,
+      "answer": "107",
+      "problem": "Call finite sets of integers $S$ and $T$ cousins if\n- $S$ and $T$ have the same number of elements,\n- $S$ and $T$ are disjoint, and\n- the elements of $S$ can be paired with the elements of $T$ so that the elements in each pair differ by exactly $1$.\nFor example, $\\{1,2,5\\}$ and $\\{0,3,4\\}$ are cousins. Suppose that the set $S$ has exactly $4040$ cousins. Find the least number of elements the set $S$ can have."
+    },
+    {
+      "id": "aime_2026-029",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 29,
+      "answer": "157",
+      "problem": "For integers $a$ and $b,$ let $a \\circ b = a - b$ if $a$ is odd and $b$ is even, and $a+b$ otherwise. Find the number of sequences $a_1, a_2, a_3, \\ldots, a_n$ of positive integers such that\n\\[\na_1 + a_2 + a_3 + \\cdots + a_n = 12 \\quad \\text{and} \\quad a_1 \\circ a_2 \\circ a_3 \\circ \\cdots \\circ a_n = 0\n\\]\nwhere the operations are performed from left to right; that is, $a_1 \\circ a_2 \\circ a_3$ means $(a_1 \\circ a_2) \\circ a_3.$"
+    },
+    {
+      "id": "aime_2026-030",
+      "competition": "aime_2026",
+      "competitionName": "AIME 2026",
+      "dataset": "MathArena/aime_2026",
+      "problemIndex": 30,
+      "answer": "393",
+      "problem": "Find the number of ordered 7-tuples $(a_1, a_2, a_3, \\ldots, a_7)$ having the following properties:\n- $a_k \\in \\{1,2,3\\}$ for all $k.$\n- $a_1+a_2+a_3+a_4+a_5+a_6+a_7$ is a multiple of $3.$\n- $a_1a_2 a_4 + a_2a_3a_5 + a_3a_4 a_6 + a_4 a_5 a_7 + a_5 a_6 a_1 + a_6 a_7 a_2 + a_7 a_1 a_3$ is a multiple of $3.$"
+    },
+    {
+      "id": "hmmt_feb_2026-001",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 1,
+      "answer": "-\\frac{1}{21}",
+      "problem": "A line intersects the graph of \\( y = x^2 + \\frac{2}{x} \\) at three distinct points. Given that the \\( x \\)-coordinates of two of the points are 6 and 7, respectively, compute the \\( x \\)-coordinate of the third point.",
+      "problemType": [
+        "Algebra"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-002",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 2,
+      "answer": "420261",
+      "problem": "Compute the second smallest positive integer \\( n \\) such that\n\n- \\( n \\) is divisible by 101, and\n- the decimal representation of \\( n \\) contains the number 2026 as a consecutive sequence of digits.",
+      "problemType": [
+        "Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-003",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 3,
+      "answer": "48",
+      "problem": "Compute the sum of all positive integers \\( n \\) such that \\( n \\) has at least 6 positive integer divisors and the 6th largest divisor of \\( n \\) is 6.",
+      "problemType": [
+        "Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-004",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 4,
+      "answer": "\\frac{7}{2}",
+      "problem": "Let \\( a, b, \\) and \\( c \\) be pairwise distinct complex numbers such that\n\n\\[\na^2 + ab + b^2 = 3(a + b),\n\\]\n\\[\na^2 + ac + c^2 = 3(a + c),\n\\]\n\\[\nb^2 + bc + c^2 = 5(b + c) + 1.\n\\]\n\nCompute \\( a \\).",
+      "problemType": [
+        "Algebra"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-005",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 5,
+      "answer": "1230",
+      "problem": "Compute the largest positive integer \\( n \\) such that\n\n\\[\nn \\text{ divides } (\\lfloor \\sqrt{n} \\rfloor)!^{n!} + 450.\n\\]",
+      "problemType": [
+        "Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-006",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 6,
+      "answer": "3840",
+      "problem": "The numbers 1, 2, ..., 2100 are written on a board. Every second, Mark takes two numbers on the board, \\( a \\) and \\( b \\), erases them, and replaces them with \\( \\gcd(a, b) \\) and \\( \\operatorname{lcm}(a, b) \\). Mark stops once any move he makes will not change the numbers written on the board. Compute the number of divisors of the 2026th smallest positive integer written on the board when he finishes.",
+      "problemType": [
+        "Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-007",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 7,
+      "answer": "(3+\\sqrt{6})^{-1/3}",
+      "problem": "Positive real numbers \\( x, y, \\) and \\( z \\) satisfy the following equations:\n\n\\[\nxyz = 3,\n\\]\n\\[\n(x-y)(y-z)(z-x) = 4,\n\\]\n\\[\n(x+y)(y+z)(z+x) = 40.\n\\]\n\nCompute the minimum possible value for \\( x \\).\n\nGive the minimum value of x as an exact expression using only integers, rational numbers, and radicals (no trigonometric or inverse trigonometric functions, and no approximations).",
+      "problemType": [
+        "Algebra"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-008",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 8,
+      "answer": "279",
+      "problem": "Let \\( a_0, a_1, a_2, \\ldots \\) be the unique sequence of nonnegative integers less than 397 with \\( a_0 = 1 \\) and\n\n\\[ a_{n+1}(a_n + 1)^2 \\equiv a_n \\pmod{397} \\]\n\nfor all nonnegative integers \\( n \\). Given that \\( a_{2026} = 9 \\), compute the remainder when \\( a_0 + a_1 + \\cdots + a_{2026} \\) is divided by 397.",
+      "problemType": [
+        "Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-009",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 9,
+      "answer": "50(1 - \\frac{1}{2^{101} - 1})",
+      "problem": "Compute\n\n\\[ \\sum_{k=1}^{\\infty} \\left( 2^{-\\lfloor 101k/1 \\rfloor} + 2^{-\\lfloor 101k/2 \\rfloor} + \\cdots + 2^{-\\lfloor 101k/100 \\rfloor} \\right). \\]",
+      "problemType": [
+        "Algebra"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-010",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 10,
+      "answer": "289",
+      "problem": "Let\n\n\\[ S = \\sum_{k=0}^{2026} k \\binom{2k}{k} 2^k. \\]\n\nCompute the remainder when \\( S \\) is divided by 2027. (Note that 2027 is prime.)",
+      "problemType": [
+        "Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-011",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 11,
+      "answer": "\\frac{2}{5}",
+      "problem": "A math test has 4 questions. The topic of each question is randomly and independently chosen from algebra, combinatorics, geometry, and number theory. Given that the math test has at least one algebra question, at least one combinatorics question, and at least one geometry question, compute the probability that this test has at least one number theory question.",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-012",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 12,
+      "answer": "\\frac{875}{128}",
+      "problem": "Jacopo is rolling a fair 4-sided die with faces labeled 1, 2, 3, and 4. He starts with a score of 0. Every time he rolls a face with label $i$, he adds $i$ to his score, and then replaces the label of that face with 0. Compute Jacopo's expected score after 4 rolls.",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-013",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 13,
+      "answer": "324",
+      "problem": "The numbers 1, 2, 3, 4, 5, 6, and 7 are written on a blackboard in some order. Jacob repeatedly swaps numbers at adjacent positions on the blackboard until the numbers are sorted in ascending order.\n\nCompute the number of initial orderings for which it is possible that the number 4 was included in a swap at most once.",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-014",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 14,
+      "answer": "\\frac{63}{256}",
+      "problem": "Sarunyu has a stick of length 1 with one endpoint marked in red. Every minute, he picks one of his sticks uniformly at random and breaks it into two halves of equal length. Compute the expected length of the stick with the red endpoint after 5 minutes.",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-015",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 15,
+      "answer": "252",
+      "problem": "Let $S$ be the set of positive integer divisors of $10^9$. Compute the number of subsets $T$ of $S$ such that\n\n- for every element $s$ of $S$, exactly one of $s$ and $10^9/s$ is in $T$, and\n- for every element $t$ of $T$, all positive integer divisors of $t$ are in $T$.",
+      "problemType": [
+        "Combinatorics",
+        " Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-016",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 16,
+      "answer": "2 - \\frac{\\pi}{2}",
+      "problem": "Derek currently owes $\\pi$ units of a currency called Money of Indiscrete Type, or MIT for short. Every day, the following happens:\n\n- He flips a fair coin to decide how much of his debt to pay. If he flips heads, he decreases his debt by 1 MIT. If he flips tails, he decreases his debt by 2 MITs. If Derek's debt ever becomes nonpositive, Derek becomes debt-free.\n- Afterwards, his remaining debt doubles.\n\nCompute the probability that Derek ever becomes debt-free. (MITs are continuous, so the debt is never rounded.)",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-017",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 17,
+      "answer": "1574",
+      "problem": "Let $S$ be the set of vertices of a right prism whose bases are regular decagons $A_1A_2 \\ldots A_{10}$ and $B_1B_2 \\ldots B_{10}$. A plane, not passing through any vertex of $S$, partitions the vertices of $S$ into two sets, one of which is $M$. Compute the number of possible sets $M$ that can arise out of such a partition.",
+      "problemType": [
+        "Combinatorics",
+        " Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-018",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 18,
+      "answer": "6992",
+      "problem": "A regular hexagon with side length 4 is subdivided into a lattice of 96 equilateral triangles of side length 1. Let $S$ be the set of all vertices of this lattice. Compute the number of nondegenerate triangles with vertices in $S$ that contain the center of the hexagon strictly in their interior.",
+      "problemType": [
+        "Combinatorics",
+        " Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-019",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 19,
+      "answer": "499",
+      "problem": "Let \\( A_1, A_2, A_3, \\ldots \\) be a sequence of finite nonempty sets of positive integers. Given that \\( |A_i \\cap A_j| = \\gcd(i, j) \\) for all (not necessarily distinct) positive integers \\( i \\) and \\( j \\), compute the minimum possible value of\n\n\\[\n\\sum_{d|250} \\max A_d,\n\\]\n\nwhere the sum ranges over all positive integer divisors \\( d \\) of 250.\n\n(For a finite nonempty set \\( S \\), we define \\( \\max S \\) as the largest element of \\( S \\).)\n",
+      "problemType": [
+        "Combinatorics",
+        " Number Theory"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-020",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 20,
+      "answer": "20460",
+      "problem": "Let \\(S\\) be the set of all ordered pairs \\((x, y)\\) of nonnegative integers \\(0 \\leq x \\leq 19\\) and \\(0 \\leq y \\leq 2\\). Compute the number of permutations \\((x_1, y_1)\\), \\((x_2, y_2)\\), ..., \\((x_{60}, y_{60})\\) of the elements of \\(S\\) such that\n\n- \\(y_1 = 2\\) and \\(y_{60} = 0\\);\n- for all nonnegative integers \\(1 \\leq i \\leq 59\\), exactly one of the following holds:\n  - \\(x_i = x_{i+1}\\) and \\(|y_i - y_{i+1}| = 1\\),\n  - \\(y_i = y_{i+1}\\) and \\(x_i - x_{i+1}\\) is \\(-1\\) or \\(19\\).",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-021",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 21,
+      "answer": "18",
+      "problem": "Let $ABCD$ and $WXYZ$ be squares such that $W$ lies on segment $\\overline{AD}$, $X$ lies on segment $\\overline{AB}$, and points $Y$ and $Z$ lie strictly inside $ABCD$. Given that $AW = 4$, $AX = 5$, and $AB = 12$, compute the area of triangle $\\triangle BCY$.\n",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-022",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 22,
+      "answer": "191",
+      "problem": "Let $HORSE$ be a convex pentagon such that $\\angle EHO = \\angle ORS = \\angle SEH = 90^\\circ$ and $\\angle HOR = \\angle RSE = 135^\\circ$. Given that $HO = 20$, $SE = 26$, and $OS = 10$, compute the area of $HORSE$.",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-023",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 23,
+      "answer": "5\\sqrt{5}",
+      "problem": "Let \\( ABCD \\) be a rectangle with \\( AB = 12 \\) and \\( BC = 16 \\). Points \\( W, X, Y, \\) and \\( Z \\) lie on sides \\( \\overline{AB}, \\overline{BC}, \\overline{CD}, \\) and \\( \\overline{DA} \\), respectively, such that \\( WXYZ \\) is a rhombus with area 120. Compute \\( XY \\).",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-024",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 24,
+      "answer": "\\frac{7}{3}\\sqrt{3}",
+      "problem": "Let \\( ABC \\) be a triangle with \\( \\angle BAC = 90^\\circ \\). Points \\( X \\) and \\( Y \\) are such that \\( B, X, Y, \\) and \\( C \\) lie on segment \\( \\overline{BC} \\) in that order, \\( BX = 4, XY = 5, \\) and \\( YC = 3 \\). Let \\( T \\) be a point lying on segment \\( \\overline{AC} \\) such that \\( TA = TX = TY = \\ell \\) for some \\( \\ell \\). Compute \\( \\ell \\).",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-025",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 25,
+      "answer": "8\\sqrt{6}",
+      "problem": "Three circles of radius 2 are internally tangent to a circle $\\Omega$ centered at $O$ of radius 11, and three chords of $\\Omega$ are each tangent to two of the three circles. Given that $O$ lies inside the triangle formed by the three chords and two of the chords have length $4\\sqrt{30}$, compute the length of the third chord.",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-026",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 26,
+      "answer": "\\sqrt{17} - 1",
+      "problem": "Let \\(ABC\\) be a triangle, and \\(M\\) be the midpoint of segment \\(\\overline{BC}\\). Points \\(P\\) and \\(Q\\) lie on segments \\(\\overline{AB}\\) and \\(\\overline{AC}\\), respectively, so that \\(\\angle PMB = \\angle QMC = \\frac{1}{2}\\angle BAC\\). Given that \\(AP = 1\\), \\(AQ = 3\\), and \\(BC = 8\\), compute \\(BP\\).",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-027",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 27,
+      "answer": "74^\\circ",
+      "problem": "Let \\( ABC \\) be an isosceles triangle with \\( AB = AC \\). Points \\( P \\) and \\( Q \\) are located inside triangle \\( ABC \\) such that \\( BP = PQ = QC \\). Suppose that \\( \\angle BAP = 20^\\circ \\), \\( \\angle PAQ = 46^\\circ \\), and \\( \\angle QAC = 26^\\circ \\). Compute the measure of \\( \\angle APC \\) in degrees.",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-028",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 28,
+      "answer": "\\sqrt{69}",
+      "problem": "Let $ABC$ be a triangle with orthocenter $H$. The internal angle bisector of $\\angle BAC$ meets the circumcircles of triangles $ABH$, $ACH$, and $ABC$ again at points $P$, $Q$, and $M$, respectively. Suppose that points $A$, $P$, $Q$, and $M$ are distinct and lie on the internal angle bisector of $\\angle BAC$ in that order. Given that $AP = 4$, $AQ = 5$, and $BC = 7$, compute $AM$.",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-029",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 29,
+      "answer": "3 + \\sqrt{11}",
+      "problem": "Let $ABC$ be triangle with incenter $I$ and incircle $\\omega$. The circumcircle of triangle $BIC$ intersects $\\omega$ at points $E$ and $F$. Suppose that $\\Gamma \\neq \\omega$ is a circle passing through $E$ and $F$ and tangent to lines $AB$ and $AC$. If $AB = 5$, $AC = 7$, and $\\Gamma$ has twice the radius of $\\omega$, compute $BC$.",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-030",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 30,
+      "answer": "\\frac{\\sqrt{1740}}{3}",
+      "problem": "Let $ABC$ be a triangle with centroid $G$ and circumcenter $O$. Suppose that the orthocenter of triangle $AGO$ lies on line $BC$. Given that $AB = 11$ and $AC = 13$, compute $BC$.",
+      "problemType": [
+        "Geometry"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-031",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 31,
+      "answer": "3^{2025}",
+      "problem": "Jessica the jackrabbit wants to climb down a wall. The wall consists of 2026 horizontal layers stacked vertically. The $n$th layer from the top is partitioned into $2^n - 1$ identical rectangular bricks arranged side by side. Jessica begins in the topmost layer, which contains a single brick. A move consists of Jessica going down one layer to a brick that shares a side with the brick she is currently on.\n\nDetermine, with proof, the total number of distinct sequences of moves Jessica can take to reach the 2026th layer.",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-032",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 32,
+      "answer": "10",
+      "problem": "Let $\\alpha$ and $\\beta$ be complex numbers such that $\\alpha\\beta + \\alpha + \\beta + 100 = 0$. Suppose that $|\\alpha| = |\\beta| = M$ for some nonnegative real number $M$. Determine, with proof, all possible values of $M$.\n\nOutput your answer as a comma-separated list of all possible values of $M$. For instance, if you believe 0,1, and 2 are the possible values, format you reply as \\\\boxed{0,1,2}",
+      "problemType": [
+        "Algebra"
+      ]
+    },
+    {
+      "id": "hmmt_feb_2026-033",
+      "competition": "hmmt_feb_2026",
+      "competitionName": "HMMT Feb 2026",
+      "dataset": "MathArena/hmmt_feb_2026",
+      "problemIndex": 33,
+      "answer": "3037",
+      "problem": "The numbers 1, 2, ..., 2026 are written on a blackboard. An operation consists of replacing any number on the blackboard with the positive difference between the largest and smallest numbers currently on the blackboard. Determine, with proof, the least number of operations required to make all the numbers on the blackboard equal.",
+      "problemType": [
+        "Combinatorics"
+      ]
+    },
+    {
+      "id": "apex_2025-001",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 1,
+      "answer": "4049",
+      "problem": "Let \\( f: \\mathbb{R} \\to \\mathbb{R} \\) be a continuous function. A chord is defined as a segment of integer length, parallel to the x-axis, whose endpoints lie on the graph of \\( f \\). It is known that the graph of \\( f \\) contains exactly \\( N \\) chords, one of which has length 2025. Find the minimum possible value of \\( N \\).",
+      "source": "All Russian 2025 11.8"
+    },
+    {
+      "id": "apex_2025-002",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 2,
+      "answer": "1/2",
+      "problem": "Let $P$ be a polygon formed by the edges of an infinite chessboard, which does not intersect itself. Let the numbers $a_1,a_2,a_3$ represent the number of unit squares that have exactly $1,2\\text{ or } 3$ edges on the boundary of $P$ respectively. Find the largest real number $k$ such that the inequality $a_1+a_2>ka_3$ holds for each polygon constructed with these conditions.",
+      "source": "Turkey TST 2025 P5"
+    },
+    {
+      "id": "apex_2025-003",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 3,
+      "answer": "\\frac{1980}{169}",
+      "problem": "Let $\\triangle A B C$ be an acute triangle with circumcircle $\\omega_{1}$, and let $D$ be a point on segment $B C$. Circle $\\omega_{2}$ is tangent to segment $A D$, segment $B D$, and $\\omega_{1}$. Circle $\\omega_{3}$ is tangent to segment $A D$, segment $C D$, and $\\omega_{1}$, and both circles are on the same side of $B C$ as $A$. If circles $\\omega_{2}$ and $\\omega_{3}$ have radii $5$ and $7$, respectively, with centers $13$ units apart, compute the sum of all possible lengths of the inradius of $\\triangle A B C$.",
+      "source": "SMT 2025 P43"
+    },
+    {
+      "id": "apex_2025-004",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 4,
+      "answer": "6266942768",
+      "problem": "We call a $n \\times n$ table filled with positive integers \\emph{divisoral} if it holds that:\n\\begin{itemize}\n\\item numbers in $i$-th row are exactly all divisors of some positive integer $r_i$,\n\\item numbers in $j$-th column are exactly all divisors of some positive integer $c_j$,\n\\item $r_i \\neq r_j$ for each $i \\neq j$. \n\\end{itemize}\nWe are given a prime $p$. Let $S(p)$ be the smallest positive integer $n$, divisible by $p$, such that there exists a divisoral table of size $n \\times n$. Find the sum of $S(p)$ for all primes $p \\leq 13$. ",
+      "source": "Serbian MO 2025 P6"
+    },
+    {
+      "id": "apex_2025-005",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 5,
+      "answer": "6",
+      "problem": "Hannah has a $2024 \\times 2025$ rectangle in the coordinate plane, with sides parallel to the axes. She makes a cut from one side to another side which only goes down and/or right along grid lines. Then she puts the two pieces together, possibly with rotations and/or reflections without overlaps or gaps, to form a new rectangle which is not congruent to the original. How many possible new rectangles can she produce? (An $a \\times b$ rectangle is considered the same as a $b \\times a$ rectangle.)",
+      "source": "CMM 2025 Individual P10"
+    },
+    {
+      "id": "apex_2025-006",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 6,
+      "answer": "138",
+      "problem": "Let $n$ be a positive integer and $p$ be a prime. In terms of $n$ and $p$, let $k(n,p)$ be the largest nonnegative integer $k$ for which there exists a polynomial $P(x)$ with integer coefficients satisfying the following conditions:\n- The $x^n$ coefficient of $P(x)$ is $1$.\n- $p^k$ divides $P(x)$ for all integers $x$.\nCompute\n\\[\n\\sum_{n=11}^{15} \\sum_{p \\in \\{11,13\\}} k(n,p).\n\\]\nas an integer.",
+      "source": "ELMO Shortlist 2025 N7"
+    },
+    {
+      "id": "apex_2025-007",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 7,
+      "answer": "248/517",
+      "problem": "There are $2025$ people and $66$ colors, where each person has one ball of each color. For each person, their $66$ balls have positive mass summing to one. Find the smallest constant $C$ such that regardless of the mass distribution, each person can choose one ball such that the sum of the chosen balls of each color does not exceed $C$.",
+      "source": "China TST 2025 P5"
+    },
+    {
+      "id": "apex_2025-008",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 8,
+      "answer": "1164",
+      "problem": "Anika draws a $4$ by $6$ rectangle. How many ways can she completely tile this rectangle with L-shaped triominoes (each forming a $2\\times 2$ square missing one corner) and color each triomino red, green, or blue, such that any two neighboring triominoes are different colors? (Two triominoes neighbor if they share a positive amount of perimeter.)",
+      "source": "EMCC 2025 Guts P24"
+    },
+    {
+      "id": "apex_2025-009",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 9,
+      "answer": "2 \\sqrt{3}+\\frac{8 \\pi}{3}",
+      "problem": "Let $R$ be the region in the complex plane enclosed by the curve $f(\\theta)=e^{i \\theta}+e^{2 i \\theta}+\\frac{1}{3} e^{3 i \\theta}$ for $0 \\leq$ $\\theta \\leq 2 \\pi$. Compute the perimeter of $R$.",
+      "source": "SMT 2025 P8"
+    },
+    {
+      "id": "apex_2025-010",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 10,
+      "answer": "213",
+      "problem": "Let $S$ be the set of all strings of length $15$ formed from five $1$s, $2$s, and $3$s. Say a string in $S$ is threnodic if:\n\n\\begin{itemize}\n\\item No two adjacent characters are the same, and\n\\item Through a sequence of removals of contiguous substrings $123,231$, and $312$, the string can be deleted (note that the intermediate strings can have adjacent equal characters).\n\\end{itemize}\n\nCompute the number of threnodic strings in $S$.",
+      "source": "SMT 2025 P42"
+    },
+    {
+      "id": "apex_2025-011",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 11,
+      "answer": "14/5",
+      "problem": "Puddles the Frog has a row of $n \\geq 2$ lilypads, labeled $1$ through $n$, with $1$ unit between consecutive lilypads. He is at lilypad $1$, and wishes to visit lilypads $2$ through $n$ once each, before ending up back at lilypad $1$. However, he may jump no more than $3$ units at a time. Let $f(n)$ be the maximum total distance of Puddles's trip, starting from lilypad $1$ and ending back at lilypad $1$. Determine the value of\n\\[\n\\lim_{n \\to \\infty} \\frac{f(n)}{n}.\n\\]",
+      "source": "CMM 2025 Team P7"
+    },
+    {
+      "id": "apex_2025-012",
+      "competition": "apex_2025",
+      "competitionName": "Apex 2025",
+      "dataset": "MathArena/apex_2025",
+      "problemIndex": 12,
+      "answer": "2112",
+      "problem": "Consider a $2025 \\times 2025$ grid of unit squares. Matilda wishes to place on the grid some rectangular tiles, possibly of different sizes, such that each side of every tile lies on a grid line and every unit square is covered by at most one tile.\nDetermine the minimum number of tiles Matilda needs to place so that each row and each column of the grid has exactly one unit square that is not covered by any tile.",
+      "source": "IMO 2025 P6"
+    },
+    {
+      "id": "apex_shortlist-001",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 1,
+      "answer": "171",
+      "problem": "Let $n$ be a positive integer. Ana and Banana play a game. Banana thinks of a function $f\\colon\\mathbb{Z}\\to\\mathbb{Z}$ and a prime number $p$. He tells Ana that $f$ is nonconstant, $p<100$, and $f(x+p)=f(x)$ for all integers $x$. Ana's goal is to determine the value of $p$. She writes down $n$ integers $x_1,\\dots,x_n$. After seeing this list, Banana writes down $f(x_1),\\dots,f(x_n)$ in order. Ana wins if she can determine the value of $p$ from this information. Find the smallest value of $n$ for which Ana has a winning strategy.",
+      "source": "usa-tst-2025-p1"
+    },
+    {
+      "id": "apex_shortlist-002",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 2,
+      "answer": "89",
+      "problem": "A list of positive integers satisfies the following properties:\n(A) The mean of the list is $8$.\n(2) The median of the list is $13$.\n(D) The mode of the list is $15$.\n\nMoreover, the range of the list is $27$. What is the fewest possible number of elements that could be in the list?\n",
+      "source": "emcc-2025-guts-18"
+    },
+    {
+      "id": "apex_shortlist-003",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 3,
+      "answer": "63",
+      "problem": "Consider a bee (denoted by X ) in a rectangular honeycomb as seen below:\n\n|  | $1$ | $2$ | $3$ | $4$ | $5$ | $6$ | $7$ |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n| $A$ |  |  |  | X |  |  |  |\n| $B$ |  |  |  |  |  |  |  |\n| $C$ |  |  |  |  |  |  |  |\n| $D$ |  |  |  |  |  |  |  |\n\nIn one move, the bee may move to an adjacent square via an up, down, left, or right move, and it can no longer move once it reaches row $D$. The bee cannot move outside the honeycomb. It cannot revisit a square it has already been to, and it cannot move more than six times. Find the number of different paths the bee can take from its starting point to row $D$.\n",
+      "source": "bmmt-2025-team-p19"
+    },
+    {
+      "id": "apex_shortlist-004",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 4,
+      "answer": "2618",
+      "problem": "Determine the sum of the smallest 50 possible values of $\\text{gcd}(a^2+b^2+c^2, abc)$ across all triples of positive integers $(a,b,c)$.",
+      "source": "hmmt-2025-team-p10"
+    },
+    {
+      "id": "apex_shortlist-005",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 5,
+      "answer": "8096",
+      "problem": "Jerry places at most one rook in each cell of a $2025 \\times 2025$ grid of cells. A rook attacks another rook if the two rooks are in the same row or column and there are no other rooks between them. Determine the maximum number of rooks Jerry can place on the grid such that no rook attacks 4 other rooks.",
+      "source": "hmmt-2025-team-p4"
+    },
+    {
+      "id": "apex_shortlist-006",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 6,
+      "answer": "2077992225",
+      "problem": "At time $t=0$, Hobbes writes down positive real numbers at the vertices of a regular polygon $P_1P_2\\dots P_n$. Suppose that after an even number of seconds, the numbers $x$ and $y$ are written on $P_i$ and $P_{i+1}$ respectively. Then one second later, Hobbes updates the number at $P_i$ to $x+\\frac{1}{y}$. Here $i$ is taken modulo $n$.\n\nLet $N(n)$ denote the number of pairs $(i,j)$ (in terms of $n$) for which can we guarantee (without knowing what Hobbes wrote down) that at some point in time the number at $P_i$ is at least as large as the number at $P_j$. Compute \n\\[\n\\sum_{n=1}^{2025} N(n).\n\\]\n\nNote. The numbers are all updated only whenever an odd number of seconds have passed. If all the numbers were initially $1$ then after $1$ second they would all be updated to $2$ then at $T=3s$, they will all be updated to $2.5$ and so on.\n",
+      "source": "indian-imotc-day2-p3"
+    },
+    {
+      "id": "apex_shortlist-007",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 7,
+      "answer": "1030219",
+      "problem": "In Mexico, there live $n$ Mexicans, some pairs of which know each other. They decided to play a game. On day $1$, each Mexican wrote a non-negative integer on their forehead. On each following day, they changed their number according to the following rule: On day $i+1$, each Mexican writes on their forehead the smallest non-negative integer that did not appear on the forehead of any of their acquaintances on day $i$. \nIt is known that on some day every Mexican wrote the same number as on the previous day, at which point they decided to stop the game. Determine the maximum number of days this game could have lasted. For example, if the game had to stop on day $k$ or earlier, we say that the answer is $D(n) = k$.\nReport a single integer: a sum of $D(n)$ for all $n$ from $1$ to $2025$.",
+      "source": "serbian-bmotst-2025-p5"
+    },
+    {
+      "id": "apex_shortlist-008",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 8,
+      "answer": "n-1",
+      "problem": "Fix an integer $n \\geq 3$. Determine the smallest positive integer $k$ satisfying the following condition:\n\nFor any tree $T$ with vertices $v_1, v_2, \\dots, v_n$ and any pairwise distinct complex numbers $z_1, z_2, \\dots, z_n$, there is a polynomial $P(X, Y)$ with complex coefficients of total degree at most $k$ such that for all $i \\neq j$ satisfying $1 \\leq i, j \\leq n$, we have $P(z_i, z_j) = 0$ if and only if there is an edge in $T$ joining $v_i$ to $v_j$.\n\nNote, for example, that the total degree of the polynomial\n$$\n9X^3Y^4 + XY^5 + X^6 - 2\n$$\nis 7 because $7 = 3 + 4$.\n",
+      "source": "rmm-2025-p3"
+    },
+    {
+      "id": "apex_shortlist-009",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 9,
+      "answer": "2^{20} - 1",
+      "problem": "Let $n$ be a positive integer. Given an $n\\times n$ board, the unit cell in the top left corner is initially coloured black, and the other cells are coloured white. We then apply a series of colouring operations to the board. In each operation, we choose a $2\\times 2$ square with exactly one cell coloured black and we colour the remaining three cells of that $2\\times 2$ square black.\n\nDetermine the sum of the smallest $20$ $n$ such that it is possible to colour the entire $n\\times n$ board black.",
+      "source": "imosl-2024-c8"
+    },
+    {
+      "id": "apex_shortlist-010",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 10,
+      "answer": "59",
+      "problem": "Let $\\mathbb{Z}_{>0}$ denote the set of positive integers. Let $f : \\mathbb{Z}_{>0} \\rightarrow \\mathbb{Z}_{>0}$ be a function satisfying the following property: for $m,n \\in \\mathbb{Z}_{>0}$, the equation\n\\[\nf(mn)^2 = f(m^2)f(f(n))f(mf(n))\n\\]holds if and only if $m$ and $n$ are coprime.\n\nLet $S_n$ denote the set of all possible values of $f(n)$ that are strictly smaller than $n$. Determine $\\sum_{n=1}^20 \\sum{k \\in S_n} k$.    ",
+      "source": "imosl-2024-n7"
+    },
+    {
+      "id": "apex_shortlist-011",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 11,
+      "answer": "325",
+      "problem": "Let $N$ be a positive integer. Geoff and Ceri play a game in which they start by writing the numbers $1, 2, \\dots, N$ on a board. They then take turns to make a move, starting with Geoff. Each move consists of choosing a pair of integers $(k, n)$, where $k \\geq 0$ and $n$ is one of the integers on the board, and then erasing every integer $s$ on the board such that $2^k \\mid n - s$. The game continues until the board is empty. The player who erases the last integer on the board loses.\n\nDetermine all sum of the smallest 20 values of $N$ for which Geoff can ensure that he wins, no matter how Ceri plays.",
+      "source": "Germany TST 2025 P3"
+    },
+    {
+      "id": "apex_shortlist-012",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 12,
+      "answer": "n(n-1)/2",
+      "problem": "Let $n$ be a positive integer. A class of $n$ students run $n$ races, in each of which they are ranked with no draws. A student is eligible for a rating $(a,\\,b)$ for positive integers $a$ and $b$ if they come in the top $b$ places in at least $a$ of the races. Their final score is the maximum possible value of $a-b$ across all ratings for which they are eligible.\n\nFind the maximum possible sum of all the scores of the $n$ students.",
+      "source": "Germany TST 2025 P4"
+    },
+    {
+      "id": "apex_shortlist-013",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 13,
+      "answer": "2^{21} - 2",
+      "problem": "Let $n$ be a positive integer. The integers $1,\\,2,\\,3,\\,\\ldots,\\,n^2$ are to be written in the cells of an $n\\times n$ board such that each integer is written in exactly one cell and each cell contains exactly one integer. For every integer $d$ with $d\\mid n$, the $d$-division of the board is the division of the board into $(n/d)^2$ nonoverlapping sub-boards, each of size $d\\times d$, such that each cell is contained in exactly one $d\\times d$ sub-board.\n\nWe say that $n$ is a cool number if the integers can be written on the $n\\times n$ board such that, for each integer $d$ with $d\\mid n$ and $1<d<n$, in the $d$-division of the board, the sum of the integers written in each $d\\times d$ sub-board is not a multiple of $d$.\n\nDetermine the sum of the smallest 20 even cool numbers.",
+      "source": "Germany TST 2025 P7"
+    },
+    {
+      "id": "apex_shortlist-014",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 14,
+      "answer": "2n(n-1)",
+      "problem": "Alice and Bob play a game on a connected graph with $2n$ vertices, where $n\\in \\mathbb{N}$ and $n>1$.. Alice and Bob have tokens named A and B respectively. They alternate their turns with Alice going first. Alice gets to decide the starting positions of A and B. Every move, the player with the turn moves their token to an adjacent vertex. Bob's goal is to catch Alice, and Alice's goal is to prevent this. Note that positions of A, B are visible to both Alice and Bob at every moment.\n\nProvided they both play optimally, what is the maximum possible number of edges in the graph if Alice is able to evade Bob indefinitely?",
+      "source": "India STEMS A 2025 P4"
+    },
+    {
+      "id": "apex_shortlist-015",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 15,
+      "answer": "505",
+      "problem": "Let $G$ be a finite abelian group. There is a magic box $T$. At any point, an element of $G$ may be added to the box and all elements belonging to the subgroup (of $G$) generated by the elements currently inside $T$ are moved from outside $T$ to inside (unless they are already inside). Initially $\nT$ contains only the group identity, $1_G$. Alice and Bob take turns moving an element from outside $T$ to inside it. Alice moves first. Whoever cannot make a move loses. Find all $G$ for which Bob has a winning strategy. Then, determine the sum of the 10 smallest possible values of $|G|>1$ such that Bob has a winning strategy.",
+      "source": "India STEMS C 2025 P6"
+    },
+    {
+      "id": "apex_shortlist-016",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 16,
+      "answer": "495",
+      "problem": "Let $P$ and $Q$ be non-constant integer-coefficient monic polynomials, and let $a$ and $b$ be integers satisfying $| a | \\geq 3$ and $ | b | \\geq 3$. These satisfy the following conditions for all positive integers $n$:\n$$\nP(n) \\mid Q(n)^2 + aQ(n) + 1, \\quad Q(n) \\mid P(n)^2 + bP(n) + 1.\n$$\nCall the sum of the 10 smallest possible values of $|a + b|$, $S_1$, and the sum of the 10 smallest possible values of $|\\deg P|$, $S_2$. Determine $S_1 + S_2$.",
+      "source": "Korea Winter Program Practice Test 2025 P2"
+    },
+    {
+      "id": "apex_shortlist-017",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 17,
+      "answer": "4",
+      "problem": "There are $n$ parallel lines on a plane, and there is a set $S$ of distinct points. Each point in $S$ lies on one of the $n$ lines and is colored either red or blue. Determine the minimum value of $n$ such that if $S$ satisfies the following condition, it is guaranteed that there are infinitely many red points and infinitely many blue points.\nEach line contains at least one red point and at least one blue point from $S$.\nConsider a triangle formed by three elements of $S$ located on three distinct lines. If two of the vertices of the triangle are red, there must exist a blue point, not one of the vertices, either inside or on the boundary of the triangle. Similarly, if two of the vertices are blue, there must exist a red point, not one of the vertices, either inside or on the boundary of the triangle.",
+      "source": "Korea Winter Program Practice Test 2025 P6"
+    },
+    {
+      "id": "apex_shortlist-018",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 18,
+      "answer": "24",
+      "problem": "Determine all triplets of positive integers $(p,m,n)$ such that $p$ is a prime, $m \\neq n < 2p$ and $2 \\nmid n$. Also, the following polynomial is reducible in $\\mathbb{Z}[x]$\n$$x^{2p} - 2px^m - p^2x^n - 1$$\nThen, compute $\\sum_{(p,m,n) \\text{admissible}} p + m + n$",
+      "source": "Korea Winter Program Practice Test 2025 P8"
+    },
+    {
+      "id": "apex_shortlist-019",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 19,
+      "answer": "74",
+      "problem": "The sequence $a_1, a_2, \\dots , a_n$ is a permutation of $1, 2,\\dots, n$. Each time, Alice swaps two neighbouring numbers in the sequence. Her goal is to make any three consecutive numbers in the sequence non-monotone. Find the smallest positive integer $k$ such that Alice can always achieve her goal in at most $k$ swaps. Let $N(n)$ be this smallest positive integer $k$. Then, compute $\\sum_{n=10}^20 N(n)$.\n\nRemark. A monotonic sequence is either an increasing or decreasing sequence.",
+      "source": "Taiwan TST 2025 #3 Quiz 1C"
+    },
+    {
+      "id": "apex_shortlist-020",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 20,
+      "answer": "1520",
+      "problem": "Let $N$ be a positive integer. There are $N$ pebbles on a table. Alice and Bob play a game by taking turns to pick pebbles from the table, with Alice starting first. On each turn, a player can perform one of the following two operations:\nOperation A: Pick 1, 2, or 3 pebbles;\nOperation B: Pick 4 pebbles.\nEach player is allowed to perform Operation B at most 5 times. The player who picks the last pebbles wins.\n\nDetermine the number of $N$ in $1,2,\\ldots,2025$ such that Alice has a winning strategy.",
+      "source": "China Girls MO 2025 P7"
+    },
+    {
+      "id": "apex_shortlist-021",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 21,
+      "answer": "333400",
+      "problem": "Let $n$ be a positive integer. There exist $n$ ordered triples$$(x_1, y_1, z_1), (x_2, y_2, z_2), \\dots, (x_n, y_n, z_n)$$where each coordinate is an integer between $1$ and $100$ (inclusive), satisfying the following condition:\n\nFor every infinite sequence $(a_1, a_2, a_3, \\dots)$ of integers between $1$ and $100$, there exist a positive integer $i$ and an index $j$ (with $1 \\leqslant j \\leqslant n$) such that $(a_i, a_{i+1}, a_{i+2}) = (x_j, y_j, z_j)$.\n\nDetermine the minimum possible value of $n$.",
+      "source": "Japan MO 2025 P3"
+    },
+    {
+      "id": "apex_shortlist-022",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 22,
+      "answer": "12",
+      "problem": "$n$ assistants start simultaneously from one vertex of a cube-shaped planet with edge length $1$. Each assistant moves along the edges of the cube at a constant speed of $2, 4, 8, \\cdots, 2^n$, and can only change their direction at the vertices of the cube. The assistants can pass through each other at the vertices, but if they collide at any point that is not a vertex, they will explode. Determine the maximum possible value of $n$ such that the assistants can move infinitely without any collisions.\t\n",
+      "source": "Korea Winter Program Practice Test 2025 P3"
+    },
+    {
+      "id": "apex_shortlist-023",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 23,
+      "answer": "2023",
+      "problem": "A country has 2025 cites, with some pairs of cities having bidirectional flight routes between them. For any pair of the cities, the flight route between them must be operated by one of the companies $X, Y$ or $Z$. To avoid unfairly favoring specific company, the regulation ensures that if there have three cities $A, B$ and $C$, with flight routes $A \\leftrightarrow B$ and $A \\leftrightarrow C$ operated by two different companies, then there must exist flight route $B \\leftrightarrow C$ operated by the third company different from $A \\leftrightarrow B$ and $A \\leftrightarrow C$ .\n\nLet $n_X$, $n_Y$ and $n_Z$ denote the number of flight routes operated by companies $X, Y$ and $Z$, respectively. It is known that, starting from a city, we can arrive any other city through a series of flight routes (not necessary operated by the same company). Find the minimum possible value of $\\max(n_X, n_Y , n_Z)$.\n",
+      "source": "Taiwan TST 2025 #1 P5"
+    },
+    {
+      "id": "apex_shortlist-024",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 24,
+      "answer": "281",
+      "problem": "Let \\(a\\) be a positive integer. We say that \\(a\\) is bao-good if there exist integers \\((s,l)\\) such that:\n1. There does not exist a positive integer \\(b\\) for which\n\\[\n    a \\mid s^b - l.\n\\]\n2. For every proper divisor \\(a'\\) of \\(a\\) (that is, \\(a' \\mid a\\) and \\(1 \\le a' < a\\)), there exists a positive integer \\(b\\) such that\n\\[\n    a' \\mid s^b - l.\n\\]\nDetermine the sum of the smallest 20 bao-good positive integers \\(a\\).",
+      "source": "Taiwan TST 2025 #3 Quiz P5"
+    },
+    {
+      "id": "apex_shortlist-025",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 25,
+      "answer": "60",
+      "problem": "Let $ABCDE$ be a convex pentagon with $AB=14$, $BC=7$, $CD=24$, $DE=13$, $EA=26$, and $\\angle B=\\angle E=60^{\\circ}$. For each point $X$ in the plane, define $f(X)=AX+BX+CX+DX+EX$. The least possible value of $f(X)$ can be expressed as $m+n\\sqrt{p}$, where $m$ and $n$ are positive integers and $p$ is not divisible by the square of any prime. Find $m+n+p$.",
+      "source": "AIME 2025 P14"
+    },
+    {
+      "id": "apex_shortlist-026",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 26,
+      "answer": "735",
+      "problem": "Let $N$ denote the numbers of ordered triples of positive integers $(a, b, c)$ such that $a, b, c \\le 3^6$ and $a^3 + b^3 + c^3$ is a multiple of $3^7$. Find the remainder when $N$ is divided by $1000$.",
+      "source": "AIME 2025 P15"
+    },
+    {
+      "id": "apex_shortlist-027",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 27,
+      "answer": "\\frac{4}{9}",
+      "problem": "Two points are selected independently and uniformly at random inside a regular hexagon. Compute the probability that a line passing through both of the points intersects a pair of opposite edges of the hexagon.",
+      "source": "HMMT Feb 2025 C9"
+    },
+    {
+      "id": "apex_shortlist-028",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 28,
+      "answer": "\\frac{448}{3}",
+      "problem": "The circumference of a circle is divided into $45$ arcs, each of length $1$. Initially, there are $15$ snakes, each of length $1$, occupying every third arc. Every second, each snake independently moves either one arc left or one arc right, each with probability $\\frac{1}{2}$. If two snakes ever touch, they merge to form a single snake occupying the arcs of both of the previous snakes, and the merged snake moves as one snake. Compute the expected number of seconds until there is only one snake left.",
+      "source": "HMMT Feb 2025 C10"
+    },
+    {
+      "id": "apex_shortlist-029",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 29,
+      "answer": "\\frac{9\\sqrt{30}}{4}",
+      "problem": "Let $\\triangle A B C$ be an isosceles triangle with $A B=A C$. Let $D$ be a point on the circumcircle of $\\triangle A B C$ on minor arc $A B$. Let $\\overline{A D}$ intersect the extension of $\\overline{B C}$ at $E$. Let $F$ be the midpoint of segment $A C$, and let $G$ be the intersection of $\\overline{E F}$ and $\\overline{A B}$. Let the extension of $\\overline{D G}$ intersect $\\overline{A C}$ and the circumcircle of $\\triangle A B C$ at $H$ and $I$, respectively. Given that $D G=3, G H=5$, and $H I=1$, compute the length of $A E$.",
+      "source": "Brumo 2025 P30"
+    },
+    {
+      "id": "apex_shortlist-030",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 30,
+      "answer": "1350",
+      "problem": "Let $a_1$, $a_2$, $r$, and $s$ be positive integers with $r$ and $s$ odd. The sequence $a_1, a_2, a_3, \\dots$ is defined by\\[ a_{n+2} = ra_{n+1} + sa_n\\]for all $n \\ge 1$. Determine the maximum possible number of integers $1 \\le \\ell \\le 2025$ such that $a_\\ell$ divides $a_{\\ell+1}$, over all possible choices of $a_1$, $a_2$, $r$, and $s$.",
+      "source": "American TSTST 2025 P3"
+    },
+    {
+      "id": "apex_shortlist-031",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 31,
+      "answer": "625",
+      "problem": "There are $n$ cities in a country, where $n \\geq 10$ is an integer. Some pairs of cities are connected by direct (two-way) flights. For two cities $A$ and $B$ we define:\n\n$(i)$ A $\\emph{path}$ between $A$ and $B$ as a sequence of distinct cities $A = C_0, C_1, \\dots, C_k, C_{k+1} = B$, $k \\geq 0$, such that there are direct flights between $C_i$ and $C_{i+1}$ for every $0 \\leq i \\leq k$;\n$(ii)$ A $\\emph{long path}$ between $A$ and $B$ as a path between $A$ and $B$ such that no other path between $A$ and $B$ has more cities;\n$(iii)$ A $\\emph{short path}$ between $A$ and $B$ as a path between $A$ and $B$ such that no other path between $A$ and $B$ has fewer cities.\nAssume that for any pair of cities $A$ and $B$ in the country, there exist a long path and a short path between them that have no cities in common (except $A$ and $B$). Let $F$ be the total number of pairs of cities in the country that are connected by direct flights. Let $F(n)$ be the set of all possible values of $F$ for a given $n$. Determine $\\sum _{n=10}^{15} \\sum_{x \\in F(n)} x$.",
+      "source": "BMO 2025 P4"
+    },
+    {
+      "id": "apex_shortlist-032",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 32,
+      "answer": "858",
+      "problem": "Rose and Brunno play the game on a board shaped like a regular 1001-gon. Initially, all vertices of the board are white, and there is a chip at one of them. On each turn, Rose chooses an arbitrary positive integer \\( k \\), then Brunno chooses a direction: clockwise or counterclockwise, and moves the chip in the chosen direction by \\( k \\) vertices. If at the end of the turn the chip stands at a white vertex, this vertex is painted red.\n\nFind the greatest number of vertices that Rose can make red regardless of Brunno's actions, if the number of turns is not limited.",
+      "source": "IzHO 2025 P2"
+    },
+    {
+      "id": "apex_shortlist-033",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 33,
+      "answer": "998",
+      "problem": "Vaysha has a board with $999$ consecutive numbers written and $999$ labels of the form \"This number is not divisible by $i$\", for $i \\in \\{ 2,3, \\dots ,1000 \\} $. She places each label next to a number on the board, so that each number has exactly one label. For each true statement on the stickers, Vaysha gets a piece of candy. How many pieces of candy can Vaysha guarantee to win, regardless of the numbers written on the board, if she plays optimally?",
+      "source": "IzHO 2025 P4"
+    },
+    {
+      "id": "apex_shortlist-034",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 34,
+      "answer": "355",
+      "problem": "Let $n > 1$ be an integer. In a configuration of an $n \\times n$ board, each of the $n^2$ cells contains an arrow, either pointing up, down, left, or right. Given a starting configuration, Turbo the snail starts in one of the cells of the board and travels from cell to cell. In each move, Turbo moves one square unit in the direction indicated by the arrow in her cell (possibly leaving the board). After each move, the arrows in all of the cells rotate $90^{\\circ}$ counterclockwise. We call a cell good if, starting from that cell, Turbo visits each cell of the board exactly once, without leaving the board, and returns to her initial cell at the end. Let $S(n)$ denote the maximum number of good cells over all possible starting configurations.\n\nCompute $\\sum_{n=10}^{20} S(n)$.\n",
+      "source": "EGMO 2025 P5"
+    },
+    {
+      "id": "apex_shortlist-035",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 35,
+      "answer": "31",
+      "problem": "Given an odd integer $n \\geq 3$. Let $V$ be the set of vertices of a regular $n$-gon, and $P$ be the set of all regular polygons formed by points in $V$. For instance, when $n=15$, $P$ consists of $1$ regular $15$-gon, $3$ regular pentagons, and $5$ regular triangles.\n\nInitially, all points in $V$ are uncolored. Two players, $A$ and $B$, play a game where they take turns coloring an uncolored point, with player $A$ starting and coloring points red, and player $B$ coloring points blue. The game ends when all points are colored. A regular polygon in $P$ is called $\\textit{good}$ if it has more red points than blue points.\n\nLet $K(n)$ be the largest positive integer $k$ such that no matter how player $B$ plays, player $A$ can ensure that there are at least $k$ $\\textit{good}$ polygons.\n\nFind $\\sum_{n=10, n odd}^{30} K(n)$.",
+      "source": "China TST 2025 P10"
+    },
+    {
+      "id": "apex_shortlist-036",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 36,
+      "answer": "2 \\cdot (\\sqrt{5}-1)",
+      "problem": "Find the smallest real number $M$ such that there exist four complex numbers $a,b,c,d$ with $|a|=|b|=|c|=|d|=1$, and for any complex number $z$, if $|z| = 1$, then\\[|az^3+bz^2+cz+d|\\le M.\\]",
+      "source": "China TST 2025 P18"
+    },
+    {
+      "id": "apex_shortlist-037",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 37,
+      "answer": "\\frac{1}{46}\\binom{2024}{990}+\\frac{1}{2}",
+      "problem": "Let \\( A \\) be a set of 2025 positive real numbers. For a subset \\( T \\subseteq A \\), define \\( M_T \\) as the median of \\( T \\) when all elements of \\( T \\) are arranged in increasing order, with the convention that \\( M_\\emptyset = 0 \\). Define\n\\[\nP(A) = \\sum_{\\substack{T \\subseteq A \\\\ |T| \\text{ odd}}} M_T, \\quad Q(A) = \\sum_{\\substack{T \\subseteq A \\\\ |T| \\text{ even}}} M_T.\n\\]Find the smallest real number \\( C \\) such that for any set \\( A \\) of 2025 positive real numbers, the following inequality holds:\n\\[\nP(A) - Q(A) \\leq C \\cdot \\max(A),\n\\]where \\(\\max(A)\\) denotes the largest element in \\( A \\).",
+      "source": "China TST 2025 P22"
+    },
+    {
+      "id": "apex_shortlist-038",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 38,
+      "answer": "2^{999}-2^{499}",
+      "problem": "$S={1,2,...,1000}$ and $T'=\\left\\{ 1001-t|t \\in T\\right\\}$.\nA set $P$ satisfies the following three conditions:\n$1.$ All elements of $P$ are a subset of $S$.\n$2. A,B \\in P \\Rightarrow A \\cap B \\neq \\O$\n$3. A \\in P \\Rightarrow A' \\in P$\nFind the maximum of $|P|$.",
+      "source": "Korea Final Round 2025 P5"
+    },
+    {
+      "id": "apex_shortlist-039",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 39,
+      "answer": "4N^3+9N^2+6N+1",
+      "problem": "A natural number \\(N\\) is given. A cube with side length \\(2N + 1\\) is made up of \\((2N + 1)^3\\) unit cubes, each of which is either black or white. It turns out that among any $8$ cubes that share a common vertex and form a \\(2 \\times 2 \\times 2\\) cube, there are at most $4$ black cubes. What is the maximum number of black cubes that could have been used?",
+      "source": "All Russian 2025 11.4"
+    },
+    {
+      "id": "apex_shortlist-040",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 40,
+      "answer": "3/2",
+      "problem": "Exactly \\( n \\) cells of an \\( n \\times n \\) square grid are colored black, and the remaining cells are white. The cost of such a coloring is the minimum number of white cells that need to be recolored black so that from any black cell \\( c_0 \\), one can reach any other black cell \\( c_k \\) through a sequence \\( c_0, c_1, \\ldots, c_k \\) of black cells where each consecutive pair \\( c_i, c_{i+1} \\) are adjacent (sharing a common side) for every \\( i = 0, 1, \\ldots, k-1 \\). Let \\( f(n) \\) denote the maximum possible cost over all initial colorings with exactly \\( n \\) black cells. Determine a constant $\\alpha$ such that\n\\[\n\\frac{1}{3}n^{\\alpha} \\leq f(n) \\leq 3n^{\\alpha}\n\\]for any $n\\geq 100$.",
+      "source": "Bulgarian MO 2025 P2"
+    },
+    {
+      "id": "apex_shortlist-041",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 41,
+      "answer": "317/3528",
+      "problem": "Let \\( X_0, X_1, \\dots, X_{n-1} \\) be \\( n \\geq 2 \\) given points in the plane, and let \\( r > 0 \\) be a real number. Alice and Bob play the following game. Firstly, Alice constructs a connected graph with vertices at the points \\( X_0, X_1, \\dots, X_{n-1} \\), i.e., she connects some of the points with edges so that from any point you can reach any other point by moving along the edges.Then, Alice assigns to each vertex \\( X_i \\) a non-negative real number \\( r_i \\), for \\( i = 0, 1, \\dots, n-1 \\), such that $\\sum_{i=0}^{n-1} r_i = 1$. Bob then selects a sequence of distinct vertices \\( X_{i_0} = X_0, X_{i_1}, \\dots, X_{i_k} \\) such that \\( X_{i_j} \\) and \\( X_{i_{j+1}} \\) are connected by an edge for every \\( j = 0, 1, \\dots, k-1 \\). (Note that the length $k \\geq 0$ is not fixed and the first selected vertex always has to be $X_0$.) Bob wins if\n\\[\n\\frac{1}{k+1} \\sum_{j=0}^{k} r_{i_j} \\geq r;\n\\]\n\notherwise, Alice wins. Let $R(n)$ denote \\( n \\) the largest possible value of \\( r \\) for which Bob has a winning strategy. Find \\( \\sum_{n=11}^{14} R(n) \\).",
+      "source": "Bulgarian MO 2025 P6"
+    },
+    {
+      "id": "apex_shortlist-042",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 42,
+      "answer": "180 + 2023 \\cdot \\frac{180}{2025}",
+      "problem": "Let $\\alpha$ be a real number satisfying $0 < \\alpha < 180$. For Leo's birthday, Frieder has placed 2025 gnomes at arbitrary points inside his garden. No three gnomes are collinear and no two gnomes coincide. Each gnome has a field of view spanning $\\alpha$ degrees (including the boundary). After Frieder places the gnomes down, Leo wants to rotate the gnomes such that, for each gnome, the number of other gnomes it sees is different. \nLet $S$ be the set of all possible values of $\\alpha$ for which Leo can achieve this, regardless of how the gnomes are placed. Determine $\\inf S + \\sup S$.",
+      "source": "Swiss TST 2025 P5"
+    },
+    {
+      "id": "apex_shortlist-043",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 43,
+      "answer": "372",
+      "problem": "Let $\\mathcal P$ be a simple polygon and let $j$ and $k$ be positive integers with $j > k$. Suppose that it is possible to partition $\\mathcal P$ into $j$ rectangles and shade $k$ of them gray such that no two shaded rectangles share a positive amount of perimeter. (It is permissible for any two of them to share a vertex.) Let $S(j,k)$ denote the fewest number of sides that $\\mathcal P$ could have. Compute \n\\[\n\\sum_{k=5}^{10}\\sum_{j=11}^{15} S(j,k).\n\\]\n",
+      "source": "ELMO Shortlist 2025 C7"
+    },
+    {
+      "id": "apex_shortlist-044",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 44,
+      "answer": "371",
+      "problem": "The country of ELMOpia has $n \\ge 4$ cities, where some pairs of cities are connected by a road. An astute traveler notices that for any $2$ cities $A$ and $B$, there exist (distinct) cities $C$ and $D$ such that $A-C$, $C-B$, $B-D$, $D-A$ are all connected by roads. Let $S(n)$ be the minimum number of roads in ELMOpia, in terms of $n$. Determine \\(\\sum_{n=10}^{20} S(n)\\).\n",
+      "source": "ELMO Shortlist 2025 C8"
+    },
+    {
+      "id": "apex_shortlist-045",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 45,
+      "answer": "1080",
+      "problem": "Consider a $2025\\times 2025$ board where we identify the squares with pairs $(i,j)$ where $i$ and $j$ denote the row and column number of that square, respectively.\n\nCalvin picks two positive integers $a,b<2025$ and places a pawn at the bottom left corner (i.e. on $(1,1)$) and makes the following moves. In his $k$-th move, he moves the pawn from $(i,j)$ to either $(i+a,j)$ or $(i,j+a)$ if $k$ is odd and to either $(i+b,j)$ and $(i,j+b)$ if $k$ is even. Here all the numbers are taken modulo $2025$. Find the number of pairs $(a,b)$ that Calvin could have picked such that he can make moves so that the pawn covers all the squares on the board without being on any square twice.",
+      "source": "India IMOTC 2025 Day 2 P1"
+    },
+    {
+      "id": "apex_shortlist-046",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 46,
+      "answer": "4050",
+      "problem": "Having won the elections in Linetown, Turbo the Snail has become mayor, and one of the most pressing issues he needs to work on is the road network. Linetown can be represented as a configuration of $2025$ lines\nin the plane, of which no two are parallel and no three are concurrent.\n\nThere is one house in Linetown for each pairwise intersection of two lines. The $2025$ lines are used as roads by the townsfolk. In the past, the roads in Linetown used to be two-way, but this often led to residents accidentally cycling back to where they started.\n\nTurbo wants to make each of the $2025$ roads one-way such that it is impossible for any resident to start at a house, follow the roads in the correct directions, and end up back at the original house. In how many ways can Turbo achieve this?",
+      "source": "LMAO 2025 Day 1 P2"
+    },
+    {
+      "id": "apex_shortlist-047",
+      "competition": "apex_shortlist",
+      "competitionName": "Apex Shortlist 2025",
+      "dataset": "MathArena/apex-shortlist",
+      "problemIndex": 47,
+      "answer": "10^{225}-1",
+      "problem": "Bugs Bunny wants to choose a number $k$ such that every collection of $k$ consecutive positive integers contains an integer whose sum of digits is divisible by $2025$.\n\nFind the smallest positive integer $k$ for which he can do this, or prove that none exist.",
+      "source": "LMAO 2025 Day 2 P1"
+    }
+  ]
+}

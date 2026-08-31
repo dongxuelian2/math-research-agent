@@ -1,0 +1,52 @@
+{
+  "metricDefinition": {
+    "agent": "final success from the full multi-worker agent workflow",
+    "gemini": "original Gemini 3.7 Flash direct response"
+  },
+  "overall": {
+    "total": 122,
+    "agentCorrect": 115,
+    "agentAccuracy": 0.9426229508196722,
+    "geminiCorrect": 105,
+    "geminiAccuracy": 0.860655737704918,
+    "agentLeadPercentagePoints": 8.19672131147541
+  },
+  "categories": [
+    {
+      "competition": "aime_2026",
+      "label": "AIME 2026",
+      "total": 30,
+      "geminiCorrect": 28,
+      "geminiAccuracy": 0.9333333333333333,
+      "agentCorrect": 30,
+      "agentAccuracy": 1.0
+    },
+    {
+      "competition": "hmmt_feb_2026",
+      "label": "HMMT Feb 2026",
+      "total": 33,
+      "geminiCorrect": 30,
+      "geminiAccuracy": 0.9090909090909091,
+      "agentCorrect": 33,
+      "agentAccuracy": 1.0
+    },
+    {
+      "competition": "apex_2025",
+      "label": "Apex 2025",
+      "total": 12,
+      "geminiCorrect": 5,
+      "geminiAccuracy": 0.4166666666666667,
+      "agentCorrect": 8,
+      "agentAccuracy": 0.6666666666666666
+    },
+    {
+      "competition": "apex_shortlist",
+      "label": "Apex Shortlist",
+      "total": 47,
+      "geminiCorrect": 42,
+      "geminiAccuracy": 0.8936170212765957,
+      "agentCorrect": 44,
+      "agentAccuracy": 0.9361702127659575
+    }
+  ]
+}

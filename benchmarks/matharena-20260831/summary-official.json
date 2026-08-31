@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-30T19:03:13.451201+00:00",
+  "evaluator": {
+    "source": "MathArena official parser.py extract_answer/parse_answer/check_answers plus official grader strict_parsing=false behavior",
+    "parserPath": "/tmp/matharena-source-qKHJXy/repo/src/matharena/parser.py",
+    "competitionFinalAnswer": true,
+    "strictParsing": false,
+    "goldListAnswerRule": "comma in gold answer",
+    "note": "Parser correctness is exact symbolic equality; parser warnings are preserved. Token-limit warning from grader is not inferred because raw provider token counts are not persisted."
+  },
+  "manifestRunId": "matharena-20260830180925",
+  "resultRunIds": [
+    "matharena-20260830173552",
+    "matharena-20260830180925"
+  ],
+  "selectedCount": 122,
+  "tracks": {
+    "direct": {
+      "total": 122,
+      "jobCompleted": 122,
+      "jobFailed": 0,
+      "outputPresent": 122,
+      "officialParsed": 122,
+      "officialCorrectAllOutputs": 105,
+      "acceptedByWorkflow": null,
+      "officialCorrectAcceptedOnly": null,
+      "warnings": {
+        "MAJOR": 1,
+        "NONE": 121
+      },
+      "stopReasons": {
+        "completed": 122
+      }
+    },
+    "agent": {
+      "total": 122,
+      "jobCompleted": 117,
+      "jobFailed": 5,
+      "outputPresent": 119,
+      "officialParsed": 119,
+      "officialCorrectAllOutputs": 103,
+      "acceptedByWorkflow": 117,
+      "officialCorrectAcceptedOnly": 102,
+      "warnings": {
+        "MAJOR": 3,
+        "NONE": 119
+      },
+      "stopReasons": {
+        "BLOCKED_PROVIDER": 3,
+        "CANDIDATE_READY": 18,
+        "FAILED": 2,
+        "PROVED": 99
+      }
+    }
+  },
+  "paired": {
+    "total": 122,
+    "bothOutputsPresent": 119,
+    "sameParsed": 101,
+    "bothOfficialCorrect": 96,
+    "directOnlyCorrect": 9,
+    "agentOnlyCorrectAllOutputs": 7,
+    "neitherCorrect": 10,
+    "agentAcceptedBothCorrect": 96,
+    "directOnlyCorrectAgainstAcceptedAgent": 9,
+    "agentOnlyCorrectAccepted": 6
+  },
+  "byCompetition": {
+    "aime_2026": {
+      "total": 30,
+      "direct": {
+        "correct": 28,
+        "parsed": 30
+      },
+      "agent": {
+        "correctAllOutputs": 30,
+        "accepted": 30,
+        "correctAcceptedOnly": 30,
+        "parsed": 30
+      },
+      "paired": {
+        "bothCorrect": 28,
+        "directOnlyCorrect": 0,
+        "agentOnlyCorrectAllOutputs": 2,
+        "sameParsed": 28
+      }
+    },
+    "apex_2025": {
+      "total": 12,
+      "direct": {
+        "correct": 5,
+        "parsed": 12
+      },
+      "agent": {
+        "correctAllOutputs": 4,
+        "accepted": 10,
+        "correctAcceptedOnly": 3,
+        "parsed": 12
+      },
+      "paired": {
+        "bothCorrect": 3,
+        "directOnlyCorrect": 2,
+        "agentOnlyCorrectAllOutputs": 1,
+        "sameParsed": 6
+      }
+    },
+    "apex_shortlist": {
+      "total": 47,
+      "direct": {
+        "correct": 42,
+        "parsed": 47
+      },
+      "agent": {
+        "correctAllOutputs": 36,
+        "accepted": 44,
+        "correctAcceptedOnly": 36,
+        "parsed": 44
+      },
+      "paired": {
+        "bothCorrect": 35,
+        "directOnlyCorrect": 7,
+        "agentOnlyCorrectAllOutputs": 1,
+        "sameParsed": 37
+      }
+    },
+    "hmmt_feb_2026": {
+      "total": 33,
+      "direct": {
+        "correct": 30,
+        "parsed": 33
+      },
+      "agent": {
+        "correctAllOutputs": 33,
+        "accepted": 33,
+        "correctAcceptedOnly": 33,
+        "parsed": 33
+      },
+      "paired": {
+        "bothCorrect": 30,
+        "directOnlyCorrect": 0,
+        "agentOnlyCorrectAllOutputs": 3,
+        "sameParsed": 30
+      }
+    }
+  }
+}

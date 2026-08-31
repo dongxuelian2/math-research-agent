@@ -29,6 +29,8 @@
 - [Architecture](#architecture)
 - [Core capabilities](#core-capabilities)
 - [Proof execution model](#proof-execution-model)
+- [Effect showcase](#effect-showcase)
+- [MathArena benchmark](#matharena-benchmark)
 - [Durability and evidence](#durability-and-evidence)
 - [Runtime states](#runtime-states)
 - [API](#api)
@@ -201,6 +203,72 @@ The runtime computes the ready frontier, runs independent tasks in bounded batch
 | Secondary Auditor | Re-check final research evidence and closure conditions |
 
 The role factory resolves model profiles and tools from trusted configuration. A task description can state what an agent is for, but it does not itself grant access to tools.
+
+## Effect showcase
+
+The two responses below address the same q-Kneser graph problem. Only representative proof checkpoints are shown; this is an output-quality comparison for one difficult problem, not an aggregate benchmark.
+
+### Selected checkpoints
+
+| Proof checkpoint | Direct response | Structured agent response |
+| --- | --- | --- |
+| Minimum eigenvalue | Derives the same spectrum and reaches <code>lambda_min = lambda_1</code> through a parity split and a Gaussian-binomial ratio comparison. | Makes the monotonicity checkpoint explicit: <code>f(j) = |lambda_j|</code>, <code>f(j+1) / f(j) = (q^(k-j)-1) / (q^(n-2j)-q^(k-j)) &lt; 1</code>, and <code>lambda_min = -q^(k(k-1)) [n-k-1 choose k-1]_q</code>. |
+| Extremal-family uniqueness | Uses a “general position” choice of a subspace and asserts that a weighted sum becomes non-integral. The required existence argument and the contradiction are not established. | Counts <code>W_(L,U)</code>, derives <code>N1 c_L + N2 (1 - c(U+L)) = 0</code>, obtains <code>c_L = 0</code> for <code>L not subset U</code>, and forces <code>F = F_(L0)</code>. |
+| Theta and capacity | Uses edge-transitivity to state that an SDP optimizer has the form <code>J + cA</code>, then applies the sandwich bound. The symmetry reduction is stated rather than independently checked. | Writes the same candidate matrix and spectral calculation as a concrete derivation, while the runtime still treats the result as a candidate until verification and the selected formal gate pass. |
+
+### Representative proof steps
+
+The comparison is most visible in the transition from a claimed geometric construction to a checkable counting argument.
+
+#### Direct response: unresolved uniqueness step
+
+~~~text
+Choose Y in general position so that no positive-weight point is contained in Y.
+Then sum_(L subset Y) c_L is claimed to lie in (0, 1).
+This contradicts the {0, 1}-valued indicator.
+~~~
+
+The missing step is the construction of such a subspace Y and the proof that the weighted sum has the asserted value.
+
+#### Structured agent response: explicit counting step
+
+~~~text
+N1 c_L + N2 (1 - c(U+L)) = 0
+c(U+L) = 1
+c_L = 0  for L not subset U
+
+support(c) subseteq intersection_(U in F) U
+F = F_(L0)
+~~~
+
+For the spectrum, the same response also exposes the independent audit trail: <code>f(0) &gt; f(1) &gt; ... &gt; f(k)</code>, followed by <code>lambda_min = lambda_1</code>.
+
+The project preserves this distinction at runtime: a worker result is independently verified, passed through the submission gate, and formalized with <code>lake env lean</code> when the selected proof mode requires it.
+
+## MathArena benchmark
+
+We evaluated Math Research Agent on 122 official MathArena final-answer problems across four categories. The Agent result uses the complete execution workflow: parallel workers, independent verification, and continued repair/recovery until success or a terminal wall. Gemini is the original direct-response baseline on the same problems.
+
+<p align="center">
+  <img src="benchmarks/matharena-20260831/charts/matharena-performance-comparison.png" alt="MathArena performance comparison by competition" width="100%" />
+</p>
+
+| Category | Math Research Agent | Gemini 3.7 Flash direct |
+| --- | ---: | ---: |
+| AIME 2026 | **30/30 (100.0%)** | 28/30 (93.3%) |
+| HMMT Feb 2026 | **33/33 (100.0%)** | 30/33 (90.9%) |
+| Apex 2025 | **8/12 (66.7%)** | 5/12 (41.7%) |
+| Apex Shortlist | **44/47 (93.6%)** | 42/47 (89.4%) |
+| **Overall** | **115/122 (94.26%)** | **105/122 (86.07%)** |
+
+The complete workflow gives the Agent an **8.20 percentage-point overall lead**. The strongest separation appears on Apex 2025, where the Agent solves 8 of 12 problems versus 5 of 12 for direct Gemini; the Agent also reaches 100% on both AIME 2026 and HMMT Feb 2026.
+
+Benchmark artifacts:
+
+- [Performance chart (PNG)](benchmarks/matharena-20260831/charts/matharena-performance-comparison.png) · [editable SVG](benchmarks/matharena-20260831/charts/matharena-performance-comparison.svg)
+- [Official score summary](benchmarks/matharena-20260831/summary-official.json)
+- [Retry and recovery audit](benchmarks/matharena-20260831-gate-retries/status.json)
+- [Benchmark runner](backend/scripts/matharena-benchmark.mjs) · [chart generator](backend/scripts/matharena-comparison-chart.py)
 
 ## Durability and evidence
 
@@ -455,6 +523,8 @@ Useful commands:
 | <code>pnpm start</code> | Start the local Workbench and API |
 
 The backend tests cover configuration parsing, role and model validation, provider behavior, persistence, proof planning, dynamic dependencies, continuations, formal gates, HTTP/SSE resources, research reduction, authority receipts, and restart recovery.
+
+GitHub Actions is currently disabled for this repository; there are no active repository workflows.
 
 ## Documentation
 

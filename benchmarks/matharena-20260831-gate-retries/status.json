@@ -1,0 +1,976 @@
+{
+  "schemaVersion": 1,
+  "scoring": {
+    "oracle": "MathArena extract_answer/parse_answer/check_answers",
+    "strictParsing": false,
+    "successDefinition": "officialCorrect && gateAccepted",
+    "goldAnswerHiddenFromAgent": true,
+    "retryPolicy": "up to three retry rounds; stop on success, otherwise WALL"
+  },
+  "summary": {
+    "benchmarkTotal": 122,
+    "baselineAgentSuccess": 102,
+    "baselineDirectCorrect": 105,
+    "targetCount": 20,
+    "recovered": 13,
+    "wall": 7,
+    "recoveredByRound": {
+      "1": 9,
+      "2": 2,
+      "3": 2
+    },
+    "bestOfAgentSuccess": 115,
+    "bestOfAgentRate": 0.9426229508196722
+  },
+  "operationalIncidents": [
+    {
+      "path": "matharena-20260831-gate-retries/round-002-early",
+      "count": 9,
+      "classification": "configuration",
+      "reason": "Vertex project/location missing; failed before model invocation",
+      "countedAsRetry": false
+    }
+  ],
+  "problems": [
+    {
+      "id": "apex_2025-001",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "4049",
+      "attempts": [
+        {
+          "id": "apex_2025-001",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-001/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "15",
+          "goldAnswer": "4049",
+          "durationMs": 207819
+        },
+        {
+          "id": "apex_2025-001",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-001/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "15",
+          "goldAnswer": "4049",
+          "durationMs": 73927
+        },
+        {
+          "id": "apex_2025-001",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_2025-001/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "FAILED",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "2025",
+          "goldAnswer": "4049",
+          "durationMs": 2300476
+        },
+        {
+          "id": "apex_2025-001",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-apex1/results/apex_2025-001/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "15",
+          "goldAnswer": "4049",
+          "durationMs": 596639
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-002",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "1/2",
+      "attempts": [
+        {
+          "id": "apex_2025-002",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-002/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{3}{4}",
+          "goldAnswer": "1/2",
+          "durationMs": 1187534
+        },
+        {
+          "id": "apex_2025-002",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-002/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{3}{4}",
+          "goldAnswer": "1/2",
+          "durationMs": 870748
+        },
+        {
+          "id": "apex_2025-002",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_2025-002/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "3/4",
+          "goldAnswer": "1/2",
+          "durationMs": 1159048
+        },
+        {
+          "id": "apex_2025-002",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-apex2-10/results/apex_2025-002/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{3}{4}",
+          "goldAnswer": "1/2",
+          "durationMs": 874288
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-005",
+      "status": "RECOVERED",
+      "recoveredRound": 2,
+      "goldAnswer": "6",
+      "attempts": [
+        {
+          "id": "apex_2025-005",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-005/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "119",
+          "goldAnswer": "6",
+          "durationMs": 415909
+        },
+        {
+          "id": "apex_2025-005",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-005/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": null,
+          "goldAnswer": "6",
+          "durationMs": 274331
+        },
+        {
+          "id": "apex_2025-005",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_2025-005/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "6",
+          "goldAnswer": "6",
+          "durationMs": 511932
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-007",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "248/517",
+      "attempts": [
+        {
+          "id": "apex_2025-007",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-007/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "FAILED",
+          "gateAccepted": false,
+          "officialCorrect": true,
+          "success": false,
+          "extracted": "\\frac{248}{517}",
+          "goldAnswer": "248/517",
+          "durationMs": 1824801
+        },
+        {
+          "id": "apex_2025-007",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001/results/apex_2025-007/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "\\frac{248}{517}",
+          "goldAnswer": "248/517",
+          "durationMs": 1601672
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-008",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "1164",
+      "attempts": [
+        {
+          "id": "apex_2025-008",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-008/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "1152",
+          "goldAnswer": "1164",
+          "durationMs": 604854
+        },
+        {
+          "id": "apex_2025-008",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-008/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "1164",
+          "goldAnswer": "1164",
+          "durationMs": 352741
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-009",
+      "status": "RECOVERED",
+      "recoveredRound": 2,
+      "goldAnswer": "2 \\sqrt{3}+\\frac{8 \\pi}{3}",
+      "attempts": [
+        {
+          "id": "apex_2025-009",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-009/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4\\pi",
+          "goldAnswer": "2 \\sqrt{3}+\\frac{8 \\pi}{3}",
+          "durationMs": 97591
+        },
+        {
+          "id": "apex_2025-009",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-009/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4\\pi",
+          "goldAnswer": "2 \\sqrt{3}+\\frac{8 \\pi}{3}",
+          "durationMs": 361886
+        },
+        {
+          "id": "apex_2025-009",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_2025-009/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "\\frac{8\\pi}{3} + 2\\sqrt{3}",
+          "goldAnswer": "2 \\sqrt{3}+\\frac{8 \\pi}{3}",
+          "durationMs": 157489
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-010",
+      "status": "RECOVERED",
+      "recoveredRound": 3,
+      "goldAnswer": "213",
+      "attempts": [
+        {
+          "id": "apex_2025-010",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-010/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "255",
+          "goldAnswer": "213",
+          "durationMs": 1042300
+        },
+        {
+          "id": "apex_2025-010",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-010/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "255",
+          "goldAnswer": "213",
+          "durationMs": 897194
+        },
+        {
+          "id": "apex_2025-010",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_2025-010/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "210",
+          "goldAnswer": "213",
+          "durationMs": 1184191
+        },
+        {
+          "id": "apex_2025-010",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-apex2-10/results/apex_2025-010/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "213",
+          "goldAnswer": "213",
+          "durationMs": 875977
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-011",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "14/5",
+      "attempts": [
+        {
+          "id": "apex_2025-011",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-011/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{8}{3}",
+          "goldAnswer": "14/5",
+          "durationMs": 1945263
+        },
+        {
+          "id": "apex_2025-011",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_2025-011/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{8}{3}",
+          "goldAnswer": "14/5",
+          "durationMs": 739353
+        },
+        {
+          "id": "apex_2025-011",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_2025-011/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{8}{3}",
+          "goldAnswer": "14/5",
+          "durationMs": 1014947
+        },
+        {
+          "id": "apex_2025-011",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-mid/results/apex_2025-011/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{5}{2}",
+          "goldAnswer": "14/5",
+          "durationMs": 969671
+        }
+      ]
+    },
+    {
+      "id": "apex_2025-012",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "2112",
+      "attempts": [
+        {
+          "id": "apex_2025-012",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_2025-012/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "FAILED",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4048",
+          "goldAnswer": "2112",
+          "durationMs": 2460757
+        },
+        {
+          "id": "apex_2025-012",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001/results/apex_2025-012/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "FAILED",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4048",
+          "goldAnswer": "2112",
+          "durationMs": 2409262
+        },
+        {
+          "id": "apex_2025-012",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002-apex12/results/apex_2025-012/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4048",
+          "goldAnswer": "2112",
+          "durationMs": 1634839
+        },
+        {
+          "id": "apex_2025-012",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-apex12/results/apex_2025-012/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4048",
+          "goldAnswer": "2112",
+          "durationMs": 581335
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-007",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "1030219",
+      "attempts": [
+        {
+          "id": "apex_shortlist-007",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-007/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": null,
+          "goldAnswer": "1030219",
+          "durationMs": 1463477
+        },
+        {
+          "id": "apex_shortlist-007",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001/results/apex_shortlist-007/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "1030219",
+          "goldAnswer": "1030219",
+          "durationMs": 450476
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-009",
+      "status": "RECOVERED",
+      "recoveredRound": 3,
+      "goldAnswer": "2^{20} - 1",
+      "attempts": [
+        {
+          "id": "apex_shortlist-009",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-009/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "543",
+          "goldAnswer": "2^{20} - 1",
+          "durationMs": 786278
+        },
+        {
+          "id": "apex_shortlist-009",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-009/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": true,
+          "success": false,
+          "extracted": "1048575",
+          "goldAnswer": "2^{20} - 1",
+          "durationMs": 815237
+        },
+        {
+          "id": "apex_shortlist-009",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_shortlist-009/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": true,
+          "success": false,
+          "extracted": "1048575",
+          "goldAnswer": "2^{20} - 1",
+          "durationMs": 350368
+        },
+        {
+          "id": "apex_shortlist-009",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-early/results/apex_shortlist-009/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "1048575",
+          "goldAnswer": "2^{20} - 1",
+          "durationMs": 864855
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-010",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "59",
+      "attempts": [
+        {
+          "id": "apex_shortlist-010",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-010/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "31",
+          "goldAnswer": "59",
+          "durationMs": 325239
+        },
+        {
+          "id": "apex_shortlist-010",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-010/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "59",
+          "goldAnswer": "59",
+          "durationMs": 193973
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-013",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "2^{21} - 2",
+      "attempts": [
+        {
+          "id": "apex_shortlist-013",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-013/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "762",
+          "goldAnswer": "2^{21} - 2",
+          "durationMs": 251426
+        },
+        {
+          "id": "apex_shortlist-013",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-013/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "762",
+          "goldAnswer": "2^{21} - 2",
+          "durationMs": 145133
+        },
+        {
+          "id": "apex_shortlist-013",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_shortlist-013/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "762",
+          "goldAnswer": "2^{21} - 2",
+          "durationMs": 169392
+        },
+        {
+          "id": "apex_shortlist-013",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-early/results/apex_shortlist-013/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "762",
+          "goldAnswer": "2^{21} - 2",
+          "durationMs": 181039
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-017",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "4",
+      "attempts": [
+        {
+          "id": "apex_shortlist-017",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-017/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "3",
+          "goldAnswer": "4",
+          "durationMs": 310285
+        },
+        {
+          "id": "apex_shortlist-017",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-017/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "4",
+          "goldAnswer": "4",
+          "durationMs": 847575
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-022",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "12",
+      "attempts": [
+        {
+          "id": "apex_shortlist-022",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-022/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "6",
+          "goldAnswer": "12",
+          "durationMs": 2072185
+        },
+        {
+          "id": "apex_shortlist-022",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-022/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "6",
+          "goldAnswer": "12",
+          "durationMs": 1836450
+        },
+        {
+          "id": "apex_shortlist-022",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002-late/results/apex_shortlist-022/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "3",
+          "goldAnswer": "12",
+          "durationMs": 1317953
+        },
+        {
+          "id": "apex_shortlist-022",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-shortlist22/results/apex_shortlist-022/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4",
+          "goldAnswer": "12",
+          "durationMs": 899750
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-025",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "60",
+      "attempts": [
+        {
+          "id": "apex_shortlist-025",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-025/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "43",
+          "goldAnswer": "60",
+          "durationMs": 676973
+        },
+        {
+          "id": "apex_shortlist-025",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-025/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "CANDIDATE_READY",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "60",
+          "goldAnswer": "60",
+          "durationMs": 1605592
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-026",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "735",
+      "attempts": [
+        {
+          "id": "apex_shortlist-026",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-026/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "29",
+          "goldAnswer": "735",
+          "durationMs": 320145
+        },
+        {
+          "id": "apex_shortlist-026",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-026/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "735",
+          "goldAnswer": "735",
+          "durationMs": 399362
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-030",
+      "status": "WALL",
+      "recoveredRound": null,
+      "goldAnswer": "1350",
+      "attempts": [
+        {
+          "id": "apex_shortlist-030",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-030/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": null,
+          "goldAnswer": "1350",
+          "durationMs": 963367
+        },
+        {
+          "id": "apex_shortlist-030",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001/results/apex_shortlist-030/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": true,
+          "success": false,
+          "extracted": "1350",
+          "goldAnswer": "1350",
+          "durationMs": 998364
+        },
+        {
+          "id": "apex_shortlist-030",
+          "round": 2,
+          "resultPath": "matharena-20260831-gate-retries/round-002/results/apex_shortlist-030/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "4",
+          "goldAnswer": "1350",
+          "durationMs": 1016295
+        },
+        {
+          "id": "apex_shortlist-030",
+          "round": 3,
+          "resultPath": "matharena-20260831-gate-retries/round-003-mid/results/apex_shortlist-030/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": true,
+          "success": false,
+          "extracted": "1350",
+          "goldAnswer": "1350",
+          "durationMs": 1284613
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-036",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "2 \\cdot (\\sqrt{5}-1)",
+      "attempts": [
+        {
+          "id": "apex_shortlist-036",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-036/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": "\\frac{2\\sqrt{9+4\\sqrt{3}}}{3}",
+          "goldAnswer": "2 \\cdot (\\sqrt{5}-1)",
+          "durationMs": 239128
+        },
+        {
+          "id": "apex_shortlist-036",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001-wrong/results/apex_shortlist-036/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "2\\sqrt{5}-2",
+          "goldAnswer": "2 \\cdot (\\sqrt{5}-1)",
+          "durationMs": 888963
+        }
+      ]
+    },
+    {
+      "id": "apex_shortlist-039",
+      "status": "RECOVERED",
+      "recoveredRound": 1,
+      "goldAnswer": "4N^3+9N^2+6N+1",
+      "attempts": [
+        {
+          "id": "apex_shortlist-039",
+          "round": 0,
+          "resultPath": "matharena-20260831/results/apex_shortlist-039/agent.json",
+          "jobStatus": "FAILED",
+          "stopReason": "BLOCKED_PROVIDER",
+          "gateAccepted": false,
+          "officialCorrect": false,
+          "success": false,
+          "extracted": null,
+          "goldAnswer": "4N^3+9N^2+6N+1",
+          "durationMs": 678676
+        },
+        {
+          "id": "apex_shortlist-039",
+          "round": 1,
+          "resultPath": "matharena-20260831-gate-retries/round-001/results/apex_shortlist-039/agent.json",
+          "jobStatus": "COMPLETED",
+          "stopReason": "PROVED",
+          "gateAccepted": true,
+          "officialCorrect": true,
+          "success": true,
+          "extracted": "4N^3 + 9N^2 + 6N + 1",
+          "goldAnswer": "4N^3+9N^2+6N+1",
+          "durationMs": 273387
+        }
+      ]
+    }
+  ]
+}

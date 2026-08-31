@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "runId": "matharena-20260830180925",
+  "finishedAt": "2026-08-30T19:00:56.855Z",
+  "durationMs": 3091187,
+  "totals": {
+    "completed": 131,
+    "reused": 108,
+    "failed": 5
+  },
+  "summary": {
+    "direct": {
+      "total": 122,
+      "completed": 122,
+      "extracted": 122,
+      "roughCorrect": 90,
+      "empty": 0
+    },
+    "agent": {
+      "total": 122,
+      "completed": 117,
+      "extracted": 119,
+      "roughCorrect": 89,
+      "empty": 3
+    },
+    "paired": {
+      "bothCompleted": 117,
+      "sameExtracted": 95,
+      "directOnlyCorrectRough": 6,
+      "agentOnlyCorrectRough": 5
+    }
+  }
+}
