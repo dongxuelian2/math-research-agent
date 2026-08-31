@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "runId": "first-proof-long-horizon-20260831082719",
+  "createdAt": "2026-08-31T08:27:19.013Z",
+  "benchmark": {
+    "name": "First Proof Second Batch — long-horizon subset",
+    "paperUrl": "https://arxiv.org/abs/2606.18119",
+    "sourcePage": "https://github.com/1stproof/batch-2",
+    "sourceUrl": "https://raw.githubusercontent.com/1stproof/batch-2/274625a22e4748d5f9264ba3614353461520bd20/batch-2-raw-outputs/Batch2Problems/problems.json",
+    "sourceCommit": "274625a22e4748d5f9264ba3614353461520bd20",
+    "sourceSha256": "fd35b53ab6c5ca0f40178bc929eff4939a3d03d77bee899315e9663078bf77b0",
+    "license": "Problem documents are published by First Proof under CC BY-SA 4.0 (LICENSE-DOCS).",
+    "humanSolutionsHiddenDuringSolving": true
+  },
+  "model": {
+    "provider": "google-vertex",
+    "model": "gemini-3.7-flash",
+    "reasoningEffort": "high",
+    "contextWindow": 1048576,
+    "maxTokens": 65536
+  },
+  "selectedCount": 1,
+  "tracks": [
+    "direct"
+  ],
+  "concurrency": 1,
+  "agentWorkers": 4,
+  "agentSteps": 12,
+  "historyLimit": 8,
+  "maxAttempts": 3,
+  "callTimeoutMs": 900000,
+  "maxWallTimeMs": 86400000,
+  "promptContract": {
+    "focus": "long-horizon mathematical reasoning and proof planning",
+    "requiredSections": [
+      "proof roadmap",
+      "critical lemmas and bottlenecks",
+      "complete derivation",
+      "gap audit"
+    ],
+    "failurePolicy": "State the exact unresolved gap and rigorous partial progress; never disguise a missing key step as standard."
+  },
+  "problems": [
+    {
+      "id": "prob-003",
+      "field": "discrete probability",
+      "latex": "{\\bf Problem:} Let $w_1, \\ldots, w_m$ be non-negative real numbers such that $\\sum_{i=1}^m w_i=1$, and let \n$v_1, \\ldots, v_m$ be i.i.d. Bernoulli$(p)$ random variables. For which values of probability $p$ is it true that\n\\[\\Pr\\Big[\\sum_{i=1}^m w_i v_i\\geq p\\Big]\\geq p?\\]",
+      "sourceUrl": "https://github.com/1stproof/batch-2/blob/274625a22e4748d5f9264ba3614353461520bd20/batch-2-human-solution/problem-03/human-solution.tex"
+    }
+  ]
+}

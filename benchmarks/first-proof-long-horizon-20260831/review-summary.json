@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-08-31T08:49:17.414Z",
+  "benchmarkRunId": "first-proof-long-horizon-20260831070036",
+  "judge": {
+    "provider": "google-vertex",
+    "model": "gemini-3.7-flash",
+    "reasoningEffort": "high",
+    "maxTokens": 32768,
+    "passes": 2
+  },
+  "rubric": {
+    "mathematicalCorrectness": 30,
+    "proofPlanningAndExecution": 25,
+    "criticalStepCompleteness": 25,
+    "insightAndUsefulProgress": 10,
+    "expositionAndAttribution": 10,
+    "verdicts": [
+      "ESSENTIALLY_FLAWLESS",
+      "MINOR_REVISIONS",
+      "MAJOR_REVISIONS",
+      "REJECT"
+    ]
+  },
+  "problems": {
+    "prob-001": {
+      "status": "COMPLETED",
+      "completedPasses": 2,
+      "tracks": {
+        "direct": {
+          "meanTotal": 38,
+          "meanPlanningExecution": 9.5,
+          "meanCriticalCompleteness": 8,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "Fatal error in Lemma 3 / Step 3: The submission asserts that for an arbitrary isomorphic copy $\\mathcal{B} \\cong \\mathcal{A}$, $\\mathcal{B}' \\le_T \\mathcal{B} \\oplus \\emptyset'$, and thus deciding $\\Pi_1^0(\\mathcal{B})$ relations requires only oracle $\\mathcal{B} \\oplus \\emptyset'$. This is fundamentally false in computability theory; for a generic copy $\\mathcal{B}$, $\\mathcal{B}' \\not\\le_T \\mathcal{B} \\oplus C$ for any fixed oracle $C$.",
+            "The constructed structure $\\mathcal{A}$ fails to be computably $\\operatorname{AUT}$-countable on a cone. By the Ash–Knight–Manasse–Slaman (1989) theorem, an automorphism is computable in all copies relative to a fixed oracle on a cone if and only if it is $\\Sigma_1^{in}$-definable from some finite set of parameters. Since Lemma 4 correctly shows that the non-trivial automorphism $\\pi$ is not $\\Sigma_1^{in}$-definable from any finite parameter set, $\\mathcal{A}$ cannot be computably $\\operatorname{AUT}$-countable on a cone.",
+            "Fatal computability-theoretic error in Lemma 3: The submission claims that deciding $\\Pi_1^0(\\mathcal{B})$ statements on an arbitrary isomorphic copy $\\mathcal{B}$ requires only $\\mathcal{B}' \\le_T \\mathcal{B} \\oplus \\emptyset'$, which is false for general presentations $\\mathcal{B}$.",
+            "Conceptual obstruction: The submission constructs a structure with $\\operatorname{AUT}(\\mathcal{A}) \\cong \\mathbb{Z}_2 = \\{\\operatorname{id}, \\pi\\}$. By the Ash–Knight–Manasse–Slaman theorem, if such a structure were computably $\\operatorname{AUT}$-countable on a cone, the single non-trivial automorphism $\\pi$ would have to be $\\Sigma_1^{in}$-definable relative to some finite parameter tuple $\\bar{b}$. Setting $\\bar{a} = \\bar{b}$ would immediately make $\\pi$ definable from $\\bar{a} \\cup \\pi(\\bar{a})$. Thus, no structure with a finite automorphism group can ever witness an affirmative answer to Question 1.2."
+          ],
+          "strengths": [
+            "Clearly articulated roadmap and proof plan.",
+            "The analysis of the automorphism group $\\operatorname{AUT}(\\mathcal{A}) \\cong \\mathbb{Z}_2$ is carried out carefully.",
+            "The non-definability argument in Step 4 is well executed via order-preserving embeddings on finite subsets.",
+            "Correctly identifies that the answer to Question 1.2 is 'Yes'.",
+            "Presents an intricate and imaginative construction using rigid components of type $\\omega + k$.",
+            "Good exposition and clear step-by-step organization."
+          ]
+        },
+        "agent": {
+          "meanTotal": 38.5,
+          "meanPlanningExecution": 9.5,
+          "meanCriticalCompleteness": 8,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "Fatal error in Lemma 2: The submission claims that because the successor relation $S^{\\mathcal{B}}$ in an arbitrary copy $\\mathcal{B} \\cong (\\mathbb{Z}, <)$ is $\\Pi_1^0(\\mathcal{B})$, it is computable relative to $\\mathcal{B} \\oplus \\emptyset'$. This is a false statement in computability theory: $\\mathcal{B}' \\not\\le_T \\mathcal{B} \\oplus \\emptyset'$ for generic copies $\\mathcal{B}$.",
+            "The structure $(\\mathbb{Z}, <)$ is NOT computably $\\operatorname{AUT}$-countable on a cone. By the Ash–Knight–Manasse–Slaman theorem, computability on a cone requires $\\Sigma_1^{in}$-definability of the automorphisms, which $(\\mathbb{Z}, <)$ strictly fails to satisfy (as Lemma 4 itself demonstrates).",
+            "Fatal computability-theoretic error in Lemma 2: The submission claims that because the successor relation $S^{\\mathcal{B}}$ is $\\Pi_1^0(\\mathcal{B})$, it is computable relative to $\\mathcal{B} \\oplus \\emptyset'$. This is false; deciding $\\Pi_1^0(\\mathcal{B})$ predicates requires the jump $\\mathcal{B}'$, and in general $\\mathcal{B}' \\not\\le_T \\mathcal{B} \\oplus \\emptyset'$ (e.g., for non-low copies $\\mathcal{B}$).",
+            "As a direct consequence of the Ash–Knight–Manasse–Slaman theorem, a countable structure is computably $\\operatorname{AUT}$-countable on a cone if and only if every automorphism is $\\Sigma_1^{in}$-definable with parameters. Since $(\\mathbb{Z}, <)$ has no $\\Sigma_1^{in}$-definable non-trivial automorphisms (as correctly proven in Lemmas 3 and 4), $(\\mathbb{Z}, <)$ is NOT computably $\\operatorname{AUT}$-countable on a cone, so the proposed witness is invalid."
+          ],
+          "strengths": [
+            "Clear formatting and step-by-step roadmap.",
+            "Correct proof in Lemma 3 and Lemma 4 that the shift automorphism $x \\mapsto x+1$ is not $\\Sigma_1^{in}$-definable in $(\\mathbb{Z}, <)$ relative to finite parameters.",
+            "The answer to Question 1.2 is correctly identified as 'Yes'.",
+            "Lemmas 3 and 4 provide a correct, clean, and rigorous proof that the shift automorphism in $(\\mathbb{Z}, <)$ is not $\\Sigma_1^{in}$-definable relative to any finite parameter set.",
+            "Clear formatting, well-structured roadmap, and lucid mathematical writing."
+          ]
+        }
+      },
+      "pairwiseWins": [
+        "direct",
+        "agent"
+      ]
+    },
+    "prob-003": {
+      "status": "COMPLETED",
+      "completedPasses": 2,
+      "tracks": {
+        "direct": {
+          "meanTotal": 44.5,
+          "meanPlanningExecution": 11.5,
+          "meanCriticalCompleteness": 9,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "Asserts an incorrect final theorem claiming the inequality holds if and only if $p \\in \\{0, 1/2, 1\\}$, falsely ruling out $p \\in (0, 1/3]$. In reality, the inequality holds unconditionally for all $p = 1/n$ ($n \\in \\mathbb{N}$), for all $p < 10^{-46}$ via Pokrovskiy's theorem on the Manickam-Miklós-Singhi conjecture, and conditionally on MMS for all $p \\le 1/4$.",
+            "Contains an internal logical collapse in Step 5: after arguing that equal weights and low dimensions satisfy the inequality for $p \\le 1/3$, it abruptly concludes in the final synthesis that the inequality fails everywhere outside $\\{0, 1/2, 1\\}$ without any counterexample.",
+            "The final result asserts that the inequality holds if and only if $p \\in \\{0, 1/2, 1\\}$, which is mathematically false (the inequality is known to hold for all $p = 1/n$ with integer $n \\ge 1$, and for all $p < 10^{-46}$).",
+            "Step 5 fails to correctly analyze or synthesize the range $(0, 1/3]$, leading to an unjustified jump to a false conclusion."
+          ],
+          "strengths": [
+            "Correctly establishes positive results for boundary points $p \\in \\{0, 1\\}$ and the symmetry point $p = 1/2$.",
+            "Correctly provides standard counterexamples for $p \\in (1/2, 1)$ ($m=2$, uniform weights) and $p \\in (1/3, 1/2)$ ($m=3$, uniform weights).",
+            "Correctly proves the positive case for $p = 1/2$ by reflection symmetry.",
+            "Correctly refutes $p \\in (1/2, 1)$ with $m = 2$ and $p \\in (1/3, 1/2)$ with $m = 3$."
+          ]
+        },
+        "agent": {
+          "meanTotal": 88.5,
+          "meanPlanningExecution": 22.5,
+          "meanCriticalCompleteness": 21,
+          "verdicts": [
+            "MAJOR_REVISIONS",
+            "ESSENTIALLY_FLAWLESS"
+          ],
+          "fatalGaps": [],
+          "strengths": [
+            "Flawlessly proves universal validity for $p \\in \\{0, 1/2, 1\\}$ and algebraic refutations for $p \\in (1/3, 1/2) \\cup (1/2, 1)$.",
+            "Provides substantial, fully verified structural lemmas: proves the singleton dominance criterion, the necessary dimension bound $m > 1/p$, the complete impossibility of counterexamples for $m \\le 3$, and a rigorous polynomial root analysis proving no counterexample exists for $m = 4$ on $(1/4, 1/3]$.",
+            "Rigorous asymptotic proof demonstrating that symmetric (equal) weights can never yield counterexamples for $p \\le 1 - 2/e \\approx 0.2642$.",
+            "Honest, precise obstruction analysis that correctly isolates the open asymmetric extremal problem on $(0, 1/3]$ rather than claiming a false complete classification.",
+            "Completely rigorous and flawless proofs for the unconditional points $p \\in \\{0, 1/2, 1\\}$ and refutations for $p \\in (1/3, 1/2) \\cup (1/2, 1)$.",
+            "Honest, accurate identification of the structural behavior on $(0, 1/3]$, proving universal validity for $m \\le 3$ and $m = 4$ on $(1/4, 1/3]$.",
+            "Rigorous demonstration that symmetric/equal weights cannot produce counterexamples for $p < 1 - 2/e \\approx 0.2642$.",
+            "Clear, highly structured, and mathematically sound exposition with no unproved or false leaps."
+          ]
+        }
+      },
+      "pairwiseWins": [
+        "agent",
+        "agent"
+      ]
+    },
+    "prob-004": {
+      "status": "COMPLETED",
+      "completedPasses": 2,
+      "tracks": {
+        "direct": {
+          "meanTotal": 21,
+          "meanPlanningExecution": 5.5,
+          "meanCriticalCompleteness": 3,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "Fatal error in Step 3 boundary flux estimate: On the boundary face {y_2 = S_2}, the coordinate f_2 = S_2 is constant, and by degree-one boundary mapping, the integral of f^*(dy_1 \\wedge dy_4 \\wedge dy_3) over f^{-1}({y_2 = S_2} \\cap K_t) evaluates exactly to the 3-volume L S_1 S_4. Multiplied by f_2 = S_2, this boundary term equals L S_1 S_2 S_4, which exactly matches and cancels the interior volume integral \\int_{U_t} f^*(d\\operatorname{Vol}). Thus the boundary flux is not bounded by C_1 k L S_1 S_2 S_4, and the lower bound on level-set flux (4)-(5) is completely invalid.",
+            "Omission of the essential topological and geometric machinery: The problem requires higher linking invariants (e.g. into S^2 \\vee S^2) and multi-scale isoperimetric filling inequalities (Federer-Fleming deformation on rectangles). The attempt to prove the dichotomy via an elementary 1-step Stokes/coarea argument on coordinate forms fails due to the aforementioned exact boundary cancellation.",
+            "In Step 3, the application of Stokes' theorem to $d(f_2 \\omega_{14} \\wedge f^* dy_3)$ on $U_t = f_3^{-1}([t, t+L])$ is fatally flawed: on the level hypersurfaces $M_t = f_3^{-1}(t)$, the function $f_3$ is constant, so the pullback $(f^* dy_3)|_{M_t} \\equiv 0$. Consequently, the integral of $f_2 \\omega_{14} \\wedge f^* dy_3$ over $M_t$ and $M_{t+L}$ is identically zero.",
+            "The entire boundary flux in Stokes' theorem originates from the boundary face $f^{-1}(\\{y_2 = S_2\\})$, which the submission incorrectly asserts to be negligible (bounded by $C_1 k L S_1 S_2 S_4$).",
+            "The parameter $L = \\sqrt{S_2 S_3}$ is arbitrarily chosen in Step 4 solely to match the target formula without any geometric mechanism justifying the lower bound on the level set fluxes.",
+            "The submission completely misses the linking/topological invariant and the relative isoperimetric inequality in rectangles necessary to bound 2-dilation."
+          ],
+          "strengths": [
+            "Correctly identifies the pointwise bound on 3-forms from 2-dilation: \\sigma_1 \\sigma_2 \\le 1 \\implies \\|f^*(\\text{3-form})\\| \\le 1.",
+            "Identifies the geometric scale L = \\sqrt{S_2 S_3} and attempts a clean coarea slicing framework.",
+            "Correctly bounds the singular values and the pullback norm of 3-forms under $\\operatorname{Dil}_2(f) \\le 1$.",
+            "Clean formatting and clear roadmap."
+          ]
+        },
+        "agent": {
+          "meanTotal": 20,
+          "meanPlanningExecution": 5.5,
+          "meanCriticalCompleteness": 3,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "Conceptual inversion of Stokes' Theorem in Lemma 5: Having shown \\alpha_m \\wedge \\beta = d(\\eta_m \\wedge \\beta), Stokes' Theorem gives \\int_R \\alpha_m \\wedge \\beta = \\int_{\\partial R} \\eta_m \\wedge \\beta. After bounding some boundary faces by (1/4) S_1 S_2 S_4, the submission asserts that 'the remaining flux of at least (3/4) S_1 S_2 S_4 must pass through the interior of R_m', which is a severe misunderstanding of Stokes' Theorem.",
+            "Omission of the dominant boundary term: In Lemma 5, the boundary integral over F_1^1 is bounded by 2 \\operatorname{Vol}(R)/w, but is then simply dropped from the boundary summation without justification.",
+            "Blatant algebraic fallacy in Lemma 5: The submission asserts that for S_3 \\ge 4 S_2, one has \\sqrt{S_2 S_3} \\ge (1/3) S_3, which is mathematically false (in fact \\sqrt{S_2 S_3} \\le (1/2) S_3). This false inequality was manufactured to improperly alter the powers from S_1 S_2^{3/2} S_3^{1/2} S_4 to S_1 S_2 S_3 S_4.",
+            "Omission of the necessary multi-scale isoperimetric and linking invariant framework.",
+            "In Lemma 5, the proof confuses the interior integral with the boundary integral via Stokes' Theorem: having established that the integral of $\\alpha_m \\wedge \\beta$ over $R$ equals the boundary integral of $\\eta_m \\wedge \\beta$ over $\\partial R$, it bounds the transverse boundary flux from above and then claims the 'remaining flux' must pass through the interior of $R_m$.",
+            "In Lemma 5, to bridge the gap between $\\operatorname{Vol}(R_m) \\ge c S_1 S_2^{3/2} S_3^{1/2} S_4$ and the claimed $\\operatorname{Vol}(R_m) \\ge c S_1 S_2 S_3 S_4$, the submission introduces a false algebraic step: it claims that $\\sqrt{S_3/S_2} \\ge 2 \\implies \\sqrt{S_2 S_3} = S_3 / \\sqrt{S_3/S_2} \\ge \\frac{1}{3} S_3$, which inverts the inequality (since $\\sqrt{S_3/S_2} \\ge 2$ actually implies $\\sqrt{S_2 S_3} \\le \\frac{1}{2} S_3$).",
+            "The submission completely misses the essential mathematical machinery required for this theorem: the linking invariant / Hopf invariant in $S^2 \\vee S^2$ and the relative isoperimetric inequality for 2-cycles in a 4-rectangle."
+          ],
+          "strengths": [
+            "Correctly computes the 1D homotopy operator along the shortest axis x_1 to bound \\|\\eta_m\\|_{L^\\infty} \\le 2 R_1 / w.",
+            "Correctly identifies the number of geometric slabs N \\sim \\sqrt{S_3 / S_2}.",
+            "Correctly notes that $\\operatorname{Dil}_2(f) \\le 1$ implies the Jacobian determinant is bounded by 1, yielding $\\operatorname{Vol}(R) \\ge \\operatorname{Vol}(S)$.",
+            "Correctly constructs the 1D homotopy operator along the shortest axis $x_1$ to obtain a 1-form primitive with $L^\\infty$ bound proportional to $R_1$."
+          ]
+        }
+      },
+      "pairwiseWins": [
+        "direct",
+        "agent"
+      ]
+    },
+    "prob-006": {
+      "status": "COMPLETED",
+      "completedPasses": 2,
+      "tracks": {
+        "direct": {
+          "meanTotal": 46.5,
+          "meanPlanningExecution": 12.5,
+          "meanCriticalCompleteness": 9,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "In Subcase B.2, the upper bound $F_i(a) \\le -(M-1)^2 S_i$ assumes that $a$ is constant on each component $T_i$. If $a$ varies across $T_i$, the vertex surplus contribution can be smaller while only paying a smaller path Dirichlet energy, invalidating the claimed bound.",
+            "In the critical boundary case $M = D+1$, the submission identifies that $a \\cdot (v_0 - a) = 0$ for $a = D\\mathbf{1} + v_0$, which would make $v_0$ reducible. It then asserts without proof that another vertex $u^*$ is irreducible ('cannot be balanced by the positive defect... without incurring strictly larger edge Laplacian costs'), skipping the central remaining difficulty.",
+            "In Step 5 (Case B), the bound $F_i(a) \\le -c_i^2 S_i$ for all integer vectors $a$ is mathematically false. Maximizing individual terms of $F_i(a)$ independently does not yield an upper bound for all $a$; setting $a_v = 0$ on $T_i$ gives $F_i(a) = -M(M-1)$, which can be much larger than $-(M-1)^2 S_i$ when $S_i$ is large.",
+            "The analysis of the critical case $M = D+1$ breaks down: the submission finds $a \\cdot b = 0$ (which would make $v_0$ reducible) and then resorts to an unsupported handwaving claim about edge Laplacian costs to assert that an extremal vertex $u^*$ must be irreducible."
+          ],
+          "strengths": [
+            "Derives a correct and useful Master Energy Identity for tree lattices.",
+            "Correctly handles the existence of a norm 1 leaf when some component has surplus $S_i = 0$.",
+            "Correctly resolves the base subcase $a_{v_0} = 1$.",
+            "Derives a correct algebraic form for the Master Energy Identity (Proposition 2).",
+            "Correctly handles the existence of weight 1 leaves in Case A ($S_i = 0$)."
+          ]
+        },
+        "agent": {
+          "meanTotal": 66,
+          "meanPlanningExecution": 17.5,
+          "meanCriticalCompleteness": 14,
+          "verdicts": [
+            "MAJOR_REVISIONS",
+            "MAJOR_REVISIONS"
+          ],
+          "fatalGaps": [
+            "In Step 2.6 (Subcase B), the claim that $d(p-1)Y < (Y+1)^2$ holds unconditionally for $Y = \\kappa p - d \\ge 0$ is algebraically false (e.g. for $p=3, d=5, \\kappa=3$, one has $Y=4$ and $d(p-1)Y = 40 > 25 = (Y+1)^2$).",
+            "The fallback argument using the Schur complement bounds $a \\cdot b$ by the difference of two positive quantities, $\\frac{1}{W}(S - (p-1)W)(pW - S) - \\frac{\\delta S^2}{WC}$, but fails to prove that the second (subtracted) term strictly dominates the first for all admissible integer configurations.",
+            "In Step 2.6 (Subcase B, $Y = \\kappa p - d \\ge 0$), the claim that $d(p-1)Y < (Y+1)^2$ holds unconditionally is false (e.g., when $p=4, d=3, \\kappa=1$, we have $Y=1$ and $d(p-1)Y = 9 > 4 = (Y+1)^2$).",
+            "The fallback argument using the Schur complement capacity bounds $a \\cdot b < \\frac{1}{W}(S-(p-1)W)(pW-S) - (\\frac{S^2}{C} - \\frac{S^2}{W})$, which is a difference of two positive quantities; the assertion that the second term strictly dominates the first for all integer configurations is asserted without proof ('The discrete curvature of the exact branch energy forces $a \\cdot b < 0$ strictly')."
+          ],
+          "strengths": [
+            "Rigorous and self-contained proofs of Lemma 1, Lemma 2 (vanishing coordinate norm lower bound $\\ge 2$), and Lemma 3 (path Dirichlet energy lower bound and Schur complement bound).",
+            "Completely rigorous elimination of the $p = a_{v_0} \\in \\{0, 1\\}$ cases.",
+            "Clever derivation of the tight neighbor sum interval $[(p-1)w(v_0)+1, pw(v_0)-1]$ directly from integer positive-definiteness.",
+            "Correctly resolves Subcase A ($Y \\le -1$) in the $|p| \\ge 2$ regime.",
+            "Rigorous and complete treatment of Case 1 (weight 1 vertices) via lattice positive-definiteness.",
+            "Lemma 2 (vanishing coordinate bound $x \\cdot x \\ge 2$) is rigorously stated and correctly proven.",
+            "Step 2.2 completely and cleanly eliminates the boundary coordinate cases $p \\in \\{0, 1\\}$.",
+            "Derivation of the exact polarization identity for $a \\cdot b$ and the inner product interval on $S$ from positive-definiteness are fully correct."
+          ]
+        }
+      },
+      "pairwiseWins": [
+        "agent",
+        "agent"
+      ]
+    },
+    "prob-009": {
+      "status": "COMPLETED",
+      "completedPasses": 2,
+      "tracks": {
+        "direct": {
+          "meanTotal": 25.5,
+          "meanPlanningExecution": 6.5,
+          "meanCriticalCompleteness": 4,
+          "verdicts": [
+            "REJECT",
+            "REJECT"
+          ],
+          "fatalGaps": [
+            "The main theorem is mathematically false: the claimed formula $c_{(a+1, 1^b)}(n) = \\#\\{ (\\sigma, S) : \\sigma \\in S_n, S \\subseteq {\\rm Des}(\\sigma), |S| = b, \\sum_{i \\in {\\rm Des}(\\sigma) \\setminus S} i = a + b + 1 \\}$ fails for $n \\ge 4$. For example, at $n=4$, the formula gives $c_{(1,1)}(4) = 6$ and $c_{(2,1)}(4) = 9$, whereas the true values are $c_{(1,1)}(4) = 3$ and $c_{(2,1)}(4) = 5$.",
+            "Step 3.2 is an unproven assertion without mathematical justification: the claim that the multiplicity decomposes into selecting a subset of descents $S$ and evaluating the sum of remaining descents is purely heuristic and demonstrably incorrect.",
+            "The Main Theorem is mathematically false for $n \\ge 4$. For instance, at $n=4$, the true hook coefficient is $c_{(1,1)}(4) = 3$, whereas Submission B's formula yields $c_{(1,1)}(4) = 6$. Similarly, for $c_{(2,1)}(4)$, the true value is $5$, whereas the formula gives $9$.",
+            "Step 3.2 is an unjustified heuristic leap: claiming that the leg length $b$ corresponds to choosing a subset $S \\subseteq \\text{Des}(\\sigma)$ of size $b$ and that the total degree is given by $\\sum_{i \\in \\text{Des}(\\sigma) \\setminus S} i = a + b + 1$ is unfounded and produces incorrect multiplicities.",
+            "Verification was stopped at $n=3$, missing the failure of the formula starting at $n=4$."
+          ],
+          "strengths": [
+            "Clean exposition of $GL_m \\times S_n$ duality and representation stability.",
+            "Correct specialization for the single-row case $b=0$ (Mahonian distribution on $S_n$).",
+            "Good high-level roadmap and clear formatting.",
+            "Correctly identifies the representation-theoretic context ($GL_m \\times S_n$-module structure and superspace connection)."
+          ]
+        },
+        "agent": {
+          "meanTotal": 88,
+          "meanPlanningExecution": 22,
+          "meanCriticalCompleteness": 20.5,
+          "verdicts": [
+            "MAJOR_REVISIONS",
+            "MINOR_REVISIONS"
+          ],
+          "fatalGaps": [
+            "The submission establishes the exact signed combinatorial formula $c_{(d, 1^r)}(n) = \\sum_{j=0}^r (-1)^j \\#\\{ \\pi \\in \\mathcal{OP}_{n, n-r+j} : \\operatorname{inv}(\\pi) = d+j \\}$, but does not carry out a sign-reversing involution (such as the Sagan--Swanson involution) to cancel the alternating signs into a manifestly positive combinatorial interpretation."
+          ],
+          "strengths": [
+            "100% mathematically sound derivations, from $GL_m$-stability to hook Schur expansion $s_{(d, 1^r)} = \\sum_{j=0}^r (-1)^j h_{d+j} e_{r-j}$.",
+            "Rigorous connection between the superspace coinvariant algebra $SR_n$ and the inversion statistic on ordered set partitions generating $q$-Stirling numbers $[p]_q! S_q(n, p)$.",
+            "Flawless and exhaustive verification for $n = 1, 2, 3, 4$, accurately matching all true hook coefficients and Haiman's $(n+1)^{n-1}$ dimension theorem.",
+            "Rigorous and mathematically sound derivation connecting the $GL_m$-character decomposition of $R_n^{(m)}$ to the superspace coinvariant algebra $SR_n = R_n^{(1,1)}$.",
+            "Correctly establishes the generating function of bigraded dimensions $H_{a, b}(n)$ via $q$-Stirling numbers and the inversion statistic on ordered set partitions $\\mathcal{OP}_{n, p}$.",
+            "Derives an explicit combinatorial formula for all hook shapes $c_{(d, 1^r)}(n)$ in terms of inversion distributions on ordered set partitions.",
+            "Thorough and accurate verification for $n=1, 2, 3, 4$ and specializations to $m=1$ and $m=2$, with all values matching the exact literature benchmarks."
+          ]
+        }
+      },
+      "pairwiseWins": [
+        "agent",
+        "agent"
+      ]
+    }
+  },
+  "overall": {
+    "direct": {
+      "meanTotal": 35.1,
+      "meanPlanningExecution": 9.1,
+      "meanCriticalCompleteness": 6.6,
+      "verdicts": [
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT",
+        "REJECT"
+      ],
+      "fatalGaps": [],
+      "strengths": []
+    },
+    "agent": {
+      "meanTotal": 60.2,
+      "meanPlanningExecution": 15.4,
+      "meanCriticalCompleteness": 13.3,
+      "verdicts": [
+        "REJECT",
+        "REJECT",
+        "MAJOR_REVISIONS",
+        "ESSENTIALLY_FLAWLESS",
+        "REJECT",
+        "REJECT",
+        "MAJOR_REVISIONS",
+        "MAJOR_REVISIONS",
+        "MAJOR_REVISIONS",
+        "MINOR_REVISIONS"
+      ],
+      "fatalGaps": [],
+      "strengths": []
+    }
+  }
+}

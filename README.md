@@ -31,6 +31,7 @@
 - [Proof execution model](#proof-execution-model)
 - [Effect showcase](#effect-showcase)
 - [MathArena benchmark](#matharena-benchmark)
+- [First Proof long-horizon benchmark](#first-proof-long-horizon-benchmark)
 - [Durability and evidence](#durability-and-evidence)
 - [Runtime states](#runtime-states)
 - [API](#api)
@@ -269,6 +270,31 @@ Benchmark artifacts:
 - [Official score summary](benchmarks/matharena-20260831/summary-official.json)
 - [Retry and recovery audit](benchmarks/matharena-20260831-gate-retries/status.json)
 - [Benchmark runner](backend/scripts/matharena-benchmark.mjs) · [chart generator](backend/scripts/matharena-comparison-chart.py)
+
+## First Proof long-horizon benchmark
+
+To measure proof planning rather than only final-answer accuracy, we ran five research-level problems from the [First Proof Second Batch](https://github.com/1stproof/batch-2). Each problem was solved by a one-shot Gemini baseline and by the dynamic planner/worker/verifier workflow. Two reversed-order blind referee passes scored correctness, plan execution, critical-step completeness, useful partial progress, and exposition on a 100-point scale.
+
+<p align="center">
+  <img src="docs/assets/first-proof-long-horizon-performance.png" alt="First Proof long-horizon referee score by problem" width="100%" />
+</p>
+
+| Problem field | Math Research Agent | Gemini 3.7 Flash direct |
+| --- | ---: | ---: |
+| Computability | 38.5 / 100 | 38.0 / 100 |
+| Discrete probability | **88.5 / 100** | 44.5 / 100 |
+| Metric geometry | 20.0 / 100 | 21.0 / 100 |
+| Lattice theory | **66.0 / 100** | 46.5 / 100 |
+| Algebraic combinatorics | **88.0 / 100** | 25.5 / 100 |
+| **Mean** | **60.2 / 100** | **35.1 / 100** |
+
+The agent wins **8/10** blinded pairwise comparisons, with a +25.1-point mean lead. The result is primarily a proof-quality signal: the strongest agent submissions preserve a multi-stage plan, verify boundary cases, and stop at a precise open obstruction instead of forcing a false classification. A larger workflow budget does not guarantee correctness—the metric-geometry submissions are both rejected for a central Stokes/coarea gap.
+
+Benchmark artifacts:
+
+- [Performance chart (PNG)](docs/assets/first-proof-long-horizon-performance.png) · [editable SVG](docs/assets/first-proof-long-horizon-performance.svg) · [chart data](docs/assets/first-proof-long-horizon-performance-data.json)
+- [Detailed report](benchmarks/first-proof-long-horizon-20260831/REPORT.md) · [review summary](benchmarks/first-proof-long-horizon-20260831/review-summary.json)
+- [Benchmark runner](backend/scripts/first-proof-long-horizon-benchmark.mjs) · [recovery tool](backend/scripts/first-proof-long-horizon-recover.mjs) · [blind referee](backend/scripts/first-proof-long-horizon-review.mjs) · [chart generator](backend/scripts/first-proof-long-horizon-comparison-chart.py)
 
 ## Durability and evidence
 

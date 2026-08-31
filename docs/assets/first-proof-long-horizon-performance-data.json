@@ -1,0 +1,40 @@
+{
+  "metricDefinition": "Mean score over two reversed-order blind referee passes, out of 100",
+  "overall": {
+    "agentScore": 60.2,
+    "directScore": 35.1,
+    "agentLead": 25.1
+  },
+  "problems": [
+    {
+      "id": "prob-001",
+      "label": "Computability",
+      "agentScore": 38.5,
+      "directScore": 38
+    },
+    {
+      "id": "prob-003",
+      "label": "Discrete probability",
+      "agentScore": 88.5,
+      "directScore": 44.5
+    },
+    {
+      "id": "prob-004",
+      "label": "Metric geometry",
+      "agentScore": 20,
+      "directScore": 21
+    },
+    {
+      "id": "prob-006",
+      "label": "Lattice theory",
+      "agentScore": 66,
+      "directScore": 46.5
+    },
+    {
+      "id": "prob-009",
+      "label": "Algebraic combinatorics",
+      "agentScore": 88,
+      "directScore": 25.5
+    }
+  ]
+}

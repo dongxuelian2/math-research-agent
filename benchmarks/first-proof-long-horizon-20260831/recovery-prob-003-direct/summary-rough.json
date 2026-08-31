@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "runId": "first-proof-long-horizon-20260831082719",
+  "finishedAt": "2026-08-31T08:32:19.890Z",
+  "durationMs": 300876,
+  "totals": {
+    "completed": 1,
+    "reused": 0,
+    "failed": 0
+  },
+  "results": {
+    "prob-003": {
+      "direct": {
+        "status": "COMPLETED",
+        "durationMs": 300875,
+        "outputChars": 7065,
+        "stopReason": "completed",
+        "workflow": null
+      }
+    }
+  }
+}

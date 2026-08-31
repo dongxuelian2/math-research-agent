@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "runId": "first-proof-long-horizon-20260831070036",
+  "createdAt": "2026-08-31T07:00:36.631Z",
+  "benchmark": {
+    "name": "First Proof Second Batch — long-horizon subset",
+    "paperUrl": "https://arxiv.org/abs/2606.18119",
+    "sourcePage": "https://github.com/1stproof/batch-2",
+    "sourceUrl": "https://raw.githubusercontent.com/1stproof/batch-2/274625a22e4748d5f9264ba3614353461520bd20/batch-2-raw-outputs/Batch2Problems/problems.json",
+    "sourceCommit": "274625a22e4748d5f9264ba3614353461520bd20",
+    "sourceSha256": "fd35b53ab6c5ca0f40178bc929eff4939a3d03d77bee899315e9663078bf77b0",
+    "license": "Problem documents are published by First Proof under CC BY-SA 4.0 (LICENSE-DOCS).",
+    "humanSolutionsHiddenDuringSolving": true
+  },
+  "model": {
+    "provider": "google-vertex",
+    "model": "gemini-3.7-flash",
+    "reasoningEffort": "high",
+    "contextWindow": 1048576,
+    "maxTokens": 65536
+  },
+  "selectedCount": 5,
+  "tracks": [
+    "direct",
+    "agent"
+  ],
+  "concurrency": 2,
+  "agentWorkers": 6,
+  "agentSteps": 10,
+  "historyLimit": 12,
+  "maxAttempts": 3,
+  "callTimeoutMs": 900000,
+  "maxWallTimeMs": 86400000,
+  "promptContract": {
+    "focus": "long-horizon mathematical reasoning and proof planning",
+    "requiredSections": [
+      "proof roadmap",
+      "critical lemmas and bottlenecks",
+      "complete derivation",
+      "gap audit"
+    ],
+    "failurePolicy": "State the exact unresolved gap and rigorous partial progress; never disguise a missing key step as standard."
+  },
+  "problems": [
+    {
+      "id": "prob-001",
+      "field": "computability theory",
+      "latex": "We consider infinite countable first-order structures, their automorphism groups and the descriptive aspects of their representations. A representation $\\mathcal{A}$ of such a structure is an instance of its isomorphism type in which the universe or domain of the structure is the set of natural numbers $\\mathbb{N}$ and the constants, functions and relations of the structure are elements of $\\mathbb{N}$, multi-variable functions from $\\mathbb{N}$ to $\\mathbb{N}$ and multi-place relations on $\\mathbb{N}$, respectively.   Similarly, an automorphism of $\\mathcal{A}$ or an isomorphism from $\\mathcal{A}$ to $\\mathcal{B}$ is a bijective function from $\\mathbb{N}$ to $\\mathbb{N}$ that preserves the evaluation of all constants, functions and relations.  We let $\\operatorname{AUT}(\\mathcal{A})$ denote the automorphism group of $\\mathcal{A}$.\n\n\\begin{definition}\\label{1.1}\n  \\begin{itemize}\n  \\item     $\\mathcal{A}$ is \\emph{computably $\\operatorname{AUT}$-countable} if every automorphism of $\\mathcal{A}$ is computable relative to $\\mathcal{A}$.  \n  \\item  $\\mathcal{A}$ is \\emph{computably $\\operatorname{AUT}$-countable on a cone} if there is a $C\\subset\\mathbb{N}$ such that whenever $\\mathcal{B}$ is isomorphic to $\\mathcal{A}$, every automorphism of $\\mathcal{B}$ is computable relative to $\\mathcal{B}\\oplus C$.\n  \\end{itemize}\n\\end{definition}\n\n\n\\begin{definition}\n  A function $f:\\mathcal{A}\\to\\mathcal{A}$ is \\emph{$\\Sigma^{in}_1$-definable} in $\\mathcal{A}$ relative to parameters\n  $\\bar{a}=(a_1,\\dots,a_n)$ from $\\mathcal{A}$ if there is a family of existential formulas $(\\phi_i)_{i\\in\\mathbb{N}}$ such that for all $x$ and $y$ in $\\mathcal{A}$, $f(x)=y$ if and only if there is an $i\\in\\mathbb{N}$ such that $\\mathcal{A}\\models\\phi_i(\\bar{a},x,y)$.\n\\end{definition}\n\n\\begin{question}\\label{sec:question}\\label{1.2}\n  Is there a countable computably-represented structure $\\mathcal{A}$ such that $\\mathcal{A}$ is computably $\\operatorname{AUT}$-countable on a cone and such that for any finite  set of parameters $\\bar{a}$ in $\\mathcal{A}$ there is an automorphism $\\pi$ of $\\mathcal{A}$ such that $\\pi$ is not $\\Sigma^{in}_1$-definable in $\\mathcal{A}$ relative to the parameters $\\bar{a}\\cup \\pi(\\bar{a}),$ where $\\pi(\\bar{a})$ is the image of $\\bar{a}$ under $\\pi$.\n\\end{question}",
+      "sourceUrl": "https://github.com/1stproof/batch-2/blob/274625a22e4748d5f9264ba3614353461520bd20/batch-2-human-solution/problem-01/human-solution.tex"
+    },
+    {
+      "id": "prob-003",
+      "field": "discrete probability",
+      "latex": "{\\bf Problem:} Let $w_1, \\ldots, w_m$ be non-negative real numbers such that $\\sum_{i=1}^m w_i=1$, and let \n$v_1, \\ldots, v_m$ be i.i.d. Bernoulli$(p)$ random variables. For which values of probability $p$ is it true that\n\\[\\Pr\\Big[\\sum_{i=1}^m w_i v_i\\geq p\\Big]\\geq p?\\]",
+      "sourceUrl": "https://github.com/1stproof/batch-2/blob/274625a22e4748d5f9264ba3614353461520bd20/batch-2-human-solution/problem-03/human-solution.tex"
+    },
+    {
+      "id": "prob-004",
+      "field": "metric geometry",
+      "latex": "Suppose $(M, g)$ and $(N,h)$ are piecewise smooth Riemannian manifolds.   If $f: M \\rightarrow N$ is piecewise smooth,  we define the $k$-dilation of $f$ as the infimal $\\Lambda$ so that for every $k$-dimensional submanifold $\\Sigma \\subset M$, \n\n$$ \\operatorname{Vol}_k( f(\\Sigma) ) \\le \\Lambda \\operatorname{Vol}_k (\\Sigma). $$\n\n\\noindent We write the $k$-dilation of $f$ as $\\operatorname{Dil}_k(f)$.   Equivalently,  $\\operatorname{Dil}_k(f) = \\sup_{x \\in M} \\| \\Lambda^k df \\|$.\n\nProve that there is a constant $k > 0$ so that the following holds.\n\nSuppose that $R \\subset \\mathbb{R}^4$ is a 4-dimensional rectangle with side lengths $R_1 \\le R_2 \\le R_3 \\le R_4$ and $S$ is a 4-dimensional rectangle with side lengths $S_1 \\le S_2 \\le S_3 \\le S_4$.   Suppose that $f: (R, \\partial R) \\rightarrow (S, \\partial S)$ is a piecewise smooth map with degree 1 and with $\\operatorname{Dil}_2(f) \\le 1$.   Suppose that $R_1 \\le k S_1$.   Then either\n\n$$ R_3 R_4 > k S_3 S_4,  or $$\n\n$$ R_1 R_2 R_3 R_4 > k S_1 S_2^{1/2} S_3^{3/2} S_4. $$",
+      "sourceUrl": "https://github.com/1stproof/batch-2/blob/274625a22e4748d5f9264ba3614353461520bd20/batch-2-human-solution/problem-04/human-solution.tex"
+    },
+    {
+      "id": "prob-006",
+      "field": "lattice theory",
+      "latex": "Let $T$ denote a finite, weighted tree with vertex set $V$, edge set $E$, and weight function $w : V \\longrightarrow \\mathbb{Z}$.\nLet $L(T)$ denote the free abelian group generated by $V$, equipped with the symmetric, bilinear form $\\cdot$ whose value on a pair of generators $u,v \\in V$ is given by \n\\[\nu \\cdot v = \n\\begin{cases}\n    w(u), & u=v; \\\\\n    -1, & (u,v) \\in E; \\textup{ and} \\\\\n    0, & u \\ne v, (u,v) \\notin E.\n\\end{cases}\n\\]\nSuppose that the form is positive definite, and suppose that there exists a single vertex $v$ for which the vertex weight $w(v)$ is less than the vertex degree $d(v)$.\n\nProve that $T$ contains a vertex $u$ such that $u$ is an irreducible element of $L(T)$, i.e.~there do not exist nonzero lattice elements $a,b \\in L(T)$ such that $u = a+b$ and $a \\cdot b \\ge 0$.",
+      "sourceUrl": "https://github.com/1stproof/batch-2/blob/274625a22e4748d5f9264ba3614353461520bd20/batch-2-human-solution/problem-06/human-solution.tex"
+    },
+    {
+      "id": "prob-009",
+      "field": "algebraic combinatorics",
+      "latex": "Let $m$ and $n$ be positive integers and let $R_n^{(m)}$ be the coinvariant algebra with $m$ sets of $n$ variables.\n\nThe Hilbert series of an $m$-multigraded algebra $A$ is\n$$\n{\\rm Hilb}(A;q_1,\\ldots ,q_m)= \\sum_{i_1,\\ldots,i_m \\geq 0} \\dim(A_{(i_1,\\ldots,i_m)})q_1^{i_1} \\cdots q_m^{i_m},\n$$\nwhere $A_{(i_1,\\ldots,i_m)}$ denotes a multigraded component of the algebra, with grading variables $q_1,\\ldots, q_m$.\n\nLet $s_\\lambda(q_1,\\ldots ,q_m)$ denote a Schur polynomial. For $R_n^{(m)}$, it is known that its Hilbert series may be expressed by \n$$\n{\\rm Hilb}(R_n^{(m)};q_1,\\ldots ,q_m)= \\sum_{\\lambda}\nc_{\\lambda}(n)s_\\lambda(q_1,\\ldots ,q_m),\n$$\nfor some nonnegative universal series coefficients $c_\\lambda(n)$ which do not depend on $m$.\n\nFor any $n$, give a combinatorial interpretation of the coefficients $c_{\\lambda}(n)$ when $\\lambda$ is a hook shape partition.",
+      "sourceUrl": "https://github.com/1stproof/batch-2/blob/274625a22e4748d5f9264ba3614353461520bd20/batch-2-human-solution/problem-09/human-solution.tex"
+    }
+  ]
+}

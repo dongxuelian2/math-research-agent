@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "runId": "first-proof-long-horizon-20260831070036",
+  "finishedAt": "2026-08-31T08:25:47.470Z",
+  "durationMs": 5110838,
+  "totals": {
+    "completed": 7,
+    "reused": 0,
+    "failed": 3
+  },
+  "results": {
+    "prob-001": {
+      "direct": {
+        "status": "COMPLETED",
+        "durationMs": 338354,
+        "outputChars": 18587,
+        "stopReason": "completed",
+        "workflow": null
+      },
+      "agent": {
+        "status": "COMPLETED",
+        "durationMs": 372586,
+        "outputChars": 13369,
+        "stopReason": "PROVED",
+        "workflow": {
+          "stateStatus": "PROVED",
+          "step": 2,
+          "taskCount": 4,
+          "candidateCount": 2,
+          "verificationCount": 2,
+          "candidateId": "task-cone-aut-characterization-candidate",
+          "candidateVerdict": "CORRECT",
+          "events": 29,
+          "budget": {
+            "plannerCalls": 2,
+            "workerCalls": 4,
+            "verifierCalls": 2,
+            "literatureSearches": 0,
+            "toolCalls": 0,
+            "startedAt": 1788159636650,
+            "maxPlannerCalls": 10,
+            "maxWorkerCalls": 120,
+            "maxVerifierCalls": 120,
+            "maxWallTimeMs": 86400000
+          }
+        }
+      }
+    },
+    "prob-003": {
+      "direct": {
+        "status": "FAILED",
+        "durationMs": 904574,
+        "outputChars": 0,
+        "stopReason": "model_error",
+        "workflow": null
+      },
+      "agent": {
+        "status": "COMPLETED",
+        "durationMs": 841312,
+        "outputChars": 24686,
+        "stopReason": "PROVED",
+        "workflow": {
+          "stateStatus": "PROVED",
+          "step": 5,
+          "taskCount": 4,
+          "candidateCount": 3,
+          "verificationCount": 3,
+          "candidateId": "synthesize-proof-and-audit-candidate",
+          "candidateVerdict": "CORRECT",
+          "events": 38,
+          "budget": {
+            "plannerCalls": 5,
+            "workerCalls": 4,
+            "verifierCalls": 3,
+            "literatureSearches": 1,
+            "toolCalls": 0,
+            "startedAt": 1788160009219,
+            "maxPlannerCalls": 10,
+            "maxWorkerCalls": 120,
+            "maxVerifierCalls": 120,
+            "maxWallTimeMs": 86400000
+          }
+        }
+      }
+    },
+    "prob-004": {
+      "direct": {
+        "status": "COMPLETED",
+        "durationMs": 316402,
+        "outputChars": 12326,
+        "stopReason": "completed",
+        "workflow": null
+      },
+      "agent": {
+        "status": "FAILED",
+        "durationMs": 2704512,
+        "outputChars": 0,
+        "stopReason": null,
+        "workflow": null
+      }
+    },
+    "prob-006": {
+      "direct": {
+        "status": "COMPLETED",
+        "durationMs": 591529,
+        "outputChars": 14136,
+        "stopReason": "completed",
+        "workflow": null
+      },
+      "agent": {
+        "status": "FAILED",
+        "durationMs": 2704553,
+        "outputChars": 0,
+        "stopReason": null,
+        "workflow": null
+      }
+    },
+    "prob-009": {
+      "direct": {
+        "status": "COMPLETED",
+        "durationMs": 582917,
+        "outputChars": 11827,
+        "stopReason": "completed",
+        "workflow": null
+      },
+      "agent": {
+        "status": "COMPLETED",
+        "durationMs": 580476,
+        "outputChars": 21617,
+        "stopReason": "PROVED",
+        "workflow": {
+          "stateStatus": "PROVED",
+          "step": 2,
+          "taskCount": 3,
+          "candidateCount": 3,
+          "verificationCount": 3,
+          "candidateId": "hook-comb-synthesis-candidate",
+          "candidateVerdict": "CORRECT",
+          "events": 29,
+          "budget": {
+            "plannerCalls": 2,
+            "workerCalls": 3,
+            "verifierCalls": 3,
+            "literatureSearches": 0,
+            "toolCalls": 0,
+            "startedAt": 1788164166996,
+            "maxPlannerCalls": 10,
+            "maxWorkerCalls": 120,
+            "maxVerifierCalls": 120,
+            "maxWallTimeMs": 86400000
+          }
+        }
+      }
+    }
+  }
+}
