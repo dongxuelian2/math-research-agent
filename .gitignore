@@ -37,3 +37,5 @@ deepseek-harness/.git.harness-archive/
 
 # Local presentation source and exports
 /ppt/
+
+benchmarks/
