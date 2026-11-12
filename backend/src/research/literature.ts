@@ -40,7 +40,10 @@ export class OpenAlexLiteratureProvider implements LiteratureProvider {
 		const response = await fetch(candidate.acquisitionUrl, { signal, redirect: "follow", headers: { accept: "application/pdf,text/plain,text/html,application/xhtml+xml", "user-agent": "math-research-agent/0.1" } }); if (!response.ok) return undefined;
 		const mediaType = response.headers.get("content-type")?.toLocaleLowerCase() ?? "application/octet-stream", max = Math.max(10_000, this.options.maxBytes ?? 2_000_000);
 		if (mediaType.includes("application/pdf")) { const bytes = Buffer.from(await response.arrayBuffer()), truncated = bytes.byteLength > max, bounded = truncated ? bytes.subarray(0, max) : bytes; return { body: `data:application/pdf;base64,${bounded.toString("base64")}`, authorityTier: "FULL_TEXT_BINARY", mediaType, sourceUrl: response.url, sourceContentHash: sha256(bytes), sourceByteLength: bytes.byteLength, truncated }; }
-		const body = await response.text(), bounded = Buffer.byteLength(body) > max ? body.slice(0, max) : body;
+		const body = await response.text(), bytes = Buffer.from(body), truncated = bytes.byteLength > max;
+		// Decode only complete UTF-8 characters within the byte budget. String.slice
+		// counts UTF-16 code units and can exceed maxBytes for non-ASCII sources.
+		const bounded = truncated ? new TextDecoder().decode(bytes.subarray(0, max), { stream: true }) : body;
 		if (mediaType.includes("html") || mediaType.includes("xhtml") || mediaType.includes("xml")) return { body: bounded, authorityTier: "LANDING_PAGE", mediaType, sourceUrl: response.url };
 		if (mediaType.includes("text/plain")) return { body: bounded, authorityTier: "EXACT_EXCERPT", mediaType, sourceUrl: response.url };
 		return undefined;
